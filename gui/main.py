@@ -26,7 +26,7 @@ class BoardView(QGraphicsView):
         event.accept()
     def show_svg(self,svg:str):
         # Darken SVG labels for readability on the light desktop canvas.
-        svg=re.sub(r"(<svg\\b[^>]*>)",r"\\1<style>text,tspan{fill:#171717!important;}</style>",svg,count=1)
+        svg=re.sub(r"(<svg\\b[^>]*>)",r"\\1<style>text{fill:#000000!important;stroke:#f3e5bf!important;stroke-width:1px!important;paint-order:stroke fill!important;stroke-linejoin:round!important;} tspan{fill:inherit!important;stroke:inherit!important;}</style>",svg,count=1)
         scene=self.scene(); scene.clear(); data=QByteArray(svg.encode("utf-8"))
         renderer=QSvgRenderer(data)
         if not renderer.isValid(): raise ValueError("Production renderer produced invalid SVG.")
