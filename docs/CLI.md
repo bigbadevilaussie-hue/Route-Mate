@@ -31,29 +31,29 @@ Illustrative command shape (final spelling may be adjusted before implementation
 
 If a source is missing, malformed or inconsistent, stop with a useful error identifying the file and problem. Do not silently substitute guessed data.
 
-### Collector board-size estimate
+### Collector board dimensions and route-risk estimate
 
-The collector writes an advisory board estimate to `index.json` and `manifest.json`, and prints tight and roomy suggestions. It uses known per-part dimensions, a one-hole spacing allowance and a routing-area factor. Component footprint overrides and project custom definitions take precedence over built-in size estimates. Rotated parts have their dimensions swapped where appropriate.
+The collector must obtain all board dimensions before reading or processing the project. If any value is omitted from the command line, it prompts for it interactively. In non-interactive use, missing values are a hard error. It must never guess, inherit, or silently default a board size from the project JSON.
 
-The estimate excludes components marked `offBoard` or `boardExcluded` from physical board area without removing their electrical data. Unknown footprint sizes use a visible 2×2 fallback and are listed in `unknown_size_parts`; they are not presented as known geometry.
+Required inputs:
 
-This is a starting-size suggestion only. It never supplies or changes the mandatory physical board dimensions, and it is not a placement-feasibility proof.
+- Actual physical board rows and columns.
+- Wanted rows: mode `fixed` or `max`, then a positive value.
+- Wanted columns: mode `fixed` or `max`, then a positive value.
 
-## PREPARE — physical board
+Example benchmark settings:
 
-**Required:** actual physical board rows and columns. These are the dimensions of the board the user bought and are absolute solver limits.
+    --actual-rows 24 --actual-cols 56
+    --wanted-rows-mode fixed --wanted-rows 24
+    --wanted-cols-mode max --wanted-cols 56
 
-Illustrative options:
+A `fixed` dimension must be used exactly. A `max` dimension is an upper bound. Wanted values cannot exceed the actual physical board dimensions. The collector stores actual and wanted dimensions separately in the campaign project, index and manifest.
 
-    --board-rows 24
-    --board-cols 56
+The collector also writes an advisory board estimate. It uses known per-part dimensions, a one-hole spacing allowance and a routing-area factor. Component footprint overrides and project custom definitions take precedence over built-in size estimates. Rotated parts have their dimensions swapped where appropriate.
 
-**Optional:** preferred finished rows and columns. These express the user's preferred cut-down size. They may be smaller than the physical board; they can never enlarge the physical limits.
+The estimate excludes components marked `offBoard` or `boardExcluded` from physical board area without removing their electrical data. Unknown footprint sizes use a visible 2×2 fallback and are listed in `unknown_size_parts`.
 
-    --preferred-rows 24
-    --preferred-cols 46
-
-The solver may exceed the preferred size if necessary, but never the physical size. If it proposes a smaller finished board, all components, cuts, strips and jumpers must remain valid after the cut-down.
+The estimator compares its routing-area target against the wanted dimensions and emits an **ESTIMATED ROUTE FAILURE** warning when the requested envelope appears too small. This is an early risk warning, not a proof of failure or success; only the solver can establish actual routability.
 
 ## PREPARE — component placement constraints
 
