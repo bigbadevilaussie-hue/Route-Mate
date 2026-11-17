@@ -518,26 +518,32 @@ def main() -> int:
 
         entry = campaign_index(data, args.id)
         estimate = estimate_board(data["components"], data.get("componentDefs", []))
-        # A fixed axis is exact; a max axis is an upper bound. Both values
-        # therefore define the largest permitted routing envelope.
+        # Fixed axes are exact; max axes are upper bounds. Estimate whether
+        # the routing-area target can fit within the selected envelope.
+        target_holes = estimate["target_holes"]
         allowed_holes = wanted_rows * wanted_cols
-        min_dimension_failure = (
-            (wanted_rows_mode == "fixed" and wanted_rows < max(
-                (max(p["width"], p["height"]) for p in []), default=0
-            ))
-        )
-        estimate_fits = estimate["target_holes"] <= allowed_holes
         route_warnings = []
+        if wanted_rows_mode == "fixed" and wanted_cols_mode == "fixed":
+            estimate_fits = target_holes <= allowed_holes
+            fit_detail = f"fixed {wanted_rows} x {wanted_cols}"
+        elif wanted_rows_mode == "fixed":
+            required_cols = math.ceil(target_holes / wanted_rows)
+            estimate_fits = required_cols <= wanted_cols
+            fit_detail = f"{required_cols} columns required at fixed {wanted_rows} rows"
+        elif wanted_cols_mode == "fixed":
+            required_rows = math.ceil(target_holes / wanted_cols)
+            estimate_fits = required_rows <= wanted_rows
+            fit_detail = f"{required_rows} rows required at fixed {wanted_cols} columns"
+        else:
+            estimate_fits = target_holes <= allowed_holes
+            fit_detail = f"maximum envelope {wanted_rows} x {wanted_cols}"
         if not estimate_fits:
             route_warnings.append(
-                f"ESTIMATED ROUTE FAILURE: target {estimate['target_holes']} holes "
-                f"exceeds wanted envelope {wanted_rows} x {wanted_cols} "
-                f"({allowed_holes} holes)"
+                f"ESTIMATED ROUTE FAILURE: {fit_detail}; wanted limit is "
+                f"{wanted_rows_mode} {wanted_rows} rows / "
+                f"{wanted_cols_mode} {wanted_cols} columns "
+                f"({allowed_holes} holes available, {target_holes} estimated)"
             )
-        if wanted_rows_mode == "fixed" and wanted_rows < max(
-            (max(p["width"], p["height"]) for p in []), default=0
-        ):
-            route_warnings.append("ESTIMATED ROUTE FAILURE: fixed wanted row count is too small for a component footprint")
         estimate["wanted_limits"] = {
             "rows_mode": wanted_rows_mode, "rows": wanted_rows,
             "cols_mode": wanted_cols_mode, "cols": wanted_cols,
