@@ -238,13 +238,35 @@ ESTIMATOR_BUILTIN_SIZES = {
 }
 
 def _valid_size(source: Any) -> tuple[int, int] | None:
+    """Read declared dimensions, or derive a bounding box from pin/body geometry."""
     if not isinstance(source, dict):
         return None
     try:
-        width, height = int(source.get("width")), int(source.get("height"))
+        width, height = source.get("width"), source.get("height")
+        if width is not None and height is not None:
+            width, height = int(width), int(height)
+            return (width, height) if width > 0 and height > 0 else None
     except (TypeError, ValueError):
         return None
-    return (width, height) if width > 0 and height > 0 else None
+
+    rows, cols = [], []
+    for pin in source.get("pins", []):
+        if isinstance(pin, dict):
+            try:
+                rows.append(int(pin.get("offsetRow", 0)))
+                cols.append(int(pin.get("offsetCol", 0)))
+            except (TypeError, ValueError):
+                continue
+    for cell in source.get("bodyCells", []):
+        if isinstance(cell, dict):
+            try:
+                rows.append(int(cell.get("row", 0)))
+                cols.append(int(cell.get("col", 0)))
+            except (TypeError, ValueError):
+                continue
+    if not rows or not cols:
+        return None
+    return max(cols) - min(cols) + 1, max(rows) - min(rows) + 1
 
 def estimate_board(components: list[dict[str, Any]], component_defs: list[dict[str, Any]],
                    factor: float = ESTIMATOR_ROUTING_FACTOR,
