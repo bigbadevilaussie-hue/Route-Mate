@@ -60,7 +60,9 @@ class RouteMateWindow(QMainWindow):
         view=self.top_view if self.views.currentWidget() is self.top_view else self.copper_view
         view.fit_board()
     def load_json(self):
-        filename,_=QFileDialog.getOpenFileName(self,"Load Route-Mate project",str(self.project_path.parent if self.project_path else Path.home()),"Project JSON (*.json);;All files (*)")
+        program_dir=Path(__file__).resolve().parent.parent
+        start_dir=self.project_path.parent if self.project_path else program_dir
+        filename,_=QFileDialog.getOpenFileName(self,"Load Route-Mate project",str(start_dir),"Project JSON (*.json);;All files (*)")
         if not filename:return
         path=Path(filename); self.log_line(""); self.log_line(f"--- LOAD PROJECT: {path.name} ---")
         try:
