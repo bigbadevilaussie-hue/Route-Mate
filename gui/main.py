@@ -6,7 +6,8 @@ from typing import Any
 from PySide6.QtCore import Qt,QByteArray
 from PySide6.QtGui import QAction,QBrush,QColor,QPainter
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication,QFileDialog,QGraphicsScene,QGraphicsSvgItem,QGraphicsView,QMainWindow,QMessageBox,QPlainTextEdit,QSplitter,QTabWidget,QToolBar
+from PySide6.QtSvgWidgets import QGraphicsSvgItem
+from PySide6.QtWidgets import QApplication,QFileDialog,QGraphicsScene,QGraphicsView,QMainWindow,QMessageBox,QPlainTextEdit,QSplitter,QTabWidget,QToolBar
 
 class BoardView(QGraphicsView):
     def __init__(self):
