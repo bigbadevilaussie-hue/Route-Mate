@@ -9,8 +9,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-GUI_VERSION = "1.01"
-CODE_VERSION = "1.02"
+GUI_VERSION = "1.02"
+CODE_VERSION = "1.03"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -19,7 +19,7 @@ from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox, QHBoxLayout,
-    QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+    QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QComboBox,
     QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget,
 )
 
@@ -36,10 +36,22 @@ class BoardSizeDialog(QDialog):
         self.actual_cols = self._spin(board.get("actualCols", board.get("cols", 56)))
         self.preferred_rows = self._spin(board.get("wantedRows", board.get("rows", 24)))
         self.preferred_cols = self._spin(board.get("wantedCols", board.get("cols", 56)))
+        self.rows_mode = self._mode(board.get("wantedRowsMode", "fixed"))
+        self.cols_mode = self._mode(board.get("wantedColsMode", "fixed"))
         form.addRow("Actual physical rows:", self.actual_rows)
         form.addRow("Actual physical columns:", self.actual_cols)
-        form.addRow("Preferred rows:", self.preferred_rows)
-        form.addRow("Preferred columns:", self.preferred_cols)
+        rows_box = QWidget()
+        rows_layout = QHBoxLayout(rows_box)
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        rows_layout.addWidget(self.preferred_rows)
+        rows_layout.addWidget(self.rows_mode)
+        cols_box = QWidget()
+        cols_layout = QHBoxLayout(cols_box)
+        cols_layout.setContentsMargins(0, 0, 0, 0)
+        cols_layout.addWidget(self.preferred_cols)
+        cols_layout.addWidget(self.cols_mode)
+        form.addRow("Preferred rows:", rows_box)
+        form.addRow("Preferred columns:", cols_box)
         layout.addLayout(form)
         layout.addWidget(QLabel("Preferred dimensions are separate from the physical board limits."))
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -57,12 +69,23 @@ class BoardSizeDialog(QDialog):
             widget.setValue(24)
         return widget
 
+    @staticmethod
+    def _mode(value):
+        widget = QComboBox()
+        widget.addItem("Fixed", "fixed")
+        widget.addItem("Max", "max")
+        index = widget.findData(value if value in ("fixed", "max") else "fixed")
+        widget.setCurrentIndex(max(0, index))
+        return widget
+
     def values(self):
         return {
             "actualRows": self.actual_rows.value(),
             "actualCols": self.actual_cols.value(),
             "wantedRows": self.preferred_rows.value(),
             "wantedCols": self.preferred_cols.value(),
+            "wantedRowsMode": self.rows_mode.currentData(),
+            "wantedColsMode": self.cols_mode.currentData(),
         }
 
 
@@ -74,26 +97,39 @@ class LockDialog(QDialog):
         self.setWindowTitle(f"PRE-SOLVE constraints ({index}/{total})")
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Component: {label}"))
-        self.locked = QCheckBox("Locked")
+        self.locked = QRadioButton("Locked — keep on board")
+        self.unlocked = QRadioButton("Unlocked — remove from board")
         self.edge = QCheckBox("Edge constrained")
         self.slide = QCheckBox("May slide along edge")
-        # Existing explicit locked state is shown; edge/slide remain independent.
-        self.locked.setChecked(bool(component.get("locked", False)))
+        # Locked/unlocked are mutually exclusive; edge and slide remain independent.
+        is_locked = bool(component.get("locked", False))
+        self.locked.setChecked(is_locked)
+        self.unlocked.setChecked(not is_locked)
         self.edge.setChecked(False)
         self.slide.setChecked(False)
+        self.locked.toggled.connect(self._update_constraint_controls)
+        self.unlocked.toggled.connect(self._update_constraint_controls)
         layout.addWidget(self.locked)
+        layout.addWidget(self.unlocked)
         layout.addWidget(self.edge)
         layout.addWidget(self.slide)
-        layout.addWidget(QLabel("These answers are held in this GUI session for PRE-SOLVE."))
+        layout.addWidget(QLabel("Unlocked components are excluded from the refreshed board preview."))
+        self._update_constraint_controls()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _update_constraint_controls(self):
+        keep = self.locked.isChecked()
+        self.edge.setEnabled(keep)
+        self.slide.setEnabled(keep)
+
     def values(self):
         return {"locked": self.locked.isChecked(),
-                "edge": self.edge.isChecked(),
-                "slide": self.slide.isChecked()}
+                "edge": self.edge.isChecked() if self.locked.isChecked() else False,
+                "slide": self.slide.isChecked() if self.locked.isChecked() else False,
+                "remove": self.unlocked.isChecked()}
 
 
 class BoardView(QGraphicsView):
@@ -213,9 +249,23 @@ class RouteMateWindow(QMainWindow):
             values = self.presolve_constraints[str(component.get("id"))]
             self.log_line(
                 f"[LOCKS] {component.get('label') or component.get('id')}: "
-                f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']}"
+                f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']} "
+                f"Remove={values['remove']}"
             )
-        self.log_line("[STOP] Lock settings collected. PRE-SOLVE is not implemented; stopped here.")
+        removed = []
+        for component in placed:
+            values = self.presolve_constraints.get(str(component.get("id")), {})
+            if values.get("remove"):
+                component["boardExcluded"] = True
+                component.pop("boardPos", None)
+                component.pop("flexibleEndPos", None)
+                removed.append(str(component.get("label") or component.get("id")))
+        from render import render_front
+        self.board_view.show_svg(render_front(self.project))
+        self.log_line(f"[RENDER] Board refreshed after lock collection; removed {len(removed)} unlocked parts.")
+        for label in removed:
+            self.log_line(f"[RENDER] Removed from board: {label}")
+        self.log_line("[STOP] Lock settings collected and board refreshed. PRE-SOLVE is not implemented; stopped here.")
         self.statusBar().showMessage("Ready for PRE-SOLVE implementation — workflow stopped.")
 
     def load_json(self):
@@ -250,11 +300,10 @@ class RouteMateWindow(QMainWindow):
             project["board"].update(dimensions)
             project["board"]["rows"] = dimensions["actualRows"]
             project["board"]["cols"] = dimensions["actualCols"]
-            project["board"]["wantedRowsMode"] = "fixed"
-            project["board"]["wantedColsMode"] = "fixed"
             self.log_line(
                 f"[COLLECT] Actual board {dimensions['actualRows']} x {dimensions['actualCols']}; "
-                f"preferred {dimensions['wantedRows']} x {dimensions['wantedCols']} (fixed)."
+                f"preferred rows {dimensions['wantedRows']} ({dimensions['wantedRowsMode']}), "
+                f"columns {dimensions['wantedCols']} ({dimensions['wantedColsMode']})."
             )
             self.log_line(
                 f"[COLLECT] Components={len(project['components'])}, Nets={len(project['nets'])}, "
