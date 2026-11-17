@@ -12,7 +12,7 @@ from collections import defaultdict
 from typing import Any
 
 
-_TOKEN = re.compile(r'"(?:\\\\.|[^"\\\\])*"|[()]|[^\\s()]+')
+_TOKEN = re.compile(r'"[^"]*"|[()]|[^\s()]+')
 
 
 def _parse_sexpr(source: str) -> list[Any]:
