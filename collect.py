@@ -474,10 +474,10 @@ def main() -> int:
     wanted_cols_mode = required_mode(args.wanted_cols_mode, "Wanted columns mode", parser)
     wanted_cols = required_dimension(args.wanted_cols, "Wanted columns value", parser)
 
-    if wanted_rows > actual_rows:
-        parser.error("wanted rows value cannot exceed actual physical board rows")
-    if wanted_cols > actual_cols:
-        parser.error("wanted columns value cannot exceed actual physical board columns")
+    if wanted_rows_mode == "fixed" and wanted_rows > actual_rows:
+        parser.error("fixed wanted rows value cannot exceed actual physical board rows")
+    if wanted_cols_mode == "fixed" and wanted_cols > actual_cols:
+        parser.error("fixed wanted columns value cannot exceed actual physical board columns")
 
     try:
         data = validate_project(json.loads(args.json.read_text(encoding="utf-8")))
