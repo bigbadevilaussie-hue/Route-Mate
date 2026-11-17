@@ -353,7 +353,8 @@ def main() -> int:
         if missing:
             warnings.append(f"{len(missing)} component definitions remain unresolved")
         if entry["shortedDefs"]:
-            warnings.append(f"{entry['shortedDefs']} footprint(s) place different-net pins on the same hole")
+            warnings.append(f"{entry['shortedDefs']} custom footprint(s) place different-net pins on the same hole")
+        warnings.append("Built-in footprint short checks are left to the solver verifier; this collector only has project custom-footprint geometry.")
         if net_nodes is not None:
             entry["netlistNodes"] = net_nodes
 
