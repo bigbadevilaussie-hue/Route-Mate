@@ -18,7 +18,7 @@ they are suitable placement inputs rather than already-placed results.
 Run:
 
 ```bash
-python3 -m unittest tests.test_quick_fit_geometry -v
+python3 -m unittest discover -s tests -p 'test_quick_fit_geometry.py' -v
 ```
 
 The tests check:
