@@ -266,7 +266,7 @@ def _valid_size(source: Any) -> tuple[int, int] | None:
                 continue
     if not rows or not cols:
         return None
-    return max(cols) - min(cols) + 1, max(rows) - min(rows) + 1
+    return max(cols) - min(0, min(cols)) + 1, max(rows) - min(0, min(rows)) + 1
 
 def estimate_board(components: list[dict[str, Any]], component_defs: list[dict[str, Any]],
                    factor: float = ESTIMATOR_ROUTING_FACTOR,
