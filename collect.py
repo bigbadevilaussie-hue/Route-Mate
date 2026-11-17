@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import shutil
 import sys
@@ -223,6 +224,78 @@ def normalise_like_gui(data: dict[str, Any]) -> dict[str, Any]:
     board["wires"] = board.get("wires") or []
     return data
 
+# Adapted from stripboard-optimiser/desktop/src/stripboard_optimizer/board_estimator.py
+# Original estimator and sizing helpers are GPL-3.0-only; see licenses/GPL-3.0.txt.
+ESTIMATOR_ROUTING_FACTOR = 3.2
+ESTIMATOR_ASPECT = 2.33
+ESTIMATOR_GAP = 1
+ESTIMATOR_BUILTIN_SIZES = {
+    "def-resistor": (1, 4), "def-diode": (1, 4), "def-zener": (1, 4),
+    "def-led": (1, 2), "def-capacitor": (1, 2), "def-cap-polarized": (1, 2),
+    "def-fuse": (1, 3), "def-inductor": (1, 3),
+    "def-npn": (1, 3), "def-pnp": (1, 3), "def-pmos": (1, 3), "def-nmos": (1, 3),
+    "def-connector-2": (1, 2), "def-switch": (1, 2), "def-pushbutton": (2, 2),
+}
+
+def _valid_size(source: Any) -> tuple[int, int] | None:
+    if not isinstance(source, dict):
+        return None
+    try:
+        width, height = int(source.get("width")), int(source.get("height"))
+    except (TypeError, ValueError):
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+def estimate_board(components: list[dict[str, Any]], component_defs: list[dict[str, Any]],
+                   factor: float = ESTIMATOR_ROUTING_FACTOR,
+                   aspect: float = ESTIMATOR_ASPECT) -> dict[str, Any]:
+    """Advisory board-size estimate; never changes physical board limits."""
+    if not math.isfinite(factor) or factor <= 0:
+        raise ValueError("estimator routing factor must be positive")
+    if not math.isfinite(aspect) or aspect <= 0:
+        raise ValueError("estimator aspect ratio must be positive")
+    definitions = {str(d["id"]): d for d in component_defs
+                   if isinstance(d, dict) and d.get("id")}
+    included, unknown, excluded = [], [], 0
+    for component in components:
+        if component.get("offBoard") is True or component.get("boardExcluded") is True:
+            excluded += 1
+            continue
+        did = component_def_id(component)
+        override = _valid_size(component.get("footprintOverride"))
+        size = override or _valid_size(definitions.get(did or ""))
+        source = "component override" if override else "project definition" if size else ""
+        if size is None and did in ESTIMATOR_BUILTIN_SIZES:
+            size, source = ESTIMATOR_BUILTIN_SIZES[did], "built-in estimate"
+        if size is None:
+            size, source = (2, 2), "fallback estimate"
+            unknown.append(str(component.get("label") or component.get("id") or did or "unnamed"))
+        width, height = size
+        try:
+            rotation = int(component.get("rotation", 0)) % 360
+        except (TypeError, ValueError):
+            rotation = 0
+        if rotation in (90, 270):
+            width, height = height, width
+        included.append({"label": str(component.get("label") or component.get("id") or did or "unnamed"),
+                         "width": width, "height": height, "source": source})
+    raw = sum(p["width"] * p["height"] for p in included)
+    padded = sum((p["width"] + ESTIMATOR_GAP) * (p["height"] + ESTIMATOR_GAP) for p in included)
+    target = padded * factor
+    longest = max((max(p["width"], p["height"]) for p in included), default=1)
+    rows = max(longest + 2, math.ceil(math.sqrt(target / aspect)))
+    cols = max(1, math.ceil(target / rows))
+    roomy_rows, roomy_cols = rows + 4, math.ceil(cols * 1.25)
+    return {
+        "included_parts": len(included), "excluded_parts": excluded,
+        "raw_holes": raw, "padded_holes": padded, "target_holes": round(target),
+        "rows": rows, "cols": cols, "board_holes": rows * cols,
+        "tight": {"rows": rows, "cols": cols, "holes": rows * cols},
+        "roomy": {"rows": roomy_rows, "cols": roomy_cols, "holes": roomy_rows * roomy_cols},
+        "routing_factor": factor, "aspect_ratio": aspect, "gap_holes": ESTIMATOR_GAP,
+        "unknown_size_parts": unknown,
+    }
+
 def count_netlist_nodes(path: Path) -> int:
     # Same contract as desktop ImportService.count_netlist_nodes().
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -350,6 +423,8 @@ def main() -> int:
                 )
 
         entry = campaign_index(data, args.id)
+        estimate = estimate_board(data["components"], data.get("componentDefs", []))
+        entry["boardEstimate"] = estimate
         if missing:
             warnings.append(f"{len(missing)} component definitions remain unresolved")
         if entry["shortedDefs"]:
@@ -385,6 +460,7 @@ def main() -> int:
             "campaign_index": str(out / "index.json"),
             "netlist_nodes": net_nodes,
             "json_pin_assignments": len(data["netAssignments"]),
+            "board_estimate": estimate,
             "component_count": len(data["components"]),
             "custom_definition_count": len(data.get("componentDefs", [])),
             "warnings": warnings,
