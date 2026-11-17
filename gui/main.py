@@ -13,9 +13,17 @@ class BoardView(QGraphicsView):
     def __init__(self):
         super().__init__(); self.setScene(QGraphicsScene(self))
         self.setRenderHints(QPainter.RenderHint.Antialiasing|QPainter.RenderHint.TextAntialiasing|QPainter.RenderHint.SmoothPixmapTransform)
-        self.setBackgroundBrush(QBrush(QColor("#20252b"))); self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setBackgroundBrush(QBrush(QColor("#f2f2f2"))); self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse); self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._renderer=None
+    def fit_board(self):
+        self.resetTransform()
+        self.fitInView(self.scene().sceneRect(),Qt.AspectRatioMode.KeepAspectRatio)
+    def wheelEvent(self,event):
+        if event.angleDelta().y() > 0: factor=1.25
+        else: factor=0.8
+        self.scale(factor,factor)
+        event.accept()
     def show_svg(self,svg:str):
         scene=self.scene(); scene.clear(); data=QByteArray(svg.encode("utf-8"))
         renderer=QSvgRenderer(data)
@@ -25,7 +33,7 @@ class BoardView(QGraphicsView):
         scene.addItem(item)
         self._renderer=renderer
         scene.setSceneRect(item.boundingRect())
-        self.resetTransform(); self.fitInView(scene.sceneRect(),Qt.AspectRatioMode.KeepAspectRatio)
+        self.fit_board()
 
 class RouteMateWindow(QMainWindow):
     def __init__(self):
@@ -33,6 +41,7 @@ class RouteMateWindow(QMainWindow):
         self.project:dict[str,Any]|None=None; self.project_path:Path|None=None
         toolbar=QToolBar("Main"); toolbar.setMovable(False); self.addToolBar(toolbar)
         action=QAction("Load JSON",self); action.triggered.connect(self.load_json); toolbar.addAction(action)
+        fit_action=QAction("Fit board",self); fit_action.triggered.connect(self.fit_current_board); toolbar.addAction(fit_action)
         self.log=QPlainTextEdit(); self.log.setReadOnly(True); self.log.setMaximumBlockCount(5000); self.log.setPlaceholderText("Route-Mate running log")
         self.top_view=BoardView(); self.copper_view=BoardView(); self.views=QTabWidget()
         self.views.addTab(self.top_view,"Component side"); self.views.addTab(self.copper_view,"Copper side")
@@ -42,6 +51,9 @@ class RouteMateWindow(QMainWindow):
         self.log_line("Route-Mate ready."); self.log_line("Load a project JSON to render its current board.")
         self.log_line("Renderer: upstream production standalone renderer.")
     def log_line(self,message:str): self.log.appendPlainText(message)
+    def fit_current_board(self):
+        view=self.top_view if self.views.currentWidget() is self.top_view else self.copper_view
+        view.fit_board()
     def load_json(self):
         filename,_=QFileDialog.getOpenFileName(self,"Load Route-Mate project",str(self.project_path.parent if self.project_path else Path.home()),"Project JSON (*.json);;All files (*)")
         if not filename:return
