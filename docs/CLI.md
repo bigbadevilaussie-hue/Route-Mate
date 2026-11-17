@@ -65,6 +65,20 @@ Edge locking is offered only when the footprint/component is edge-mountable. The
 
 The CLI must be able to express per-component constraints without making them GUI-only settings. The exact syntax for naming individual components should follow stable source IDs from the imported project.
 
+### Edge anchoring is a hard constraint
+
+An edge-mounted connector is not the same thing as a position-locked component. These are independent constraints:
+
+- **Required edge:** the specific edge the component is assigned to (top, bottom, left or right). This is a hard constraint. The solver must never move the component to another edge or into the board interior.
+- **Sliding along that edge:** allowed unless the component is also position-locked. The solver may change its position along the assigned edge while keeping it on that same edge.
+- **Exact placement lock:** a separate user-controlled constraint that preserves the exact position and orientation. Edge anchoring alone does not imply this lock.
+- **Footprint overhang:** permitted where the component is designed to protrude beyond the board, such as a socket passing through an enclosure panel. Electrical pads and the footprint's mounting geometry must still satisfy their own explicit legality rules; do not assume the entire body must fit inside the board.
+- **Unsatisfied edge constraint:** means no valid placement/solution. Never silently relax the edge requirement, substitute another edge, or convert it into a soft score penalty.
+
+The edge is determined by the component's intended/current edge assignment, not whichever edge happens to be easiest for the solver. For example, the Moto-Mate USB module is assigned to the front edge so its USB socket can pass through the front panel. It may slide left or right along that front edge, but moving it to a side/rear edge or into the board interior is invalid. Its edge assignment does not, by itself, lock its exact position.
+
+Audio-Mate and Moto-Mate both demonstrate that external connectors and controls commonly need deliberate edge access. Treat edge anchoring as a core stripboard placement capability, not an exceptional workaround.
+
 ## PREPARE — checks and user experience
 
 Electrical-check strictness: **Don't care → Critical**.
