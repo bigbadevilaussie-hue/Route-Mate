@@ -1,0 +1,65 @@
+# Route-Mate rendering package
+
+The package owns board-preview rendering code. Application code should import
+only the public API from `render/render.py` (or `from render import render_front`).
+
+## Current scope
+
+- Fast component-side SVG preview.
+- Board hole field, placed component outlines, pins, labels and jumper wires.
+- Net colours where the project JSON identifies the pin nets.
+- Custom project definitions and the common built-in footprints used by the
+  Moto/Audio benchmark projects.
+- No third-party runtime dependencies; rendering is pure Python and returns an
+  SVG string.
+
+The front preview is intended to be regenerated during PREPARE / Quick Set.
+It does not run placement, routing, connectivity reconstruction or validation.
+
+## Deliberately deferred
+
+- Copper-side view, strip segments and cut marks: final-stage renderer only.
+- Schematic renderer: optional later addition.
+- Detailed physical package artwork and exact visual parity with the legacy
+  React renderer: the current Python renderer uses lightweight top-view
+  silhouettes for speed.
+
+## Public API
+
+```python
+from render import render_front, write_front_svg
+
+svg = render_front(project)
+write_front_svg(project, "results/front-preview.svg")
+```
+
+`render_front()` returns SVG text and does not write files. Optional arguments:
+
+- `show_labels=True`
+- `show_pin_labels=False`
+- `scale=1.0`
+
+The package has no application `main.py` integration yet: this repository
+currently contains the collector and PREPARE checks, but no GUI/application
+entry point. When the main application is added, it should call
+`render_front(project)`; it should not import the private modules.
+
+## Module layout
+
+- `render.py`: stable public API and optional SVG file output.
+- `_front.py`: fast component-side SVG assembly.
+- `_geometry.py`: footprint lookup, rotation and pin/body coordinate mapping.
+
+Private modules are intentionally hidden behind the public API. The copper-side
+and schematic renderers can be added under this directory without changing the
+application call site.
+
+## Source acknowledgement
+
+Footprint rotation and component geometry conventions are based on the GPL-3.0
+Stripboard Optimiser implementation by Karlo Funke:
+https://github.com/KarloFunke/stripboard-editor
+
+The current Python renderer is a lightweight independent implementation, not a
+byte-for-byte port of the legacy SVG renderer. See the repository's
+`licenses/GPL-3.0.txt` for the applicable licence text.
