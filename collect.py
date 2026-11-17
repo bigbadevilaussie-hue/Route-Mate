@@ -39,6 +39,15 @@ DEFAULT_IDS.update(f"def-connector-{n}" for n in range(1, 21))
 DEFAULT_IDS.update(f"def-ic-dip{n}" for n in (4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40))
 DEFAULT_IDS.update(f"def-generic-2pin-{n}h" for n in (2, 3, 4, 5, 7))
 
+def is_default_id(value: str | None) -> bool:
+    if not value:
+        return False
+    return (
+        value in DEFAULT_IDS
+        or value.startswith("def-ic-")
+        or bool(re.fullmatch(r"def-generic-2pin-\\d+h", value))
+    )
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -198,7 +207,7 @@ def normalise_like_gui(data: dict[str, Any]) -> dict[str, Any]:
     # does the same at runtime, so the campaign JSON stores only custom defs.
     data["componentDefs"] = [
         d for d in saved_defs
-        if isinstance(d, dict) and d.get("id") and str(d["id"]) not in default_ids
+        if isinstance(d, dict) and d.get("id") and not is_default_id(str(d["id"]))
     ]
     data["components"] = [
         {**c, "schematicRotation": c.get("schematicRotation", 0)}
@@ -328,7 +337,7 @@ def main() -> int:
         known = {str(d.get("id")) for d in data.get("componentDefs", []) if d.get("id")} | DEFAULT_IDS
         for component in data["components"]:
             did = component_def_id(component)
-            if did and did not in known:
+            if did and did not in known and not is_default_id(did):
                 missing.append({"component": component.get("label") or component.get("id"), "defId": did})
 
         net_nodes = None
