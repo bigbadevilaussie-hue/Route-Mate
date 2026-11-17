@@ -96,7 +96,10 @@ def render_front_board(
     if not math.isfinite(scale) or scale <= 0:
         raise ValueError("scale must be a positive finite number")
 
-    components = [c for c in project.get("components", []) if isinstance(c, dict)]
+    raw_components = project.get("components", [])
+    if not isinstance(raw_components, list):
+        raise ValueError("project.components must be an array")
+    components = [c for c in raw_components if isinstance(c, dict)]
     definitions = dict(BUILTIN_DEFS)
     for definition in project.get("componentDefs", []):
         if isinstance(definition, dict) and definition.get("id"):
@@ -105,7 +108,6 @@ def render_front_board(
     width = (cols - 1) * PITCH + PADDING * 2
     height = (rows - 1) * PITCH + PADDING * 2
     svg_width, svg_height = width * scale, height * scale
-    transform = f"translate(0 0) scale({scale})"
     parts: list[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Stripboard component side" '
         f'viewBox="0 0 {_number(width)} {_number(height)}" '
@@ -115,7 +117,7 @@ def render_front_board(
         f'width="{_number((cols - 1) * PITCH + BOARD_MARGIN * 2)}" '
         f'height="{_number((rows - 1) * PITCH + BOARD_MARGIN * 2)}" '
         'rx="5" fill="#d8c6a0" stroke="#8f8065" stroke-width="1.5"/>',
-        f'<g transform="{transform}">',
+        "<g>",
     ]
 
     # The hole field is the first expensive operation; a single pass builds it.
