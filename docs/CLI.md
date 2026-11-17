@@ -31,6 +31,14 @@ Illustrative command shape (final spelling may be adjusted before implementation
 
 If a source is missing, malformed or inconsistent, stop with a useful error identifying the file and problem. Do not silently substitute guessed data.
 
+### Collector board-size estimate
+
+The collector writes an advisory board estimate to `index.json` and `manifest.json`, and prints tight and roomy suggestions. It uses known per-part dimensions, a one-hole spacing allowance and a routing-area factor. Component footprint overrides and project custom definitions take precedence over built-in size estimates. Rotated parts have their dimensions swapped where appropriate.
+
+The estimate excludes components marked `offBoard` or `boardExcluded` from physical board area without removing their electrical data. Unknown footprint sizes use a visible 2×2 fallback and are listed in `unknown_size_parts`; they are not presented as known geometry.
+
+This is a starting-size suggestion only. It never supplies or changes the mandatory physical board dimensions, and it is not a placement-feasibility proof.
+
 ## PREPARE — physical board
 
 **Required:** actual physical board rows and columns. These are the dimensions of the board the user bought and are absolute solver limits.
