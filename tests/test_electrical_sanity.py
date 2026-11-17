@@ -114,7 +114,11 @@ class ElectricalSanityTests(unittest.TestCase):
 
     def test_rejects_netlist_unknown_component_reference(self):
         project = load_project("moto")
-        netlist = load_netlist("moto").replace('(ref "AGM -in")', '(ref "NO SUCH PART")', 1)
+        netlist = load_netlist("moto").replace(
+            '(node (ref "AGM -in")',
+            '(node (ref "NO SUCH PART")',
+            1,
+        )
         report = run_electrical_sanity(project, netlist)
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any("unknown component label" in item for item in report["errors"]))
