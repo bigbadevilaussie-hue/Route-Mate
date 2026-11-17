@@ -263,8 +263,8 @@ def campaign_index(data: dict[str, Any], project_id: int) -> dict[str, Any]:
     placeable = [c for c in data["components"] if not c.get("boardExcluded")]
     unresolved = sum(
         1 for c in data["components"]
-        if (did := component_def_id(c))
-        and did not in defs and did not in DEFAULT_IDS
+        if not (did := component_def_id(c))
+        or (did not in defs and not is_default_id(did))
     )
     net_by_pin = {
         (str(a.get("componentId")), str(a.get("pinId"))): str(a.get("netId"))
