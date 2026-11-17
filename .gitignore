@@ -1,0 +1,20 @@
+# Route-Mate run data: keep directory placeholders, ignore generated/user data
+/inbox/*
+!/inbox/.gitkeep
+
+/work/*
+!/work/.gitkeep
+
+/results/*
+!/results/.gitkeep
+
+# Local caches and Python artefacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.DS_Store
