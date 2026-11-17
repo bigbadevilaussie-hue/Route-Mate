@@ -98,17 +98,24 @@ def convert_project(data: dict[str, Any]) -> tuple[Board, list[ComponentInstance
         rotation = int(comp.get("rotation", 0) or 0) % 360
         transformed_pins = []
         transformed_body = []
+        is_flexible = bool(definition.get("flexible"))
         for p in pins:
             if not isinstance(p, dict):
                 continue
-            rr, cc = rotate_point(int(p.get("offsetRow", 0)), int(p.get("offsetCol", 0)),
-                                  rotation, max_row, max_col)
+            raw_row, raw_col = int(p.get("offsetRow", 0)), int(p.get("offsetCol", 0))
+            if is_flexible:
+                # Match Route-Mate component_geometry(): flexible leads use the explicit
+                # endpoint (or pin 2's declared default offset), independent of rotation.
+                rr, cc = raw_row, raw_col
+            else:
+                rr, cc = rotate_point(raw_row, raw_col, rotation, max_row, max_col)
             transformed_pins.append((str(p.get("id", "")), rr, cc))
-        for cell in body:
-            if isinstance(cell, dict):
-                rr, cc = rotate_point(int(cell.get("row", 0)), int(cell.get("col", 0)),
-                                      rotation, max_row, max_col)
-                transformed_body.append((rr, cc))
+        if not is_flexible:
+            for cell in body:
+                if isinstance(cell, dict):
+                    rr, cc = rotate_point(int(cell.get("row", 0)), int(cell.get("col", 0)),
+                                          rotation, max_row, max_col)
+                    transformed_body.append((rr, cc))
 
         all_rows = [p[1] for p in transformed_pins] + [p[0] for p in transformed_body]
         all_cols = [p[2] for p in transformed_pins] + [p[1] for p in transformed_body]
