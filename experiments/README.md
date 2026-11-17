@@ -11,7 +11,7 @@ change Route-Mate's solver or claim that the resulting partial netlists are buil
 Requires Python 3.12+ and the upstream MIT package:
 
 ```bash
-python3 -m pip install "stripboard @ git+https://github.com/Stocko-2073/stripboard-py.git@dev"
+python3 -m pip install "stripboard @ git+https://github.com/Stocko-2073/stripboard-py.git@346efd8425cc13cbde22ab8261df6c8cbd817973"
 ```
 
 ### Run
