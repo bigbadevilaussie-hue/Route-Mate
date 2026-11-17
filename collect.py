@@ -477,6 +477,10 @@ def main() -> int:
             print(f"  .net node records: {net_nodes} (matched)")
         print(f"  unresolved definitions: {entry['unresolvedDefs']}")
         print(f"  shorted footprints: {entry['shortedDefs']}")
+        print("  board estimate (tight): {} x {} = {} holes".format(estimate["rows"], estimate["cols"], estimate["board_holes"]))
+        print("  board estimate (roomy): {} x {} = {} holes".format(estimate["roomy"]["rows"], estimate["roomy"]["cols"], estimate["roomy"]["holes"]))
+        if estimate["unknown_size_parts"]:
+            print("  WARNING: fallback 2x2 estimate for: " + ", ".join(estimate["unknown_size_parts"]))
         print(f"  campaign input: {target}")
         for warning in warnings:
             print(f"  WARNING: {warning}")
