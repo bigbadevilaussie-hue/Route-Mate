@@ -8,6 +8,7 @@ only the public API from `render/render.py` (or `from render import render_front
 - Fast component-side SVG preview.
 - Board hole field, placed component outlines, pins, labels and jumper wires.
 - Net colours where the project JSON identifies the pin nets.
+- Off-board parent footprints are not drawn on the board; saved virtual lead-pad positions are deferred.
 - Custom project definitions and the common built-in footprints used by the
   Moto/Audio benchmark projects.
 - No third-party runtime dependencies; rendering is pure Python and returns an
