@@ -1,6 +1,6 @@
 """Route-Mate desktop GUI: project log on the left, production board views on the right."""
 from __future__ import annotations
-import json,sys,tempfile
+import json,re,sys,tempfile
 from pathlib import Path
 from typing import Any
 from PySide6.QtCore import Qt,QByteArray
@@ -25,6 +25,8 @@ class BoardView(QGraphicsView):
         self.scale(factor,factor)
         event.accept()
     def show_svg(self,svg:str):
+        # Darken SVG labels for readability on the light desktop canvas.
+        svg=re.sub(r"(<svg\\b[^>]*>)",r"\\1<style>text,tspan{fill:#171717!important;}</style>",svg,count=1)
         scene=self.scene(); scene.clear(); data=QByteArray(svg.encode("utf-8"))
         renderer=QSvgRenderer(data)
         if not renderer.isValid(): raise ValueError("Production renderer produced invalid SVG.")
