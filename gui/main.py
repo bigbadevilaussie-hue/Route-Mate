@@ -6,7 +6,7 @@ from typing import Any
 from PySide6.QtCore import Qt,QByteArray
 from PySide6.QtGui import QAction,QBrush,QColor,QPainter
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication,QFileDialog,QGraphicsScene,QGraphicsView,QMainWindow,QMessageBox,QPlainTextEdit,QSplitter,QTabWidget,QToolBar
+from PySide6.QtWidgets import QApplication,QFileDialog,QGraphicsScene,QGraphicsSvgItem,QGraphicsView,QMainWindow,QMessageBox,QPlainTextEdit,QSplitter,QTabWidget,QToolBar
 
 class BoardView(QGraphicsView):
     def __init__(self):
@@ -19,7 +19,11 @@ class BoardView(QGraphicsView):
         scene=self.scene(); scene.clear(); data=QByteArray(svg.encode("utf-8"))
         renderer=QSvgRenderer(data)
         if not renderer.isValid(): raise ValueError("Production renderer produced invalid SVG.")
-        item=scene.addSvg(data); self._renderer=renderer; scene.setSceneRect(item.boundingRect())
+        item=QGraphicsSvgItem()
+        item.setSharedRenderer(renderer)
+        scene.addItem(item)
+        self._renderer=renderer
+        scene.setSceneRect(item.boundingRect())
         self.resetTransform(); self.fitInView(scene.sceneRect(),Qt.AspectRatioMode.KeepAspectRatio)
 
 class RouteMateWindow(QMainWindow):
