@@ -31,10 +31,11 @@ See [CLI input contract](docs/CLI.md).
 - **Physical board dimensions are mandatory before solving.** They describe the actual purchased stripboard and are absolute upper limits.
 - **Preferred finished dimensions are optional.** They are a target for a smaller cut-down board, not permission to exceed the physical board.
 - Never crop a solved layout blindly. The final dimensions must preserve all components, cuts, copper connections and jumpers.
-- A component may be fully position-locked, initially placed but movable, unplaced, or edge-locked.
-- Edge locking is available only for components whose footprint supports edge mounting.
-- Edge lock selects top, bottom, left or right. The component must physically meet that edge; it may be fixed there or slide along it.
-- Fully locked means exact position and orientation. Edge-sliding means fixed to the selected edge but free to move along it.
+- A component may be fully position-locked, initially placed but movable, unplaced, or anchored to a specific board edge.
+- Edge anchoring is a hard constraint: the component must remain on its assigned edge. It may slide along that edge unless separately position-locked; it must never migrate to another edge or into the board interior.
+- Exact position/orientation locking is independent of edge anchoring. An edge-anchored component is not automatically position-locked.
+- Footprints may intentionally overhang the board where their mechanical function requires it (for example, a USB socket passing through an enclosure panel). Validate electrical pads and mounting geometry using their own rules; do not automatically reject a footprint merely because its body extends beyond the board.
+- If an assigned edge cannot be satisfied, the placement is invalid. Never soften or silently discard the edge requirement.
 - These constraints belong to the shared engine and apply equally to CLI and GUI.
 
 ## Checks and skill level
