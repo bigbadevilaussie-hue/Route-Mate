@@ -7,7 +7,7 @@ Route-Mate footprint rotation into the solver's local coordinates. Off-board par
 are excluded; nets touching off-board pins are therefore explicitly partial.
 
 Install the upstream MIT package first:
-    python3 -m pip install "stripboard @ git+https://github.com/Stocko-2073/stripboard-py.git@dev"
+    python3 -m pip install "stripboard @ git+https://github.com/Stocko-2073/stripboard-py.git@346efd8425cc13cbde22ab8261df6c8cbd817973"
 
 Run from the Route-Mate repository root:
     python3 experiments/stripboard_py_probe.py --project both --seeds 0 1 2
@@ -35,7 +35,7 @@ try:
 except ImportError as exc:
     raise SystemExit(
         "Missing upstream solver. Install with:\n"
-        '  python3 -m pip install "stripboard @ git+https://github.com/Stocko-2073/stripboard-py.git@dev"\n'
+        '  python3 -m pip install "stripboard @ git+https://github.com/Stocko-2073/stripboard-py.git@346efd8425cc13cbde22ab8261df6c8cbd817973"\n'
         f"Import error: {exc}"
     )
 
