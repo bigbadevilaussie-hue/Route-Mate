@@ -166,7 +166,7 @@ def merge_footprints(data: dict[str, Any], footprints: dict[str, dict[str, Any]]
 
     for component in data["components"]:
         did = component_def_id(component)
-        if not did or did in existing:
+        if not did or did in existing or is_default_id(did):
             continue
         label = str(component.get("label") or component.get("name") or "")
         clean = norm_name(label)
