@@ -3,6 +3,9 @@ from __future__ import annotations
 import json,re,sys,tempfile
 from pathlib import Path
 from typing import Any
+
+GUI_VERSION = "1.00"
+CODE_VERSION = "1.01"
 from PySide6.QtCore import Qt,QByteArray
 from PySide6.QtGui import QAction,QBrush,QColor,QPainter
 from PySide6.QtSvg import QSvgRenderer
@@ -39,7 +42,7 @@ class BoardView(QGraphicsView):
 
 class RouteMateWindow(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle("Route-Mate"); self.resize(1500,900)
+        super().__init__(); self.setWindowTitle(f"Route-Mate GUI v{GUI_VERSION} (Code v{CODE_VERSION})"); self.resize(1500,900)
         self.project:dict[str,Any]|None=None; self.project_path:Path|None=None
         toolbar=QToolBar("Main"); toolbar.setMovable(False); self.addToolBar(toolbar)
         action=QAction("Load JSON",self); action.triggered.connect(self.load_json); toolbar.addAction(action)
@@ -50,7 +53,7 @@ class RouteMateWindow(QMainWindow):
         split=QSplitter(Qt.Orientation.Horizontal); split.addWidget(self.log); split.addWidget(self.views)
         split.setStretchFactor(0,0); split.setStretchFactor(1,1); split.setSizes([390,1110]); self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
-        self.log_line("Route-Mate ready."); self.log_line("Load a project JSON to render its current board.")
+        self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}"); self.log_line("Load a project JSON to render its current board.")
         self.log_line("Renderer: upstream production standalone renderer.")
     def log_line(self,message:str): self.log.appendPlainText(message)
     def fit_current_board(self):
