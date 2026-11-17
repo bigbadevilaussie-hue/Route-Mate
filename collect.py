@@ -218,8 +218,7 @@ def normalise_like_gui(data: dict[str, Any]) -> dict[str, Any]:
     data["schematicWires"] = data.get("schematicWires") or []
     data["wiring"] = data.get("wiring") or "classic"
     board = data["board"]
-    board["rows"] = board.get("rows") or 20
-    board["cols"] = board.get("cols", board.get("columns")) or 20
+    # Physical and wanted dimensions are supplied explicitly by collect.py.
     board["cuts"] = board.get("cuts") or []
     board["wires"] = board.get("wires") or []
     return data
@@ -389,6 +388,12 @@ def campaign_index(data: dict[str, Any], project_id: int) -> dict[str, Any]:
         "assignments": len(data["netAssignments"]),
         "rows": board["rows"],
         "cols": board["cols"],
+        "actualRows": board["actualRows"],
+        "actualCols": board["actualCols"],
+        "wantedRows": board["wantedRows"],
+        "wantedRowsMode": board["wantedRowsMode"],
+        "wantedCols": board["wantedCols"],
+        "wantedColsMode": board["wantedColsMode"],
         "wires": len(board["wires"]),
         "cuts": len(board["cuts"]),
         "conflicts": -1,
@@ -401,11 +406,59 @@ def campaign_index(data: dict[str, Any], project_id: int) -> dict[str, Any]:
         "dupIds": [],
     }
 
+def required_dimension(value: int | None, prompt: str, parser: argparse.ArgumentParser) -> int:
+    """Require a positive dimension; prompt interactively when omitted."""
+    if value is None:
+        if not sys.stdin.isatty():
+            parser.error(f"{prompt} is required (use the matching command-line option)")
+        while True:
+            try:
+                raw = input(f"{prompt}: ").strip()
+            except EOFError:
+                parser.error(f"{prompt} is required")
+            try:
+                value = int(raw)
+            except ValueError:
+                print("Enter a whole number greater than zero.")
+                continue
+            if value > 0:
+                break
+            print("Enter a whole number greater than zero.")
+    if value <= 0:
+        parser.error(f"{prompt} must be greater than zero")
+    return value
+
+
+def required_mode(value: str | None, prompt: str, parser: argparse.ArgumentParser) -> str:
+    """Require either fixed or max, prompting when omitted."""
+    if value is None:
+        if not sys.stdin.isatty():
+            parser.error(f"{prompt} is required (choose fixed or max)")
+        while True:
+            try:
+                raw = input(f"{prompt} [fixed/max]: ").strip().lower()
+            except EOFError:
+                parser.error(f"{prompt} is required")
+            if raw in ("fixed", "max"):
+                value = raw
+                break
+            print("Enter 'fixed' or 'max'.")
+    if value not in ("fixed", "max"):
+        parser.error(f"{prompt} must be 'fixed' or 'max'")
+    return value
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", type=Path, required=True, help="Karl/Stripboard Editor project JSON")
     parser.add_argument("--net", type=Path, help="matching KiCad .net export (node-count cross-check)")
     parser.add_argument("--mod", type=Path, help=".pretty directory, ZIP archive, or one .kicad_mod file")
+    parser.add_argument("--actual-rows", type=int, help="physical board rows (prompted if omitted)")
+    parser.add_argument("--actual-cols", type=int, help="physical board columns (prompted if omitted)")
+    parser.add_argument("--wanted-rows-mode", choices=("fixed", "max"), help="wanted rows mode")
+    parser.add_argument("--wanted-rows", type=int, help="wanted rows value")
+    parser.add_argument("--wanted-cols-mode", choices=("fixed", "max"), help="wanted columns mode")
+    parser.add_argument("--wanted-cols", type=int, help="wanted columns value")
     parser.add_argument("--id", type=int, default=0, help="project id used by the campaign runner")
     parser.add_argument("--out", type=Path, default=Path("campaign-input"), help="campaign data directory")
     args = parser.parse_args()
@@ -414,9 +467,28 @@ def main() -> int:
         if path is not None and not path.exists():
             parser.error(f"{name} input does not exist: {path}")
 
+    actual_rows = required_dimension(args.actual_rows, "Actual physical board rows", parser)
+    actual_cols = required_dimension(args.actual_cols, "Actual physical board columns", parser)
+    wanted_rows_mode = required_mode(args.wanted_rows_mode, "Wanted rows mode", parser)
+    wanted_rows = required_dimension(args.wanted_rows, "Wanted rows value", parser)
+    wanted_cols_mode = required_mode(args.wanted_cols_mode, "Wanted columns mode", parser)
+    wanted_cols = required_dimension(args.wanted_cols, "Wanted columns value", parser)
+
+    if wanted_rows > actual_rows:
+        parser.error("wanted rows value cannot exceed actual physical board rows")
+    if wanted_cols > actual_cols:
+        parser.error("wanted columns value cannot exceed actual physical board columns")
+
     try:
         data = validate_project(json.loads(args.json.read_text(encoding="utf-8")))
         data = normalise_like_gui(data)
+        # Never silently inherit the source JSON's board dimensions.
+        data["board"].update({
+            "rows": actual_rows, "cols": actual_cols,
+            "actualRows": actual_rows, "actualCols": actual_cols,
+            "wantedRowsMode": wanted_rows_mode, "wantedRows": wanted_rows,
+            "wantedColsMode": wanted_cols_mode, "wantedCols": wanted_cols,
+        })
         warnings = list(data.pop("_collectWarnings", []))
 
         footprint_count = 0
@@ -446,6 +518,32 @@ def main() -> int:
 
         entry = campaign_index(data, args.id)
         estimate = estimate_board(data["components"], data.get("componentDefs", []))
+        # A fixed axis is exact; a max axis is an upper bound. Both values
+        # therefore define the largest permitted routing envelope.
+        allowed_holes = wanted_rows * wanted_cols
+        min_dimension_failure = (
+            (wanted_rows_mode == "fixed" and wanted_rows < max(
+                (max(p["width"], p["height"]) for p in []), default=0
+            ))
+        )
+        estimate_fits = estimate["target_holes"] <= allowed_holes
+        route_warnings = []
+        if not estimate_fits:
+            route_warnings.append(
+                f"ESTIMATED ROUTE FAILURE: target {estimate['target_holes']} holes "
+                f"exceeds wanted envelope {wanted_rows} x {wanted_cols} "
+                f"({allowed_holes} holes)"
+            )
+        if wanted_rows_mode == "fixed" and wanted_rows < max(
+            (max(p["width"], p["height"]) for p in []), default=0
+        ):
+            route_warnings.append("ESTIMATED ROUTE FAILURE: fixed wanted row count is too small for a component footprint")
+        estimate["wanted_limits"] = {
+            "rows_mode": wanted_rows_mode, "rows": wanted_rows,
+            "cols_mode": wanted_cols_mode, "cols": wanted_cols,
+            "capacity_holes": allowed_holes, "estimated_fit": estimate_fits,
+            "route_warnings": route_warnings,
+        }
         entry["boardEstimate"] = estimate
         if missing:
             warnings.append(f"{len(missing)} component definitions remain unresolved")
@@ -483,6 +581,11 @@ def main() -> int:
             "netlist_nodes": net_nodes,
             "json_pin_assignments": len(data["netAssignments"]),
             "board_estimate": estimate,
+            "actual_board": {"rows": actual_rows, "cols": actual_cols},
+            "wanted_board": {
+                "rows": {"mode": wanted_rows_mode, "value": wanted_rows},
+                "cols": {"mode": wanted_cols_mode, "value": wanted_cols},
+            },
             "component_count": len(data["components"]),
             "custom_definition_count": len(data.get("componentDefs", [])),
             "warnings": warnings,
@@ -491,6 +594,9 @@ def main() -> int:
         (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
         print(f"COLLECTED project {args.id}")
+        print(f"  actual physical board: {actual_rows} rows x {actual_cols} columns")
+        print(f"  wanted rows: {wanted_rows_mode} {wanted_rows}")
+        print(f"  wanted columns: {wanted_cols_mode} {wanted_cols}")
         print(f"  components: {len(data['components'])}")
         print(f"  nets / pin assignments: {len(data['nets'])} / {len(data['netAssignments'])}")
         print(f"  custom definitions: {len(data.get('componentDefs', []))}")
@@ -504,6 +610,8 @@ def main() -> int:
         if estimate["unknown_size_parts"]:
             print("  WARNING: fallback 2x2 estimate for: " + ", ".join(estimate["unknown_size_parts"]))
         print(f"  campaign input: {target}")
+        for warning in route_warnings:
+            print(f"  WARNING: {warning}")
         for warning in warnings:
             print(f"  WARNING: {warning}")
         return 0
