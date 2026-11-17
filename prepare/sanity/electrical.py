@@ -198,10 +198,9 @@ def run_electrical_sanity(project: Any, netlist_text: str | None = None) -> dict
             duplicate_labels.add(label)
         else:
             label_to_id[label] = cid
-    for label in sorted(duplicate_labels):
-        errors.append(f"component label {label!r} is not unique; cannot map .net references")
-
     if netlist_text is not None:
+        for label in sorted(duplicate_labels):
+            errors.append(f"component label {label!r} is not unique; cannot map .net references")
         netlist_partition, netlist_errors = _netlist_partition(netlist_text, label_to_id)
         errors.extend(netlist_errors)
         json_partition = {frozenset(members) for members in json_groups.values() if members}
