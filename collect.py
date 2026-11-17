@@ -45,7 +45,7 @@ def is_default_id(value: str | None) -> bool:
     return (
         value in DEFAULT_IDS
         or value.startswith("def-ic-")
-        or bool(re.fullmatch(r"def-generic-2pin-\\d+h", value))
+        or bool(re.fullmatch(r"def-generic-2pin-\d+h", value))
     )
 
 def sha256(path: Path) -> str:
