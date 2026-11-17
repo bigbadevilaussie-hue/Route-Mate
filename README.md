@@ -2,58 +2,81 @@
 
 An independent stripboard placement, routing and optimisation engine.
 
-Route-Mate uses Karl's existing project JSON as an input format, but owns the solver and validation logic. It is not a fork of the existing GUI solver.
+Karl's Circuit Designer remains the circuit-design front end. Route-Mate takes Karl's exported project data and owns the physical stripboard problem: component placement, strip cuts, jumper routing, construction checks, optimisation and build output. Route-Mate is not a replacement for Karl's schematic editor and is not a re-skinned copy of the legacy GUI solver.
 
-## Core principles
+## The workflow
 
-- **Hard board constraints:** locked dimensions are absolute limits. A candidate outside the permitted rows or columns is invalid, not merely expensive.
-- **Separate optimisation stages:** parse and validate the circuit, place components, route connections, then score and verify the result.
-- **Electrical design-rule checks:** electrical faults cannot be traded away for a lower routing score.
-- **Reproducible experiments:** every run records its input, configuration, seed, search limits, metrics and result.
-- **Interoperable output:** preserve the source JSON model and export layouts in a compatible form wherever the schema permits.
+1. **IN** — collect the files exported by Karl.
+2. **PREPARE** — validate and understand the circuit, select the real board, set component placement constraints and checking preferences.
+3. **SOLVE** — search legal placements, cuts and jumpers; optimise and independently verify candidates.
+4. **DISPLAY** — show the board, cuts, jumpers, component positions, reports and practical build instructions.
 
-## Planned architecture
+These are software boundaries, not just menu labels. Each stage passes a defined Route-Mate project model to the next.
 
-1. **Input adapter** — parse Karl-compatible JSON into an internal circuit model; retain unknown source fields for round-trip compatibility.
-2. **Board model** — represent copper strips, holes, cuts, component footprints, wires and board boundaries.
-3. **Connectivity model** — represent nets and pin-to-net membership independently of physical placement.
-4. **Placement engine** — search legal component positions while enforcing hard dimensions and footprint constraints.
-5. **Routing engine** — connect pins on the same net while respecting cuts, copper continuity, wire geometry and crossing rules.
-6. **Electrical DRC** — detect shorts, unintended net joins, open required pins, polarity errors and other checks supported by the available component metadata.
-7. **Scoring and experiments** — configurable optimisation objectives, deterministic seeds, move/iteration limits, batch sweeps and machine-readable result logs.
-8. **JSON exporter** — emit compatible project/layout JSON without silently discarding source data.
+## Input files
 
-## Electrical checks
+A Karl export supplies two selectable export formats:
 
-DRC results are classified separately from optimisation scores:
+- **Project JSON** — the structured project data.
+- **KiCad netlist (.net)** — the electrical connectivity export.
 
-- **Errors:** electrically invalid candidates; reject them.
-- **Warnings:** suspicious or potentially unsafe designs; report them and optionally apply a configurable penalty.
-- **Advisories:** good-practice suggestions; report without automatically rejecting.
+The export also supplies **kicad.mod**, containing module/footprint information. Route-Mate's input stage must accept the JSON, netlist and module data together, preserve source identifiers, and report missing or conflicting information rather than silently guessing.
 
-Checks must be evidence-based. For example, an LED current-limiting resistor check needs LED and supply information; capacitor voltage-rating checks need component ratings. If required metadata is absent, report the check as unknown rather than guessing.
+The files are complementary. Their exact field authority must be established by inspecting real exports and documenting the schema; do not assume one file contains everything.
 
-## Development milestones
+See [CLI input contract](docs/CLI.md).
 
-- [ ] Inspect and document the real input JSON schema using a representative project.
-- [ ] Build the input adapter and round-trip tests.
-- [ ] Implement board geometry and hard-constraint validation.
-- [ ] Implement connectivity and electrical net validation.
-- [ ] Implement a first legal placement and routing baseline.
-- [ ] Add optimisation, deterministic experiments and result reporting.
-- [ ] Add compatible JSON export and regression tests.
+## Board and placement rules
 
-## Initial reference experiment
+- **Physical board dimensions are mandatory before solving.** They describe the actual purchased stripboard and are absolute upper limits.
+- **Preferred finished dimensions are optional.** They are a target for a smaller cut-down board, not permission to exceed the physical board.
+- Never crop a solved layout blindly. The final dimensions must preserve all components, cuts, copper connections and jumpers.
+- A component may be fully position-locked, initially placed but movable, unplaced, or edge-locked.
+- Edge locking is available only for components whose footprint supports edge mounting.
+- Edge lock selects top, bottom, left or right. The component must physically meet that edge; it may be fixed there or slide along it.
+- Fully locked means exact position and orientation. Edge-sliding means fixed to the selected edge but free to move along it.
+- These constraints belong to the shared engine and apply equally to CLI and GUI.
 
-The first reference case is the Moto GPS off-board project:
+## Checks and skill level
 
-- Input file: `moto_gps_offboard.json`
-- Board: 24 rows × 56 columns
-- Rows and columns are locked
-- Historical target to investigate: 14 wires / 30 cuts
+Keep electrical correctness separate from construction quality.
 
-The 14-wire / 30-cut figure is a target for reproduction, not a result currently guaranteed by Route-Mate.
+- Definite shorts, unintended net joins, required open connections and verified polarity faults are hard failures.
+- Warnings and good-practice advice must be evidence-based. Missing metadata means **unknown**, not an invented fault.
+- Construction checks can assess jumper crossings/interference, track lengths, cut access, soldering access, spacing and capacitor placement where the circuit data supports the advice.
+- The user chooses an electrical-check strictness from **Don't care** through **Critical**. This changes advisory/reporting behaviour, never makes a definite electrical short legal.
+- Skill level (Beginner, Intermediate, Advanced, Expert) changes the amount and style of explanation, not the underlying electrical truth.
 
-## Development policy
+Route-Mate is for hobbyists building one-off stripboard projects. It should help people make a sound, buildable board without imposing irrelevant professional-PCB rules.
 
-Do not import the legacy solver as the Route-Mate engine. Reuse the JSON format and verified domain knowledge, and implement the board model, hard constraints, optimisation and DRC as independent, testable modules.
+## Search fairness and performance
+
+**Fairness means fixed work, not fixed time.**
+
+- A candidate evaluation is one complete, defined decode-and-score workload.
+- A solve uses a recorded input hash, engine version, seed list, per-seed evaluation budget, phase schedule, move set and ranking rules.
+- Stop at the evaluation budget, never at a wall-clock timeout.
+- More CPU cores may reduce waiting time; they must not silently increase the search budget.
+- Parallelise independent seeds first and merge results deterministically.
+- Prefer integer-first metrics and deterministic tie-breaking. Verify cross-platform reproducibility with tests; do not claim it before proving it.
+- The independent verifier has final authority over physical and electrical legality.
+
+The intended architecture is a deterministic Rust evaluation kernel, a Python CLI/orchestration layer initially, an independent verifier, and an optional WASM build of the same kernel for browser use. WASM is a distribution target, not a second solver.
+
+## Development status
+
+The CLI contract and workflow are being documented before implementation. A documented option is a design contract, not a claim that the executable already supports it.
+
+## Development rules
+
+- Preserve original source data and identifiers.
+- Never turn hard physical constraints into soft score penalties.
+- Never silently invent missing electrical or footprint information.
+- Keep CLI and GUI on the same engine and validation rules.
+- Reuse proven work where its licence permits, with attribution.
+- Keep experiments reproducible and retain benchmark inputs/results.
+- Make the cleverness live inside the software; keep the user's workflow understandable.
+
+## Benchmarks
+
+Benchmark inputs and known reference results live under [benchmarks](benchmarks/). A historical result is a target for reproduction, not a Route-Mate achievement until the current engine independently reproduces and verifies it.
