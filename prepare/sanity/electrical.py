@@ -142,8 +142,12 @@ def run_electrical_sanity(project: Any, netlist_text: str | None = None) -> dict
 
     component_by_id = {str(c.get("id")): c for c in components if c.get("id")}
     net_id_set = {str(n.get("id")) for n in nets if n.get("id")}
+    raw_definitions = project.get("componentDefs") or []
+    if not isinstance(raw_definitions, list):
+        warnings.append("componentDefs is not an array; footprint pin inventories are unavailable")
+        raw_definitions = []
     definitions = {
-        str(d.get("id")): d for d in project.get("componentDefs", [])
+        str(d.get("id")): d for d in raw_definitions
         if isinstance(d, dict) and d.get("id")
     }
     assigned_pins: dict[tuple[str, str], str] = {}
