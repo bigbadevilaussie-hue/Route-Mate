@@ -106,7 +106,7 @@ class ElectricalSanityTests(unittest.TestCase):
         # Move one node to another net without changing the total node count.
         marker = '(node (ref "AGM -in") (pin "1")'
         self.assertIn(marker, netlist)
-        altered = netlist.replace(marker, '(node (ref "AGM -in") (pin "2")', 1)
+        altered = netlist.replace(marker, '(node (ref "AGM -in") (pin "99")', 1)
         report = run_electrical_sanity(project, altered)
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any(".net connectivity does not match JSON" in item
