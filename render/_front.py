@@ -231,7 +231,8 @@ def render_front_board(
                 f'{label}</text>'
             )
 
-    # Off-board parts are omitted; their solder pads remain visible when the
-    # collector has expanded them into explicit board components.
+    # Off-board parent parts are not board-mounted. Rendering their optional
+    # saved lead-pad positions is a separate follow-up; never draw the parent
+    # footprint on the board merely because it has schematic pins.
     parts.extend(['</g>', '</svg>'])
     return "".join(parts)
