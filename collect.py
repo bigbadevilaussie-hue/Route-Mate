@@ -305,7 +305,7 @@ def estimate_board(components: list[dict[str, Any]], component_defs: list[dict[s
     padded = sum((p["width"] + ESTIMATOR_GAP) * (p["height"] + ESTIMATOR_GAP) for p in included)
     target = padded * factor
     longest = max((max(p["width"], p["height"]) for p in included), default=1)
-    rows = max(longest + 2, math.ceil(math.sqrt(target / aspect)))
+    rows = max(longest + 2, round(math.sqrt(target / aspect)))
     cols = max(1, math.ceil(target / rows))
     roomy_rows, roomy_cols = rows + 4, math.ceil(cols * 1.25)
     return {
