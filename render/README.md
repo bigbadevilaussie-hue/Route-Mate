@@ -17,6 +17,20 @@ only the public API from `render/render.py` (or `from render import render_front
 The front preview is intended to be regenerated during PREPARE / Quick Set.
 It does not run placement, routing, connectivity reconstruction or validation.
 
+## Renderer speed measurements
+
+The WR and Audio fixtures were each rendered 200 times after one warm-up call.
+Timing used `time.perf_counter_ns()` around `render_front(project)`.
+
+| Fixture | Average | Median | Minimum | Maximum | SVG output |
+|---|---:|---:|---:|---:|---:|
+| WR — `benchmarks/moto/moto14wires30cuts.json` | 3.152 ms | 3.100 ms | 2.965 ms | 3.971 ms | 138,093 bytes |
+| Audio — `benchmarks/audio/audio10wires38cuts.json` | 3.093 ms | 3.041 ms | 2.893 ms | 4.017 ms | 131,327 bytes |
+
+These are measurements from the user's iMac run. They measure SVG string generation only. They exclude file I/O, SVG parsing/display, rasterisation and GUI interaction. They are a useful baseline for these two fixtures, not a cross-machine guarantee.
+
+The next performance check should measure SVG scene loading and interaction in the desktop GUI. The current generation times do not justify renderer optimisation on their own.
+
 ## Deliberately deferred
 
 - Copper-side view, strip segments and cut marks: final-stage renderer only.
@@ -54,6 +68,13 @@ entry point. When the main application is added, it should call
 Private modules are intentionally hidden behind the public API. The copper-side
 and schematic renderers can be added under this directory without changing the
 application call site.
+
+## GUI integration
+
+The selected desktop GUI stack is PySide6 + Qt Widgets + QGraphicsView.
+QtSvg should display the SVG output in the board scene. Keep selection and
+highlighting as independent scene overlays so selection changes do not require
+a complete board re-render. See [GUI architecture](../docs/GUI.md).
 
 ## Source acknowledgement
 

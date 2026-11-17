@@ -50,6 +50,16 @@ Keep electrical correctness separate from construction quality.
 
 Route-Mate is for hobbyists building one-off stripboard projects. It should help people make a sound, buildable board without imposing irrelevant professional-PCB rules.
 
+## GUI architecture
+
+**Decision: PySide6 with Qt Widgets and QGraphicsView.** The application will use a native Qt Widgets interface; the stripboard will be an interactive QGraphicsView scene. QML is not the selected UI technology.
+
+The GUI is a presentation and workflow layer. It must call the existing Route-Mate Python packages and consume the same project/result model as the CLI. It must not duplicate electrical checks, placement rules, routing or solver logic.
+
+The existing front renderer remains the SVG-producing board renderer. QtSvg can display its output in the board scene; selection/highlight overlays should be updated independently so selecting a component does not require regenerating the complete board SVG.
+
+See [GUI architecture and build notes](docs/GUI.md).
+
 ## Search fairness and performance
 
 **Fairness means fixed work, not fixed time.**
@@ -66,7 +76,11 @@ The intended architecture is a deterministic Rust evaluation kernel, a Python CL
 
 ## Development status
 
-The CLI contract and workflow are being documented before implementation. A documented option is a design contract, not a claim that the executable already supports it.
+The repository currently contains the collector, Electrical Sanity package, and a fast front-side SVG renderer with benchmark fixtures and tests. There is not yet a complete application entry point, GUI, placement/routing solver or packaged desktop application.
+
+The GUI technology decision is recorded, but the GUI itself and macOS/Windows standalone builds remain unimplemented and unverified. Existing Fan-Mate environment checks confirm that PySide6, QtSvg, QGraphicsView and PyInstaller are available in that separate environment; they do not constitute a Route-Mate application build.
+
+A documented option or architecture decision is a design contract, not a claim that the executable already supports it.
 
 ## Development rules
 
