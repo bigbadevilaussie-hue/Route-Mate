@@ -293,10 +293,10 @@ class RouteMateWindow(QMainWindow):
                 self.log_line("[COLLECT] Board dimensions cancelled; project not advanced.")
                 return
             dimensions = board_dialog.values()
-            if dimensions["wantedRows"] > dimensions["actualRows"]:
-                raise ValueError("Preferred rows cannot exceed actual physical rows.")
-            if dimensions["wantedCols"] > dimensions["actualCols"]:
-                raise ValueError("Preferred columns cannot exceed actual physical columns.")
+            if dimensions["wantedRowsMode"] == "fixed" and dimensions["wantedRows"] > dimensions["actualRows"]:
+                raise ValueError("Fixed preferred rows cannot exceed actual physical rows.")
+            if dimensions["wantedColsMode"] == "fixed" and dimensions["wantedCols"] > dimensions["actualCols"]:
+                raise ValueError("Fixed preferred columns cannot exceed actual physical columns.")
             project["board"].update(dimensions)
             project["board"]["rows"] = dimensions["actualRows"]
             project["board"]["cols"] = dimensions["actualCols"]
