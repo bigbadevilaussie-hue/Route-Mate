@@ -574,6 +574,8 @@ def main() -> int:
             if source is not None and source.is_file():
                 shutil.copy2(source, sources / source.name)
 
+        warnings.extend(route_warnings)
+
         manifest = {
             "project_id": args.id,
             "source_json": str(args.json.resolve()),
