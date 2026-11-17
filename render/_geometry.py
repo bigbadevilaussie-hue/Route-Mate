@@ -145,11 +145,9 @@ def component_geometry(
     if definition.get("flexible") and len(pins) >= 2:
         end = component.get("flexibleEndPos")
         if not isinstance(end, dict):
-            dr, dc = rotate_offset(
-                int(pins[1].get("offsetRow", 1)),
-                int(pins[1].get("offsetCol", 0)),
-                rotation, max_row, max_col,
-            )
+            # Flexible parts default to pin 2's unrotated offset, matching the source model.
+            dr = int(pins[1].get("offsetRow", 1))
+            dc = int(pins[1].get("offsetCol", 0))
             end = {"row": base_row + dr, "col": base_col + dc}
         pin_points = [
             {"id": str(pins[0].get("id", "1")), "name": str(pins[0].get("name", "1")),
