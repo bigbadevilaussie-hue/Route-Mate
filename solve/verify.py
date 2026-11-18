@@ -39,10 +39,10 @@ class _UnionFind:
 def _coord(value: Any, context: str) -> tuple[int, int]:
     if not isinstance(value, dict):
         raise ValueError(f"{context}: coordinate must be an object")
-    try:
-        return int(value["row"]), int(value["col"])
-    except (KeyError, TypeError, ValueError):
-        raise ValueError(f"{context}: coordinate needs integer row and col") from None
+    row, col = value.get("row"), value.get("col")
+    if type(row) is not int or type(col) is not int:
+        raise ValueError(f"{context}: coordinate needs integer row and col")
+    return row, col
 
 
 def verify_project(project: Any) -> dict[str, Any]:
@@ -122,7 +122,13 @@ def verify_project(project: Any) -> dict[str, Any]:
             if (row, col) not in cut_boundaries and left not in cut_holes and right not in cut_holes:
                 uf.union(left, right)
 
-    for index, wire in enumerate(board.get("wires") or []):
+    raw_wires = board.get("wires")
+    if raw_wires is None:
+        raw_wires = []
+    if not isinstance(raw_wires, list):
+        errors.append("board.wires must be a list")
+        raw_wires = []
+    for index, wire in enumerate(raw_wires):
         try:
             start = _coord(wire.get("from"), f"wire[{index}].from")
             end = _coord(wire.get("to"), f"wire[{index}].to")
