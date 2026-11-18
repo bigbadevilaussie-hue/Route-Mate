@@ -52,11 +52,23 @@ Route-Mate is for hobbyists building one-off stripboard projects. It should help
 
 ## GUI architecture
 
-**Decision: PySide6 with Qt Widgets and QGraphicsView.** The application will use a native Qt Widgets interface; the stripboard will be an interactive QGraphicsView scene. QML is not the selected UI technology.
+**Implemented GUI: PySide6 with Qt Widgets and QGraphicsView.** The repository now contains an early-stage desktop GUI in `gui/main.py`.
 
-The GUI is a presentation and workflow layer. It must call the existing Route-Mate Python packages and consume the same project/result model as the CLI. It must not duplicate electrical checks, placement rules, routing or solver logic.
+The current GUI can:
 
-The existing front renderer remains the SVG-producing board renderer. QtSvg can display its output in the board scene; selection/highlight overlays should be updated independently so selecting a component does not require regenerating the complete board SVG.
+- open a Karl/Route-Mate project JSON file;
+- collect actual physical and preferred board dimensions;
+- run collector validation and Electrical Sanity checks;
+- render and display the component-side board artwork using the production SVG renderer;
+- run the repository's unittest suite during project loading;
+- report component positions and collect preliminary Locked / Unlocked, Edge and Slide settings for already-placed components;
+- refresh the component-side preview after components are marked for removal.
+
+**The GUI is not yet a complete stripboard design application.** Its current workflow stops at the PRE-SOLVE hand-off. The lock settings are collected in the GUI, but they are not yet connected to a complete placement/solve pipeline. There is no finished interactive copper-side editor, route display, optimiser workflow or final build/export workflow.
+
+The GUI is a presentation and workflow layer. It must call the shared Route-Mate Python packages and consume the same project/result model as the CLI. It must not duplicate electrical checks, placement rules, routing or solver logic.
+
+The board is currently displayed through the existing SVG renderer inside a Qt graphics view. The selected long-term architecture remains a stable SVG board layer with independent interaction overlays.
 
 See [GUI architecture and build notes](docs/GUI.md).
 
@@ -76,11 +88,23 @@ The intended architecture is a deterministic Rust evaluation kernel, a Python CL
 
 ## Development status
 
-The repository currently contains the collector, Electrical Sanity package, and a fast front-side SVG renderer with benchmark fixtures and tests. There is not yet a complete application entry point, GUI, placement/routing solver or packaged desktop application.
+Route-Mate is under active development. The repository currently contains:
 
-The GUI technology decision is recorded, but the GUI itself and macOS/Windows standalone builds remain unimplemented and unverified. Existing Fan-Mate environment checks confirm that PySide6, QtSvg, QGraphicsView and PyInstaller are available in that separate environment; they do not constitute a Route-Mate application build.
+- a project collector and normalisation layer;
+- the Electrical Sanity package;
+- a front-side SVG board renderer;
+- an early-stage PySide6 desktop GUI (`gui/main.py`);
+- a deterministic first-fit placement module (`solve/quick_place.py`);
+- an independent electrical copper-connectivity verifier (`solve/verify.py`);
+- benchmark fixtures and automated tests for the implemented modules.
 
-A documented option or architecture decision is a design contract, not a claim that the executable already supports it.
+The desktop GUI is real but incomplete. It currently handles project loading, board-dimension entry, collector/electrical checks, component-side rendering, a repository test run and preliminary placement-lock questions. It stops before PRE-SOLVE; it does not yet provide end-to-end placement, strip-cut and jumper routing, optimisation or final result display/export.
+
+The placement module is a basic first-fit component placer, not a complete solver. It does not yet perform net-aware placement or route cuts and jumpers. The verifier checks electrical connectivity for the physical copper model it currently supports; it is not yet the complete physical/construction verifier described by the target architecture.
+
+There is no packaged macOS or Windows desktop application yet. The GUI runs from the development environment; standalone packaging and clean-machine testing remain outstanding.
+
+A documented feature, target behaviour or architecture decision is not proof that the executable already implements it. The sections below distinguish current implementation from intended behaviour.
 
 ## Development rules
 
