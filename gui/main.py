@@ -16,7 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 GUI_VERSION = "1.12"
-CODE_VERSION = "1.12"
+CODE_VERSION = "1.13"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -371,14 +371,16 @@ class RouteMateWindow(QMainWindow):
                                     "The project failed electrical sanity checks. See the log.")
                 return
 
+            from placement_policy import is_off_board_component
+
             # Preserve and display the positions already present in the imported project.
             # Quick Place is not Quick Fit and must not overwrite the user's starting layout.
             components = project["components"]
             placed = [component for component in components
                       if isinstance(component.get("boardPos"), dict)
-                      and not component.get("offBoard") and not component.get("boardExcluded")]
+                      and not is_off_board_component(component)]
             on_board = [component for component in components
-                        if not component.get("offBoard") and not component.get("boardExcluded")]
+                        if not is_off_board_component(component)]
             self.log_line(
                 f"[PLACEMENT] Existing layout: {len(placed)} positioned; "
                 f"{len(on_board)} on-board; "
