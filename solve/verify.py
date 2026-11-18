@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from placement_policy import is_off_board_component
+
 from render._geometry import component_geometry, resolve_definition
 
 
@@ -158,7 +160,7 @@ def verify_project(project: Any) -> dict[str, Any]:
         if component is None:
             errors.append(f"assignment[{index}] references unknown component {cid!r}")
             continue
-        if component.get("offBoard") is True or component.get("boardExcluded") is True:
+        if is_off_board_component(component):
             continue
         if not isinstance(component.get("boardPos"), dict):
             errors.append(f"{component.get('label') or cid}: assigned terminal has no board position")
