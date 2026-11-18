@@ -19,10 +19,32 @@ def load_solved_moto() -> dict:
 
 
 class SolvedExportImportTests(unittest.TestCase):
-    def test_karl_solved_export_passes_sanity_after_validation(self):
-        project = validate_project(load_solved_moto())
-        report = run_electrical_sanity(project)
-        self.assertEqual(report["status"], "PASS", report["errors"])
+    def test_karl_symbolic_pin_export_passes_after_validation(self):
+        project = load_solved_moto()
+        aliases = {
+            "def-diode": ("a", "k"),
+            "def-zener": ("a", "k"),
+            "def-led": ("a", "k"),
+            "def-cap-polarized": ("+", "-"),
+            "def-npn": ("b", "c", "e"),
+            "def-pnp": ("b", "c", "e"),
+            "def-pmos": ("g", "d", "s"),
+            "def-nmos": ("g", "d", "s"),
+        }
+        for definition in project.get("componentDefs", []):
+            sequence = aliases.get(str(definition.get("id")))
+            if sequence:
+                for pin, pin_id in zip(definition.get("pins", []), sequence):
+                    pin["id"] = pin_id
+
+        before = run_electrical_sanity(project)
+        self.assertEqual(before["status"], "FAIL")
+        self.assertTrue(any("unknown footprint pin" in error
+                            for error in before["errors"]))
+
+        validate_project(project)
+        after = run_electrical_sanity(project)
+        self.assertEqual(after["status"], "PASS", after["errors"])
 
     def test_alias_normalisation_preserves_saved_geometry_and_pin_names(self):
         project = {
