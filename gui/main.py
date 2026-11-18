@@ -10,7 +10,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-GUI_VERSION = "1.04"
+GUI_VERSION = "1.05"
 CODE_VERSION = "1.05"
 
 from PySide6.QtCore import Qt, QByteArray
@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox, QHBoxLayout,
     QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QComboBox,
-    QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget,
+    QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
 
@@ -197,21 +197,31 @@ class RouteMateWindow(QMainWindow):
         load_action = QAction("Load JSON", self)
         load_action.triggered.connect(self.load_json)
         toolbar.addAction(load_action)
+        export_top_action = QAction("Export top SVG", self)
+        export_top_action.triggered.connect(lambda: self.export_svg("top"))
+        toolbar.addAction(export_top_action)
+        export_copper_action = QAction("Export copper SVG", self)
+        export_copper_action.triggered.connect(lambda: self.export_svg("copper"))
+        toolbar.addAction(export_copper_action)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(5000)
         self.log.setPlaceholderText("Route-Mate running log")
-        self.board_view = BoardView()
+        self.top_view = BoardView()
+        self.copper_view = BoardView()
+        self.board_tabs = QTabWidget()
+        self.board_tabs.addTab(self.top_view, "Component side")
+        self.board_tabs.addTab(self.copper_view, "Copper side")
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.log)
-        split.addWidget(self.board_view)
+        split.addWidget(self.board_tabs)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
         split.setSizes([320, 1280])
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: collect → sanity checks → component-side render → tests → PRE-SOLVE locks.")
+        self.log_line("Workflow: collect → sanity checks → dual-side render → tests → PRE-SOLVE locks.")
         self.log_line("PRE-SOLVE itself is not implemented; the GUI stops after collecting lock settings.")
 
     def log_line(self, message: str):
