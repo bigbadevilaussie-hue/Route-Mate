@@ -95,8 +95,21 @@ def quick_place(project: dict[str, Any]) -> dict[str, Any]:
                 break
             minr,minc = min(r for r,col in shape),min(col for r,col in shape)
             maxr,maxc = max(r for r,col in shape),max(col for r,col in shape)
-            height,width = maxr-minr+1,maxc-minc+1
-            if height>rows or width>cols: continue
+            try:
+                footprint_height = int(definition.get("height", 1))
+                footprint_width = int(definition.get("width", 1))
+                if footprint_height < 1 or footprint_width < 1:
+                    raise ValueError("footprint dimensions must be positive")
+            except (TypeError, ValueError) as exc:
+                errors.append(f"{label}: invalid footprint dimensions: {exc}")
+                break
+            if rotation in (90, 270):
+                footprint_height, footprint_width = footprint_width, footprint_height
+            # Sparse occupancy controls collisions; declared dimensions
+            # control whether the complete footprint fits on the board.
+            height = max(footprint_height, maxr + 1) - minr
+            width = max(footprint_width, maxc + 1) - minc
+            if height > rows or width > cols: continue
             for top in range(rows-height+1):
                 for left in range(cols-width+1):
                     cells={(top+r-minr,left+col-minc) for r,col in shape}
