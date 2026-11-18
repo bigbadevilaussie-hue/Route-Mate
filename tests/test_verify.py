@@ -35,11 +35,16 @@ def project():
 
 
 class VerifyTests(unittest.TestCase):
-    def test_legacy_moto_layout_is_physically_connected(self):
+    def test_legacy_moto_layout_rejects_agm_terminal_outside_board(self):
         path = ROOT / "benchmarks" / "moto" / "moto14wires30cuts.json"
         data = validate_project(json.loads(path.read_text(encoding="utf-8")))
         report = verify_project(data)
-        self.assertEqual(report["status"], "PASS", report["errors"])
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(
+            any("AGM -in pin 2" in error and "outside board" in error
+                for error in report["errors"]),
+            report["errors"],
+        )
 
     def test_continuous_strip_connects_same_net(self):
         report = verify_project(project())
