@@ -26,6 +26,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from placement_policy import is_off_board_component
+
 DEFAULT_IDS = {
     "def-resistor", "def-capacitor", "def-cap-polarized", "def-led",
     "def-diode", "def-potentiometer", "def-switch", "def-zener",
@@ -338,7 +340,7 @@ def estimate_board(components: list[dict[str, Any]], component_defs: list[dict[s
                    if isinstance(d, dict) and d.get("id")}
     included, unknown, excluded = [], [], 0
     for component in components:
-        if component.get("offBoard") is True or component.get("boardExcluded") is True:
+        if is_off_board_component(component):
             excluded += 1
             continue
         did = component_def_id(component)
