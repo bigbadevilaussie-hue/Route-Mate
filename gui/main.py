@@ -163,8 +163,8 @@ class BoardView(QGraphicsView):
     def show_svg(self, svg: str):
         import re
         svg = re.sub(
-            r"(<svg\\b[^>]*>)",
-            r"\\1<style>text{fill:#000000!important;stroke:#f3e5bf!important;"
+            r"(<svg\b[^>]*>)",
+            r"\1<style>text{fill:#000000!important;stroke:#f3e5bf!important;"
             r"stroke-width:0.55px!important;paint-order:stroke fill!important;"
             r"stroke-linejoin:round!important;font-weight:700!important;opacity:1!important;}"
             r"tspan{fill:#000000!important;stroke:#f3e5bf!important;"
