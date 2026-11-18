@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.12"
+GUI_VERSION = "1.13"
 CODE_VERSION = "1.13"
 
 from PySide6.QtCore import Qt, QByteArray
