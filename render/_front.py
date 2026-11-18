@@ -165,7 +165,7 @@ def render_front_board(
     # matches the source footprint grid; detailed package art can be layered in
     # later without changing the public render_front() API.
     for component in components:
-        if component.get("offBoard") or component.get("boardExcluded") or not component.get("boardPos"):
+        if is_off_board_component(component) or not component.get("boardPos"):
             continue
         definition = resolve_definition(component, definitions)
         if not definition:
