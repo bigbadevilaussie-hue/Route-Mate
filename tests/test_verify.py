@@ -57,6 +57,36 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any("open net M" in error for error in report["errors"]))
 
+    def test_editor_v4_between_cut_interrupts_only_the_link(self):
+        data = project()
+        data["board"]["cuts"] = [{"row": 0, "col": 1, "kind": "between"}]
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("open net N" in error for error in report["errors"]))
+        self.assertEqual(report["counts"]["cuts"], 1)
+
+    def test_cut_without_kind_defaults_to_between(self):
+        data = project()
+        data["board"]["cuts"] = [{"row": 0, "col": 1}]
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("open net N" in error for error in report["errors"]))
+
+    def test_below_cut_is_explicitly_unsupported_without_pattern_model(self):
+        data = project()
+        data["board"]["cuts"] = [{"row": 0, "col": 1, "kind": "below"}]
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("requires patterned-board" in error for error in report["errors"]))
+
+    def test_real_editor_cut_export_is_accepted_as_a_between_cut(self):
+        path = ROOT / "test-fixtures" / "editor-exports" / "cut.json"
+        data = validate_project(json.loads(path.read_text(encoding="utf-8")))
+        report = verify_project(data)
+        self.assertEqual(report["counts"]["cuts"], 1)
+        self.assertEqual(report["status"], "PASS", report["errors"])
+        self.assertTrue(report["warnings"])
+
     def test_cut_hole_interrupts_strip(self):
         data = project()
         data["board"]["cuts"] = [{"row": 0, "col": 1, "kind": "hole"}]
