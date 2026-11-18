@@ -48,9 +48,10 @@ def _coord(value: Any, context: str) -> tuple[int, int]:
 def verify_project(project: Any) -> dict[str, Any]:
     """Check whether physical copper connects exactly the assigned on-board nets.
 
-    A cut with kind="hole" removes both horizontal copper links incident to
-    that hole; the hole itself remains a possible isolated terminal. Strips
-    run horizontally (columns vary, row is constant).
+    A cut with kind="between" (also the v4 default when kind is absent)
+    severs the link between col and col+1. A kind="hole" cut isolates that
+    hole from both neighbours. Vertical "below" cuts require patterned-board
+    copper, which this verifier does not yet model.
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -79,26 +80,46 @@ def verify_project(project: Any) -> dict[str, Any]:
         for col in range(cols):
             uf.add((row, col))
 
-    cuts: set[tuple[int, int]] = set()
-    for index, cut in enumerate(board.get("cuts") or []):
+    cut_holes: set[tuple[int, int]] = set()
+    cut_boundaries: set[tuple[int, int]] = set()
+    raw_cuts = board.get("cuts") or []
+    if not isinstance(raw_cuts, list):
+        errors.append("board.cuts must be a list")
+        raw_cuts = []
+    for index, cut in enumerate(raw_cuts):
         try:
             point = _coord(cut, f"cut[{index}]")
-            if cut.get("kind", "hole") != "hole":
-                errors.append(f"cut[{index}]: unsupported cut kind {cut.get('kind')!r}")
+            kind = cut.get("kind", "between")
+            if kind not in ("between", "hole", "below"):
+                errors.append(f"cut[{index}]: unsupported cut kind {kind!r}")
                 continue
             if not (0 <= point[0] < rows and 0 <= point[1] < cols):
                 errors.append(f"cut[{index}]: outside board at {point}")
                 continue
-            cuts.add(point)
+            if kind == "below":
+                errors.append(
+                    f"cut[{index}]: kind 'below' requires patterned-board "
+                    "vertical copper, which the verifier does not yet model"
+                )
+                continue
+            if kind == "between":
+                if point[1] >= cols - 1:
+                    errors.append(
+                        f"cut[{index}]: between cut at {point} has no hole to its right"
+                    )
+                    continue
+                cut_boundaries.add(point)
+            else:
+                cut_holes.add(point)
         except (ValueError, AttributeError) as exc:
             errors.append(str(exc))
-    counts["cuts"] = len(cuts)
+    counts["cuts"] = len(cut_holes) + len(cut_boundaries)
 
-    # Each cut hole interrupts both neighbouring strip links.
+    # A between cut severs one link; a drilled hole isolates that hole.
     for row in range(rows):
         for col in range(cols - 1):
             left, right = (row, col), (row, col + 1)
-            if left not in cuts and right not in cuts:
+            if (row, col) not in cut_boundaries and left not in cut_holes and right not in cut_holes:
                 uf.union(left, right)
 
     for index, wire in enumerate(board.get("wires") or []):
