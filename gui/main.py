@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.06"
-CODE_VERSION = "1.06"
+GUI_VERSION = "1.07"
+CODE_VERSION = "1.07"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -260,8 +260,7 @@ class RouteMateWindow(QMainWindow):
             values = self.presolve_constraints[str(component.get("id"))]
             self.log_line(
                 f"[LOCKS] {component.get('label') or component.get('id')}: "
-                f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']} "
-                f"Remove={values['remove']}"
+                f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']}"
             )
         for component in placed:
             values = self.presolve_constraints[str(component.get("id"))]
