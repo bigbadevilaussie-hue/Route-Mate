@@ -11,6 +11,7 @@ import math
 from typing import Any
 
 from ._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from placement_policy import is_off_board_component
 
 PITCH = 30.0
 PADDING = 42.0
@@ -36,7 +37,7 @@ def _net_data(project: dict[str, Any], components: list[dict[str, Any]], definit
         assignments[(cid, pid)] = nid
     for component in components:
         definition = resolve_definition(component, definitions)
-        if not definition or component.get("offBoard") or component.get("boardExcluded"):
+        if not definition or is_off_board_component(component):
             continue
         pins, _ = component_geometry(component, definition)
         for pin in pins:
