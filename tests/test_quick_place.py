@@ -7,6 +7,7 @@ from collect import validate_project
 from solve.quick_place import quick_place
 from placement_policy import is_off_board_component
 from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from render import render_front
 ROOT=Path(__file__).resolve().parents[1]
 
 def load(name):
@@ -39,15 +40,19 @@ class QuickPlaceTests(unittest.TestCase):
                 occupied[cell]=c.get("label")
 
     def test_moto_places_all_included_parts_within_board(self):
-        result=quick_place(load("moto"))
+        source=load("moto")
+        result=quick_place(source)
         self.assertEqual(result["status"],"PASS",result["errors"])
         self.assertEqual(result["placed"],32)
         self.assertEqual(result["excluded"],12)
         gps=next(c for c in result["project"]["components"] if c.get("label")=="GPS")
         self.assertIsNone(gps.get("boardPos"))
         self.assertTrue(is_off_board_component(gps))
-        source_gps=next(c for c in load("moto")["components"] if c.get("label")=="GPS")
+        source_gps=next(c for c in source["components"] if c.get("label")=="GPS")
         self.assertNotIn("offBoard", source_gps)  # source fixture is not rewritten
+        self.assertIsNone(source_gps.get("boardPos"))
+        gps["boardPos"]={"row":0,"col":0}
+        self.assertNotIn(">GPS<", render_front(result["project"]))
         p=result["project"]
         defs=dict(BUILTIN_DEFS)
         defs.update({str(d["id"]):d for d in p.get("componentDefs",[])})
