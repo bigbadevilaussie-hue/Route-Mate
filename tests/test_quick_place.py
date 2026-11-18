@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from collect import validate_project
 from solve.quick_place import quick_place
-from render._geometry import component_geometry, resolve_definition
+from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 ROOT=Path(__file__).resolve().parents[1]
 
 def load(name):
@@ -26,7 +26,7 @@ class QuickPlaceTests(unittest.TestCase):
         result=quick_place(load("audio"))
         self.assertEqual(result["status"],"PASS",result["errors"])
         p=result["project"]
-        defs={str(d["id"]):d for d in p["componentDefs"]}
+        defs=dict(BUILTIN_DEFS)\n        defs.update({str(d["id"]):d for d in p["componentDefs"]})
         occupied={}
         for c in p["components"]:
             if c.get("offBoard") or c.get("boardExcluded"): continue
@@ -36,12 +36,12 @@ class QuickPlaceTests(unittest.TestCase):
                 self.assertNotIn(cell,occupied,f"{c.get('label')} overlaps {occupied.get(cell)} at {cell}")
                 occupied[cell]=c.get("label")
 
-    def test_moto_places_then_verifies(self):
+    def test_moto_places_all_included_parts_within_board(self):
         result=quick_place(load("moto"))
         self.assertEqual(result["status"],"PASS",result["errors"])
         self.assertEqual(result["placed"],33)
         p=result["project"]
-        defs={str(d["id"]):d for d in p.get("componentDefs",[])}
+        defs=dict(BUILTIN_DEFS)\n        defs.update({str(d["id"]):d for d in p.get("componentDefs",[])})
         for c in p["components"]:
             if c.get("offBoard") or c.get("boardExcluded"): continue
             pins,body=component_geometry(c,resolve_definition(c,defs))
