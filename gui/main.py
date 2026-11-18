@@ -146,11 +146,80 @@ class BoardView(QGraphicsView):
                             QPainter.RenderHint.TextAntialiasing |
                             QPainter.RenderHint.SmoothPixmapTransform)
         self.setBackgroundBrush(QBrush(QColor("#f2f2f2")))
-        # Fixed view: no mouse-wheel zoom, panning, or visible scrollbars.
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._renderer = None
+
+    def fit_board(self):
+        self.resetTransform()
+        self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.scene() and not self.scene().sceneRect().isEmpty():
+            self.fit_board()
+
+    def show_svg(self, svg: str):
+        import re
+        svg = re.sub(
+            r"(<svg\\b[^>]*>)",
+            r"\\1<style>text{fill:#000000!important;stroke:#f3e5bf!important;"
+            r"stroke-width:0.55px!important;paint-order:stroke fill!important;"
+            r"stroke-linejoin:round!important;font-weight:700!important;opacity:1!important;}"
+            r"tspan{fill:#000000!important;stroke:#f3e5bf!important;"
+            r"stroke-width:0.55px!important;font-weight:700!important;opacity:1!important;}</style>",
+            svg, count=1,
+        )
+        scene = self.scene()
+        scene.clear()
+        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+        if not renderer.isValid():
+            raise ValueError("Component-side renderer produced invalid SVG.")
+        item = QGraphicsSvgItem()
+        item.setSharedRenderer(renderer)
+        scene.addItem(item)
+        self._renderer = renderer
+        scene.setSceneRect(item.boundingRect())
+        self.fit_board()
+
+
+class RouteMateWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(f"Route-Mate GUI v{GUI_VERSION} (Code v{CODE_VERSION})")
+        self.resize(1600, 950)
+        self.setMinimumSize(1000, 650)
+        self.project: dict[str, Any] | None = None
+        self.project_path: Path | None = None
+        self.presolve_constraints: dict[str, dict[str, bool]] = {}
+
+        toolbar = QToolBar("Main")
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
+        load_action = QAction("Load JSON", self)
+        load_action.triggered.connect(self.load_json)
+        toolbar.addAction(load_action)
+
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(5000)
+        self.log.setPlaceholderText("Route-Mate running log")
+        self.top_view = BoardView()
+        split = QSplitter(Qt.Orientation.Horizontal)
+        split.addWidget(self.log)
+        split.addWidget(self.top_view)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setSizes([320, 1280])
+        self.setCentralWidget(split)
+        self.statusBar().showMessage("Ready. Load a project JSON to begin.")
+        self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
+        self.log_line("Workflow: collect → electrical sanity → tests → Quick Place → component-side preview → PRE-SOLVE constraints.")
+        self.log_line("PRE-SOLVE solver is not implemented; this workflow currently prepares placement and constraints.")
+
+    def log_line(self, message: str):
+        self.log.appendPlainText(message)
 
     def fit_board(self):
         self.top_view.fit_board()
