@@ -26,7 +26,8 @@ class QuickPlaceTests(unittest.TestCase):
         result=quick_place(load("audio"))
         self.assertEqual(result["status"],"PASS",result["errors"])
         p=result["project"]
-        defs=dict(BUILTIN_DEFS)\n        defs.update({str(d["id"]):d for d in p["componentDefs"]})
+        defs=dict(BUILTIN_DEFS)
+        defs.update({str(d["id"]):d for d in p["componentDefs"]})
         occupied={}
         for c in p["components"]:
             if c.get("offBoard") or c.get("boardExcluded"): continue
@@ -41,7 +42,8 @@ class QuickPlaceTests(unittest.TestCase):
         self.assertEqual(result["status"],"PASS",result["errors"])
         self.assertEqual(result["placed"],33)
         p=result["project"]
-        defs=dict(BUILTIN_DEFS)\n        defs.update({str(d["id"]):d for d in p.get("componentDefs",[])})
+        defs=dict(BUILTIN_DEFS)
+        defs.update({str(d["id"]):d for d in p.get("componentDefs",[])})
         for c in p["components"]:
             if c.get("offBoard") or c.get("boardExcluded"): continue
             pins,body=component_geometry(c,resolve_definition(c,defs))
