@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from collect import validate_project
 from solve.quick_place import quick_place
+from placement_policy import is_off_board_component
 from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -30,7 +31,7 @@ class QuickPlaceTests(unittest.TestCase):
         defs.update({str(d["id"]):d for d in p["componentDefs"]})
         occupied={}
         for c in p["components"]:
-            if c.get("offBoard") or c.get("boardExcluded"): continue
+            if is_off_board_component(c): continue
             pins,body=component_geometry(c,resolve_definition(c,defs))
             cells={(x["row"],x["col"]) for x in pins}|set(body)
             for cell in cells:
@@ -40,12 +41,18 @@ class QuickPlaceTests(unittest.TestCase):
     def test_moto_places_all_included_parts_within_board(self):
         result=quick_place(load("moto"))
         self.assertEqual(result["status"],"PASS",result["errors"])
-        self.assertEqual(result["placed"],33)
+        self.assertEqual(result["placed"],32)
+        self.assertEqual(result["excluded"],12)
+        gps=next(c for c in result["project"]["components"] if c.get("label")=="GPS")
+        self.assertIsNone(gps.get("boardPos"))
+        self.assertTrue(is_off_board_component(gps))
+        source_gps=next(c for c in load("moto")["components"] if c.get("label")=="GPS")
+        self.assertNotIn("offBoard", source_gps)  # source fixture is not rewritten
         p=result["project"]
         defs=dict(BUILTIN_DEFS)
         defs.update({str(d["id"]):d for d in p.get("componentDefs",[])})
         for c in p["components"]:
-            if c.get("offBoard") or c.get("boardExcluded"): continue
+            if is_off_board_component(c): continue
             pins,body=component_geometry(c,resolve_definition(c,defs))
             for point in [(x["row"],x["col"]) for x in pins]+list(body):
                 self.assertTrue(0<=point[0]<p["board"]["rows"] and
