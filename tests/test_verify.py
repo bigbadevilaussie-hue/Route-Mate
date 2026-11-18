@@ -1,0 +1,89 @@
+"""Tests for the independent stripboard connectivity verifier."""
+from __future__ import annotations
+
+import copy
+import unittest
+
+from solve.verify import verify_project
+
+
+def project():
+    return {
+        "board": {"rows": 2, "cols": 5, "cuts": [], "wires": []},
+        "components": [
+            {"id": "A", "label": "A", "defId": "two", "boardPos": {"row": 0, "col": 0}},
+            {"id": "B", "label": "B", "defId": "two", "boardPos": {"row": 1, "col": 0}},
+        ],
+        "componentDefs": [{
+            "id": "two", "pins": [
+                {"id": "1", "offsetRow": 0, "offsetCol": 0},
+                {"id": "2", "offsetRow": 0, "offsetCol": 2},
+            ], "bodyCells": [],
+        }],
+        "nets": [{"id": "N"}, {"id": "M"}],
+        "netAssignments": [
+            {"componentId": "A", "pinId": "1", "netId": "N"},
+            {"componentId": "A", "pinId": "2", "netId": "N"},
+            {"componentId": "B", "pinId": "1", "netId": "M"},
+        ],
+    }
+
+
+class VerifyTests(unittest.TestCase):
+    def test_continuous_strip_connects_same_net(self):
+        report = verify_project(project())
+        self.assertEqual(report["status"], "PASS", report["errors"])
+
+    def test_component_does_not_join_its_own_pins(self):
+        data = project()
+        data["netAssignments"][1]["netId"] = "M"
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("open net M" in error for error in report["errors"]))
+
+    def test_cut_hole_interrupts_strip(self):
+        data = project()
+        data["board"]["cuts"] = [{"row": 0, "col": 1, "kind": "hole"}]
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("open net N" in error for error in report["errors"]))
+
+    def test_jumper_restores_connection_across_cut(self):
+        data = project()
+        data["board"]["cuts"] = [{"row": 0, "col": 1, "kind": "hole"}]
+        data["board"]["wires"] = [{
+            "id": "W1", "from": {"row": 0, "col": 0},
+            "to": {"row": 0, "col": 2},
+        }]
+        report = verify_project(data)
+        self.assertEqual(report["status"], "PASS", report["errors"])
+
+    def test_different_nets_on_same_copper_are_short(self):
+        data = project()
+        data["netAssignments"][1]["netId"] = "M"
+        data["components"][1]["boardPos"] = {"row": 0, "col": 2}
+        data["netAssignments"][2]["netId"] = "M"
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("short at copper group" in error for error in report["errors"]))
+
+    def test_offboard_assignments_are_not_physical_terminals(self):
+        data = project()
+        data["components"][1]["offBoard"] = True
+        data["components"][1]["boardPos"] = None
+        report = verify_project(data)
+        self.assertEqual(report["status"], "PASS", report["errors"])
+        self.assertEqual(report["counts"]["on_board_terminals"], 2)
+
+    def test_wire_outside_board_is_rejected(self):
+        data = project()
+        data["board"]["wires"] = [{
+            "from": {"row": 0, "col": 0}, "to": {"row": 9, "col": 0},
+        }]
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("outside board" in error for error in report["errors"]))
+
+
+if __name__ == "__main__":
+    unittest.main()
