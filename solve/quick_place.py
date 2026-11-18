@@ -52,6 +52,7 @@ def quick_place(project: dict[str, Any]) -> dict[str, Any]:
                 errors.append(f"{label}: invalid locked footprint: {exc}")
         else:
             c["boardPos"] = None
+            c.pop("flexibleEndPos", None)
             try: area = int(definition.get("width",1))*int(definition.get("height",1))
             except (TypeError,ValueError): area = len(definition.get("pins") or [])+len(definition.get("bodyCells") or [])
             pending.append((max(1,area),label,c,definition))
