@@ -59,13 +59,14 @@ The current GUI can:
 - open a Karl/Route-Mate project JSON file;
 - collect actual physical and preferred board dimensions;
 - run collector validation and Electrical Sanity checks;
-- preserve and render the component positions already present in the project using the production SVG renderer, with alternating row guides;
+- preserve and render the component positions already present in the project using the public front renderer, with alternating row guides;
 - run the repository's unittest suite during project loading;
-- collect preliminary Locked / Unlocked, Edge and Slide settings for already-positioned components.
+- collect preliminary Locked / Unlocked, Edge and Slide settings for already-positioned components;
+- invoke the shared deterministic first-fit `solve.quick_place` engine after constraints and render its provisional placement result.
 
-The GUI must not run the basic first-fit quick_place module before collecting constraints. Quick Place is not Quick Fit and must not overwrite the imported starting layout.
+The GUI labels this stage **Quick Place**, not Quick Fit. It is a basic first-fit placement pass, not a net-aware solver. If an edge-anchor or sliding constraint is selected, the GUI stops without changing the layout because the current placer cannot honour those hard constraints. Failed placement also leaves the imported layout displayed.
 
-**The GUI is not yet a complete stripboard design application.** Its current workflow stops after collecting PRE-SOLVE constraints. Those settings are not yet connected to a complete Quick Fit / solve pipeline. The GUI currently displays the component side only. Interactive component selection/highlighting, a finished placement solver, route display, optimiser workflow and final build/export workflow are not implemented.
+**The GUI is not yet a complete stripboard design application.** Net-aware Quick Fit, hard edge-anchor/sliding support, interactive component selection/highlighting, strip-cut and jumper routing, optimisation, independent physical/construction verification and final build output are not implemented.
 
 The GUI is a presentation and workflow layer. It must call the shared Route-Mate Python packages and consume the same project/result model as the CLI. It must not duplicate electrical checks, placement rules, routing or solver logic.
 
