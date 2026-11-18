@@ -241,20 +241,20 @@ class RouteMateWindow(QMainWindow):
     def _ask_lock_settings(self, placed: list[dict[str, Any]]):
         self.presolve_constraints = {}
         if not placed:
-            self.log_line("[LOCKS] No components have saved board positions.")
-            return
-        self.log_line(f"[LOCKS] Asking Locked / Edge / Slide for {len(placed)} placed components.")
-        for index, component in enumerate(placed, 1):
-            dialog = LockDialog(component, index, len(placed), self)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                self.log_line("[LOCKS] Cancelled. PRE-SOLVE hand-off not completed.")
-                return
-            self.presolve_constraints[str(component.get("id"))] = dialog.values()
-            values = self.presolve_constraints[str(component.get("id"))]
-            self.log_line(
-                f"[LOCKS] {component.get('label') or component.get('id')}: "
-                f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']}"
-            )
+            self.log_line("[LOCKS] No saved positions; no existing components require lock questions.")
+        else:
+            self.log_line(f"[LOCKS] Asking Locked / Edge / Slide for {len(placed)} placed components.")
+            for index, component in enumerate(placed, 1):
+                dialog = LockDialog(component, index, len(placed), self)
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    self.log_line("[LOCKS] Cancelled. Quick Place not started.")
+                    return
+                self.presolve_constraints[str(component.get("id"))] = dialog.values()
+                values = self.presolve_constraints[str(component.get("id"))]
+                self.log_line(
+                    f"[LOCKS] {component.get('label') or component.get('id')}: "
+                    f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']}"
+                )
         # The available engine is deterministic Quick Place (first-fit), not
         # the future net-aware Quick Fit solver. Never silently discard edge rules.
         unsupported = [
