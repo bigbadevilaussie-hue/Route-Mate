@@ -10,7 +10,7 @@ import json
 import unittest
 from pathlib import Path
 
-from render._geometry import BUILTIN_DEFS, resolve_definition, rotate_offset
+from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition, rotate_offset
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +138,30 @@ class QuickFitSourceGeometryTests(unittest.TestCase):
                             f"{assignment.get('pinId')!r}"
                         )
                 self.assertEqual(errors, [], "\\n".join(errors))
+
+    def test_saved_two_pin_geometry_honours_solver_flexible_end(self):
+        component = {
+            "id": "R1",
+            "defId": "def-resistor",
+            "boardPos": {"row": 4, "col": 7},
+            "rotation": 0,
+            "flexibleEndPos": {"row": 9, "col": 13},
+        }
+        # Deliberately omit the flexible flag, as Karl's saved definitions do.
+        saved_definition = {
+            "width": 2, "height": 1,
+            "pins": [
+                {"id": "1", "name": "1", "offsetRow": 0, "offsetCol": 0},
+                {"id": "2", "name": "2", "offsetRow": 0, "offsetCol": 1},
+            ],
+            "bodyCells": [],
+        }
+        pins, body = component_geometry(component, saved_definition)
+        self.assertEqual(
+            [(pin["id"], pin["row"], pin["col"]) for pin in pins],
+            [("1", 4, 7), ("2", 9, 13)],
+        )
+        self.assertEqual(body, [])
 
     def test_rotation_is_reversible_for_rectangular_footprints(self):
         # Coordinates use row/column extents: height-1 and width-1.
