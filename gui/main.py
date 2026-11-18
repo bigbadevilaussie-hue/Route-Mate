@@ -103,39 +103,29 @@ class LockDialog(QDialog):
         self.setWindowTitle(f"PRE-SOLVE constraints ({index}/{total})")
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Component: {label}"))
-        self.locked = QRadioButton("Locked — keep on board")
-        self.unlocked = QRadioButton("Unlocked — remove from board")
+        self.locked = QRadioButton("Locked — keep this position fixed")
+        self.unlocked = QRadioButton("Unlocked — solver may move this component")
         self.edge = QCheckBox("Edge constrained")
         self.slide = QCheckBox("May slide along edge")
-        # Locked/unlocked are mutually exclusive; edge and slide remain independent.
+        # Position lock, edge constraint and edge sliding are separate settings.
         is_locked = bool(component.get("locked", False))
         self.locked.setChecked(is_locked)
         self.unlocked.setChecked(not is_locked)
         self.edge.setChecked(False)
         self.slide.setChecked(False)
-        self.locked.toggled.connect(self._update_constraint_controls)
-        self.unlocked.toggled.connect(self._update_constraint_controls)
         layout.addWidget(self.locked)
         layout.addWidget(self.unlocked)
         layout.addWidget(self.edge)
         layout.addWidget(self.slide)
-        layout.addWidget(QLabel("Unlocked components are excluded from the refreshed board preview."))
-        self._update_constraint_controls()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _update_constraint_controls(self):
-        keep = self.locked.isChecked()
-        self.edge.setEnabled(keep)
-        self.slide.setEnabled(keep)
-
     def values(self):
         return {"locked": self.locked.isChecked(),
-                "edge": self.edge.isChecked() if self.locked.isChecked() else False,
-                "slide": self.slide.isChecked() if self.locked.isChecked() else False,
-                "remove": self.unlocked.isChecked()}
+                "edge": self.edge.isChecked(),
+                "slide": self.slide.isChecked()}
 
 
 class BoardView(QGraphicsView):
@@ -273,25 +263,14 @@ class RouteMateWindow(QMainWindow):
                 f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']} "
                 f"Remove={values['remove']}"
             )
-        removed = []
         for component in placed:
-            values = self.presolve_constraints.get(str(component.get("id")), {})
-            component["locked"] = bool(values.get("locked"))
-            if values.get("remove"):
-                component["boardExcluded"] = True
-                component.pop("boardPos", None)
-                component.pop("flexibleEndPos", None)
-                removed.append(str(component.get("label") or component.get("id")))
-        if removed:
-            top_svg, renderer_log = self._render_component_side(self.project)
-            self._show_board(top_svg)
-            self.log_line("[RENDER] Component-side preview refreshed.")
-            if renderer_log:
-                self.log_line("[RENDER] " + renderer_log)
-        self.log_line(f"[RENDER] Board placement retained; removed {len(removed)} unlocked parts.")
-        for label in removed:
-            self.log_line(f"[RENDER] Removed from board: {label}")
-        self.log_line("[STOP] Lock settings collected and board refreshed. PRE-SOLVE is not implemented; stopped here.")
+            values = self.presolve_constraints[str(component.get("id"))]
+            component["locked"] = bool(values["locked"])
+        self.log_line(
+            f"[LOCKS] Recorded {len(self.presolve_constraints)} component constraints; "
+            "all placed components remain on the board."
+        )
+        self.log_line("[STOP] Lock / Edge / Slide settings collected. PRE-SOLVE solver is not implemented; stopped here.")
         self.statusBar().showMessage("Ready for PRE-SOLVE implementation — workflow stopped.")
 
     def load_json(self):
