@@ -64,6 +64,39 @@ class QuickPlaceTests(unittest.TestCase):
                                 0<=point[1]<p["board"]["cols"],
                                 f"{c.get('label')} outside board at {point}")
 
+    def test_rigid_footprint_reserves_only_declared_pads_and_body(self):
+        p = {
+            "board": {"rows": 3, "cols": 3},
+            "componentDefs": [
+                {
+                    "id": "sparse",
+                    "width": 3,
+                    "height": 3,
+                    "pins": [
+                        {"id": "1", "offsetRow": 0, "offsetCol": 0},
+                        {"id": "2", "offsetRow": 2, "offsetCol": 2},
+                    ],
+                    "bodyCells": [{"row": 1, "col": 1}],
+                },
+                {
+                    "id": "single",
+                    "width": 1,
+                    "height": 1,
+                    "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                    "bodyCells": [],
+                },
+            ],
+            "components": [
+                {"id": "large", "label": "Sparse", "defId": "sparse"},
+                {"id": "small", "label": "Single", "defId": "single"},
+            ],
+        }
+        result = quick_place(p)
+        self.assertEqual(result["status"], "PASS", result["errors"])
+        self.assertEqual(result["placed"], 2)
+        small = next(c for c in result["project"]["components"] if c["id"] == "small")
+        self.assertEqual(small["boardPos"], {"row": 0, "col": 1})
+
     def test_locked_component_is_preserved(self):
         p={"board":{"rows":4,"cols":6},"componentDefs":[{"id":"two","width":2,"height":1,
            "pins":[{"id":"1","offsetRow":0,"offsetCol":0},{"id":"2","offsetRow":0,"offsetCol":1}],"bodyCells":[]}],
