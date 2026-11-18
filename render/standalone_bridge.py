@@ -17,6 +17,34 @@ SPARSE_PATH = "src/frontend/standalone-renderer/dist"
 CLI = CACHE / SPARSE_PATH / "standalone-renderer" / "cli.js"
 
 
+
+def add_alternating_row_bands(svg: str, rows: int, *, pitch: float = 30.0, origin: float = 60.0) -> str:
+    """Add subtle alternating row bands behind the production SVG artwork."""
+    import re
+
+    if type(rows) is not int or rows < 1:
+        raise ValueError("rows must be a positive integer")
+    match = re.search(r'<svg\b[^>]*\bviewBox="([^"]+)"', svg)
+    if not match:
+        raise ValueError("Renderer SVG has no viewBox")
+    values = [float(value) for value in match.group(1).replace(",", " ").split()]
+    if len(values) != 4:
+        raise ValueError("Renderer SVG has an invalid viewBox")
+    x, _y, width, _height = values
+    bands = []
+    for row in range(rows):
+        if row % 2 == 0:
+            continue
+        band_y = origin + row * pitch - pitch / 2
+        bands.append(
+            '<rect x="{0:g}" y="{1:g}" width="{2:g}" height="{3:g}" fill="#f1f3f5" opacity="0.72" data-route-mate-row-band="1"/>'.format(
+                x, band_y, width, pitch
+            )
+        )
+    insertion = "".join(bands)
+    return re.sub(r'(<svg\b[^>]*>)', lambda m: m.group(1) + insertion, svg, count=1)
+
+
 def _run(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args, cwd=str(cwd) if cwd else None, text=True,
