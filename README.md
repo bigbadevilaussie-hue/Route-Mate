@@ -59,7 +59,8 @@ The current GUI can:
 - open a Karl/Route-Mate project JSON file;
 - collect actual physical and preferred board dimensions;
 - run collector validation and Electrical Sanity checks;
-- render and display the component-side board artwork using the production SVG renderer;
+- render and display both component-side and copper-side board artwork using the production SVG renderer, with alternating row guides;
+- export either rendered board side as SVG;
 - run the repository's unittest suite during project loading;
 - report component positions and collect preliminary Locked / Unlocked, Edge and Slide settings for already-placed components;
 - refresh the component-side preview after components are marked for removal.
@@ -68,7 +69,7 @@ The current GUI can:
 
 The GUI is a presentation and workflow layer. It must call the shared Route-Mate Python packages and consume the same project/result model as the CLI. It must not duplicate electrical checks, placement rules, routing or solver logic.
 
-The board is currently displayed through the existing SVG renderer inside a Qt graphics view. The selected long-term architecture remains a stable SVG board layer with independent interaction overlays.
+The board is displayed through the production SVG renderer in two Qt tabs. SVG export is implemented. Interactive component selection/highlighting, PNG/JPG export and independent interaction overlays remain future work.
 
 See [GUI architecture and build notes](docs/GUI.md).
 
