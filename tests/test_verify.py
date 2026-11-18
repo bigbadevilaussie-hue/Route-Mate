@@ -5,6 +5,11 @@ import copy
 import unittest
 
 from solve.verify import verify_project
+from collect import validate_project
+from pathlib import Path
+import json
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def project():
@@ -30,6 +35,12 @@ def project():
 
 
 class VerifyTests(unittest.TestCase):
+    def test_legacy_moto_layout_is_physically_connected(self):
+        path = ROOT / "benchmarks" / "moto" / "moto14wires30cuts.json"
+        data = validate_project(json.loads(path.read_text(encoding="utf-8")))
+        report = verify_project(data)
+        self.assertEqual(report["status"], "PASS", report["errors"])
+
     def test_continuous_strip_connects_same_net(self):
         report = verify_project(project())
         self.assertEqual(report["status"], "PASS", report["errors"])
