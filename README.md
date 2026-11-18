@@ -59,17 +59,17 @@ The current GUI can:
 - open a Karl/Route-Mate project JSON file;
 - collect actual physical and preferred board dimensions;
 - run collector validation and Electrical Sanity checks;
-- render and display both component-side and copper-side board artwork using the production SVG renderer, with alternating row guides;
-- export either rendered board side as SVG;
+- preserve and render the component positions already present in the project using the production SVG renderer, with alternating row guides;
 - run the repository's unittest suite during project loading;
-- report component positions and collect preliminary Locked / Unlocked, Edge and Slide settings for already-placed components;
-- refresh the component-side preview after components are marked for removal.
+- collect preliminary Locked / Unlocked, Edge and Slide settings for already-positioned components.
 
-**The GUI is not yet a complete stripboard design application.** Its current workflow stops at the PRE-SOLVE hand-off. The lock settings are collected in the GUI, but they are not yet connected to a complete placement/solve pipeline. There is no finished interactive copper-side editor, route display, optimiser workflow or final build/export workflow.
+The GUI must not run the basic first-fit quick_place module before collecting constraints. Quick Place is not Quick Fit and must not overwrite the imported starting layout.
+
+**The GUI is not yet a complete stripboard design application.** Its current workflow stops after collecting PRE-SOLVE constraints. Those settings are not yet connected to a complete Quick Fit / solve pipeline. The GUI currently displays the component side only. Interactive component selection/highlighting, a finished placement solver, route display, optimiser workflow and final build/export workflow are not implemented.
 
 The GUI is a presentation and workflow layer. It must call the shared Route-Mate Python packages and consume the same project/result model as the CLI. It must not duplicate electrical checks, placement rules, routing or solver logic.
 
-The board is displayed through the production SVG renderer in two Qt tabs. SVG export is implemented. Interactive component selection/highlighting, PNG/JPG export and independent interaction overlays remain future work.
+The component-side board is displayed through the production SVG renderer. Interactive selection/highlighting and independent interaction overlays remain future work.
 
 See [GUI architecture and build notes](docs/GUI.md).
 
