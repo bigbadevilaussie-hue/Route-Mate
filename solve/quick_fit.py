@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from adjacency import adjacency_conflicts, candidate_conflicts, hole_index
 from placement_policy import is_off_board_component
 from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 
@@ -54,6 +55,24 @@ def _failure(status: str, project: dict, errors: list[str]) -> dict[str, Any]:
     }
 
 
+def _offboard_lead_records(component: dict, pin_nets: dict) -> list[tuple[int, int, str, str]]:
+    """Resolve saved off-board lead holes into assigned physical pin records."""
+    cid = str(component.get("id"))
+    label = str(component.get("label") or cid)
+    leads = component.get("leads")
+    if not isinstance(leads, dict):
+        return []
+    records = []
+    for pin_id, point in leads.items():
+        net = pin_nets.get((cid, str(pin_id)))
+        if net is None:
+            continue
+        if not isinstance(point, dict) or type(point.get("row")) is not int or type(point.get("col")) is not int:
+            raise ValueError(f"{label} lead {pin_id}: invalid saved lead coordinate")
+        records.append((point["row"], point["col"], net, f"{label}.{pin_id}"))
+    return records
+
+
 def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
     result = copy.deepcopy(project)
     components = result["components"]
@@ -61,12 +80,28 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
     occupied: set[tuple[int, int]] = set()
     blocked: set[tuple[int, int]] = set()
     net_points: dict[str, list[tuple[int, int]]] = {}
+    initial_pin_records: list[tuple[int, int, str, str]] = []
     centres: list[tuple[int, int]] = []
     net_score = links_scored = 0
     errors = []
 
     for component in components:
-        if not isinstance(component, dict) or is_off_board_component(component):
+        if not isinstance(component, dict):
+            continue
+        if is_off_board_component(component):
+            try:
+                lead_records = _offboard_lead_records(component, pin_nets)
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
+            for row, col, net, ref in lead_records:
+                if not (0 <= row < rows and 0 <= col < cols):
+                    errors.append(f"{ref}: lead hole {(row, col)} outside board")
+                    continue
+                initial_pin_records.append((row, col, net, ref))
+                occupied.add((row, col))
+                blocked.add((row, col))
+                net_points.setdefault(net, []).append((row, col))
             continue
         if component.get("locked") is not True:
             continue
@@ -104,11 +139,24 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
             cid = str(component.get("id"))
             for pin in pins:
                 nid = pin_nets.get((cid, str(pin.get("id"))))
-                if nid:
-                    net_points.setdefault(nid, []).append((int(pin["row"]), int(pin["col"])))
+                if nid is not None:
+                    row, col = int(pin["row"]), int(pin["col"])
+                    initial_pin_records.append((row, col, nid, f"{label}.{pin.get('id')}"))
+                    net_points.setdefault(nid, []).append((row, col))
         except (TypeError, ValueError, KeyError) as exc:
             errors.append(f"{label}: invalid locked footprint: {exc}")
     if errors:
+        return None, errors, net_score, links_scored
+
+    placed_holes = hole_index(initial_pin_records)
+    initial_conflicts = adjacency_conflicts(initial_pin_records)
+    if initial_conflicts:
+        errors.extend(
+            f"{item['kind']} different-net pin conflict at row {item['row']} "
+            f"columns {item['cols']}: {item['refs'][0]} ({item['nets'][0]}) / "
+            f"{item['refs'][1]} ({item['nets'][1]})"
+            for item in initial_conflicts
+        )
         return None, errors, net_score, links_scored
 
     ordered = sorted(pending, key=lambda x: (
@@ -154,6 +202,15 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
                         "row": origin_r + int(p["row"]),
                         "col": origin_c + int(p["col"]),
                     } for p in local_pins]
+                    pin_records = []
+                    for pin in pins:
+                        nid = pin_nets.get((item["id"], pin["id"]))
+                        if nid is not None:
+                            pin_records.append((pin["row"], pin["col"], nid,
+                                                f"{item['label']}.{pin['id']}"))
+                    if candidate_conflicts(pin_records, placed_holes):
+                        continue
+
                     candidate_net_score = candidate_links = 0
                     for pin in pins:
                         nid = pin_nets.get((item["id"], pin["id"]))
@@ -179,6 +236,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
                         found = {
                             "score": score, "row": origin_r, "col": origin_c,
                             "rotation": rotation, "cells": cells, "pins": pins,
+                            "pin_records": pin_records,
                             "centre": (centre_r2, centre_c2),
                             "net_score": candidate_net_score, "links": candidate_links,
                         }
@@ -194,6 +252,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
         component.pop("flexibleEndPos", None)
         occupied.update(found["cells"])
         blocked.update(_expanded(found["cells"], clearance))
+        for row, col, net, ref in found["pin_records"]:
+            placed_holes.setdefault((row, col), []).append((net, ref))
         centres.append(found["centre"])
         net_score += found["net_score"]
         links_scored += found["links"]

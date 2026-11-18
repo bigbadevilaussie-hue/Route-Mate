@@ -160,5 +160,26 @@ class VerifyTests(unittest.TestCase):
         self.assertTrue(any("outside board" in error for error in report["errors"]))
 
 
+    def test_offboard_saved_leads_are_verified_as_physical_terminals(self):
+        data = project()
+        data["components"][1]["offBoard"] = True
+        data["components"][1]["boardPos"] = None
+        data["components"][1]["leads"] = {"1": {"row": 0, "col": 1}}
+        report = verify_project(data)
+        self.assertEqual(report["counts"]["on_board_terminals"], 3)
+        self.assertEqual(report["counts"]["adjacency_conflicts"], 1)
+        self.assertTrue(any("adjacent different-net" in error for error in report["errors"]))
+
+    def test_between_cut_resolves_adjacent_different_net_pins(self):
+        data = project()
+        data["netAssignments"] = [data["netAssignments"][0]]
+        data["components"][1]["offBoard"] = True
+        data["components"][1]["boardPos"] = None
+        data["components"][1]["leads"] = {"1": {"row": 0, "col": 1}}
+        data["board"]["cuts"] = [{"row": 0, "col": 0, "kind": "between"}]
+        report = verify_project(data)
+        self.assertEqual(report["counts"]["adjacency_conflicts"], 0)
+        self.assertEqual(report["status"], "PASS", report["errors"])
+
 if __name__ == "__main__":
     unittest.main()

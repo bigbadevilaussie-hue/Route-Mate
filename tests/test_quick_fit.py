@@ -167,5 +167,53 @@ class QuickFitPlacementTests(unittest.TestCase):
         self.assertEqual(quick_fit(project)["status"], "INCOMPLETE_GEOMETRY")
 
 
+    def test_horizontal_three_net_transistor_is_rejected(self):
+        project = {
+            "board": {"rows": 1, "cols": 3},
+            "componentDefs": [{"id": "npn-horizontal", "width": 3, "height": 1,
+                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0},
+                         {"id": "2", "offsetRow": 0, "offsetCol": 1},
+                         {"id": "3", "offsetRow": 0, "offsetCol": 2}],
+                "bodyCells": []}],
+            "components": [{"id": "Q1", "label": "Q1", "defId": "npn-horizontal"}],
+            "netAssignments": [{"componentId": "Q1", "pinId": "1", "netId": "B"},
+                               {"componentId": "Q1", "pinId": "2", "netId": "C"},
+                               {"componentId": "Q1", "pinId": "3", "netId": "E"}],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "NO_FIT_FOUND", result["errors"])
+
+    def test_vertical_three_net_transistor_can_be_placed(self):
+        project = {
+            "board": {"rows": 3, "cols": 1},
+            "componentDefs": [{"id": "npn-vertical", "width": 1, "height": 3,
+                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0},
+                         {"id": "2", "offsetRow": 1, "offsetCol": 0},
+                         {"id": "3", "offsetRow": 2, "offsetCol": 0}],
+                "bodyCells": []}],
+            "components": [{"id": "Q1", "label": "Q1", "defId": "npn-vertical"}],
+            "netAssignments": [{"componentId": "Q1", "pinId": "1", "netId": "B"},
+                               {"componentId": "Q1", "pinId": "2", "netId": "C"},
+                               {"componentId": "Q1", "pinId": "3", "netId": "E"}],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+
+    def test_offboard_saved_leads_are_fixed_hole_obstacles(self):
+        project = {
+            "board": {"rows": 1, "cols": 2},
+            "componentDefs": [{"id": "pin", "width": 1, "height": 1,
+                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}], "bodyCells": []}],
+            "components": [
+                {"id": "EXT", "label": "EXT", "defId": "pin", "offBoard": True,
+                 "boardPos": None, "leads": {"1": {"row": 0, "col": 0}}},
+                {"id": "A", "label": "A", "defId": "pin"},
+            ],
+            "netAssignments": [{"componentId": "EXT", "pinId": "1", "netId": "GND"},
+                               {"componentId": "A", "pinId": "1", "netId": "VCC"}],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "NO_FIT_FOUND", result["errors"])
+
 if __name__ == "__main__":
     unittest.main()

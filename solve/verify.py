@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from adjacency import adjacency_conflicts
 from placement_policy import is_off_board_component
 
 from render._geometry import component_geometry, resolve_definition
@@ -58,7 +59,8 @@ def verify_project(project: Any) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     counts = {"holes": 0, "cuts": 0, "wires": 0, "on_board_terminals": 0,
-              "nets_checked": 0, "short_groups": 0, "open_nets": 0}
+              "nets_checked": 0, "short_groups": 0, "open_nets": 0,
+              "adjacency_conflicts": 0}
     if not isinstance(project, dict):
         return {"status": "FAIL", "errors": ["project root must be an object"],
                 "warnings": [], "counts": counts}
@@ -150,6 +152,7 @@ def verify_project(project: Any) -> dict[str, Any]:
                        if isinstance(c, dict) and c.get("id")}
     net_by_terminal: dict[tuple[str, str], str] = {}
     terminals_by_net: dict[str, list[tuple[int, int, str]]] = defaultdict(list)
+    physical_pin_records: list[tuple[int, int, str, str]] = []
 
     for index, assignment in enumerate(assignments):
         if not isinstance(assignment, dict):
@@ -160,25 +163,35 @@ def verify_project(project: Any) -> dict[str, Any]:
         if component is None:
             errors.append(f"assignment[{index}] references unknown component {cid!r}")
             continue
+        label = str(component.get("label") or cid)
         if is_off_board_component(component):
-            continue
-        if not isinstance(component.get("boardPos"), dict):
-            errors.append(f"{component.get('label') or cid}: assigned terminal has no board position")
-            continue
-        definition = resolve_definition(component, definitions)
-        if not definition:
-            errors.append(f"{component.get('label') or cid}: no footprint definition for physical pin lookup")
-            continue
-        try:
-            pins, _body = component_geometry(component, definition)
-        except (TypeError, ValueError, KeyError) as exc:
-            errors.append(f"{component.get('label') or cid}: invalid footprint geometry: {exc}")
-            continue
-        matches = [pin for pin in pins if str(pin.get("id")) == pid]
-        if len(matches) != 1:
-            errors.append(f"{component.get('label') or cid}: pin {pid!r} resolves to {len(matches)} physical pins")
-            continue
-        point = (int(matches[0]["row"]), int(matches[0]["col"]))
+            leads = component.get("leads")
+            lead = leads.get(pid) if isinstance(leads, dict) else None
+            if lead is None:
+                continue
+            try:
+                point = _coord(lead, f"{label} lead {pid}")
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
+        else:
+            if not isinstance(component.get("boardPos"), dict):
+                errors.append(f"{label}: assigned terminal has no board position")
+                continue
+            definition = resolve_definition(component, definitions)
+            if not definition:
+                errors.append(f"{label}: no footprint definition for physical pin lookup")
+                continue
+            try:
+                pins, _body = component_geometry(component, definition)
+            except (TypeError, ValueError, KeyError) as exc:
+                errors.append(f"{label}: invalid footprint geometry: {exc}")
+                continue
+            matches = [pin for pin in pins if str(pin.get("id")) == pid]
+            if len(matches) != 1:
+                errors.append(f"{label}: pin {pid!r} resolves to {len(matches)} physical pins")
+                continue
+            point = (int(matches[0]["row"]), int(matches[0]["col"]))
         if not (0 <= point[0] < rows and 0 <= point[1] < cols):
             errors.append(f"{component.get('label') or cid} pin {pid}: hole {point} outside board")
             continue
@@ -187,8 +200,26 @@ def verify_project(project: Any) -> dict[str, Any]:
             errors.append(f"duplicate physical assignment for {cid} pin {pid}")
             continue
         net_by_terminal[terminal] = nid
-        terminals_by_net[nid].append((point[0], point[1], f"{component.get('label') or cid}.{pid}"))
+        ref = f"{label}.{pid}"
+        terminals_by_net[nid].append((point[0], point[1], ref))
+        physical_pin_records.append((point[0], point[1], nid, ref))
         counts["on_board_terminals"] += 1
+
+    # Report direct different-net conflicts. Between cuts and isolated drilled
+    # holes resolve adjacent pairs; no cut can resolve two nets in one hole.
+    for conflict in adjacency_conflicts(physical_pin_records):
+        if conflict["kind"] == "adjacent":
+            row, col = conflict["row"], conflict["cols"][0]
+            if ((row, col) in cut_boundaries or
+                    (row, col) in cut_holes or
+                    (row, col + 1) in cut_holes):
+                continue
+        counts["adjacency_conflicts"] += 1
+        errors.append(
+            f"{conflict['kind']} different-net pin conflict at row {conflict['row']} "
+            f"columns {conflict['cols']}: {conflict['refs'][0]} ({conflict['nets'][0]}) / "
+            f"{conflict['refs'][1]} ({conflict['nets'][1]})"
+        )
 
     # A copper-connected group containing terminals assigned to different nets is a short.
     group_nets: dict[Any, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
