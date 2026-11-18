@@ -1,80 +1,83 @@
-# Quick Fit test decision
+# Quick Fit placement acceptance
 
 ## Decision
 
-Use the real, unplaced Moto and Audio benchmark projects as the first Quick Fit acceptance inputs:
+Use the real, unplaced Moto and Audio benchmark projects as the first Quick Fit
+acceptance inputs. Both source boards are locked at 24 x 56.
 
-| Input | Components | On-board | Off-board | Assignments | Board |
-|---|---:|---:|---:|---:|---|
-| Moto | 44 | 33 | 11 | 123 | 24 x 56, both dimensions locked |
-| Audio | 19 | 14 | 5 | 85 | 24 x 56, both dimensions locked |
+| Input | Components | Placeable by shared policy | Excluded | Assignments |
+|---|---:|---:|---:|---:|
+| Moto | 44 | 32 | 12 | 123 |
+| Audio | 19 | 14 | 5 | 85 |
 
-These are the repository fixtures at `benchmarks/moto/moto.json` and
-`benchmarks/audio/audio.json`. They have no saved component positions, so
-they are suitable placement inputs rather than already-placed results.
+The Moto JSON marks 33 components as on-board, but the shared
+placement_policy.py also classifies the known NEO-6M GPS definition as
+off-board because the export omits its offBoard flag. Quick Fit must use that
+shared policy and leave the GPS parent off the stripboard. The source JSON is
+not rewritten.
 
-## Stage 1 — source geometry gate (implemented)
+The fixtures are benchmarks/moto/moto.json and benchmarks/audio/audio.json.
+They have no saved component positions.
+
+## Stage 1 — source geometry gate
 
 Run:
 
-```bash
+~~~bash
 python3 -m unittest discover -s tests -p 'test_quick_fit_geometry.py' -v
-```
+~~~
 
 The tests check:
 
-1. The fixture counts, locked board dimensions and unplaced starting state.
-2. Every on-board component resolves to a project custom definition, a
-   component override or the renderer's built-in footprint registry.
+1. Fixture counts, locked board dimensions and unplaced starting state.
+2. Every placeable component resolves to a project definition, component
+   override or renderer built-in footprint.
 3. Footprint dimensions are positive and all pin/body coordinates are inside
    their declared footprint.
-4. A body cell cannot occupy the same footprint coordinate as an electrical
-   pad; two physical pads cannot occupy the same coordinate.
-5. Every JSON net assignment references a pin that exists in the resolved
-   footprint, including off-board component pins.
-6. The row/column rotation transform is reversible on rectangular footprints.
+4. Body cells do not overlap electrical pads; physical pads do not overlap.
+5. Every JSON net assignment references an existing footprint pin, including
+   off-board component pins.
+6. Rotation transforms are reversible for rectangular footprints.
 
-This gate tests actual repository geometry, not assumed 1x2 resistor/capacitor
-rectangles. Flexible lead-span parts remain flexible; their pin spacing is not
-converted into a rigid body rectangle.
+Flexible lead-span parts remain flexible; their pin spacing is not converted
+into a rigid body rectangle.
 
-## Stage 2 — Quick Fit placement acceptance (blocked until placer exists)
+## Stage 2 — Quick Fit placement acceptance
 
-Quick Fit must produce a separate provisional result without mutating the
-source fixture. For each input:
+Implemented in solve/quick_fit.py. Run:
 
-- Place all 33 Moto / 14 Audio on-board components.
-- Do not place off-board components on the board.
-- Allocate no virtual off-board lead pads in this first placement test; that is
-  a separate physical breakout feature.
-- Honour the locked 24 x 56 board. Do not crop it or enlarge it.
-- Resolve every footprint using the same geometry resolver used by the
-  renderer and later Quick Solve.
-- Keep every electrical pad on a real board hole. A body may use non-hole
-  cells only where its footprint definition explicitly describes them.
+~~~bash
+python3 -m unittest discover -s tests -p 'test_quick_fit.py' -v
+~~~
+
+Quick Fit must:
+
+- Place all 32 Moto / 14 Audio placeable components.
+- Leave all 12 Moto / 5 Audio excluded components off-board.
+- Honour the locked 24 x 56 board; never crop or enlarge it.
+- Use the same geometry resolver as the renderer.
+- Keep every electrical pad and declared body cell on a real board hole.
 - Reject physical overlap between distinct components.
-- Keep one-hole clearance as a configurable placement preference, not as an
-  electrical legality rule. Report when a complete placement requires less
-  than the requested clearance; never silently reduce it.
-- Preserve component identity, pin IDs, net assignments and original project
-  data. Return placements separately or on a deep copy.
-- Be deterministic: identical input and settings must produce identical
-  positions, rotations and report.
-- Report `PLACED`, `INCOMPLETE_GEOMETRY`, `CONSTRAINT_CONFLICT` or
-  `NO_FIT_FOUND` distinctly. A greedy search failure is not proof that the
-  board is physically impossible.
+- Use one-hole clearance as a configurable preference. If a complete layout
+  needs less clearance, report the actual clearance used; never reduce it
+  silently.
+- Preserve component identity, pin IDs, net assignments and source data.
+- Be deterministic for identical inputs and settings.
+- Return one of PLACED, INCOMPLETE_GEOMETRY, CONSTRAINT_CONFLICT or
+  NO_FIT_FOUND. A greedy search failure is not proof the board is impossible.
 
-Acceptance requires zero overlaps, zero out-of-bounds pads/body cells, all
-on-board components placed, no off-board parent placement, and identical
-results on repeated runs. This is a placement test only: it does not claim
-electrical connectivity, strip-cut legality or jumper routability. Those are
-Quick Solve and independent-verifier responsibilities.
+The initial engine uses deterministic greedy net-aware placement scoring.
+Its report records the clearance requested/used and net-distance score.
+This is a placement result only; it does not claim copper connectivity,
+strip-cut legality or jumper routability. Those remain Quick Solve and
+independent-verifier responsibilities.
 
-## Current status
+## Remaining work
 
 - [x] Real Moto and Audio source fixtures selected.
-- [x] Source geometry regression test added.
-- [ ] Execute the new tests in the user's Route-Mate environment.
-- [ ] Implement Quick Fit placement engine.
-- [ ] Add Stage 2 placement acceptance tests after the engine exists.
+- [x] Source geometry regression test.
+- [x] Initial deterministic net-aware Quick Fit placer.
+- [x] Stage 2 placement acceptance tests.
+- [ ] Execute the tests in the user's Route-Mate environment.
+- [ ] Add hard edge-anchor and slide placement constraints.
 - [ ] Run Quick Solve and independent verification separately.

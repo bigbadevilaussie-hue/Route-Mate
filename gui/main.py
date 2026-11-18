@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.16"
-CODE_VERSION = "1.16"
+GUI_VERSION = "1.17"
+CODE_VERSION = "1.17"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -216,8 +216,8 @@ class RouteMateWindow(QMainWindow):
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: collect → electrical sanity → render existing layout → tests → constraints → Quick Place → updated render.")
-        self.log_line("Solver available: deterministic Quick Place (first-fit). Net-aware Quick Fit, edge anchors and sliding are not implemented.")
+        self.log_line("Workflow: collect → electrical sanity → render existing layout → tests → constraints → Quick Fit → updated render.")
+        self.log_line("Solver available: deterministic greedy net-aware Quick Fit. Hard edge anchors and sliding are not implemented.")
 
     def log_line(self, message: str):
         self.log.appendPlainText(message)
@@ -282,7 +282,7 @@ class RouteMateWindow(QMainWindow):
                     component.pop("slide", None)
                     self.log_line(f"[PLACEMENT] Removed {label} from the board.")
                 else:
-                    component["locked"] = True
+                    component["locked"] = bool(values["locked"])
                     component["edge"] = bool(values["edge"])
                     component["slide"] = bool(values["slide"])
 
@@ -296,8 +296,8 @@ class RouteMateWindow(QMainWindow):
             f"[LOCKS] Recorded {len(self.presolve_constraints)} component responses."
         )
 
-        # Quick Place is appended after the established prompt/remove/render flow.
-        # Do not pass unsupported edge/slide constraints to the first-fit engine.
+        # Quick Fit follows the established prompt/remove/render flow.
+        # Do not pass unsupported edge/slide constraints to Quick Fit.
         unsupported = [
             component for component in placed
             if not component.get("boardExcluded")
@@ -310,41 +310,43 @@ class RouteMateWindow(QMainWindow):
         if unsupported:
             labels = ", ".join(str(c.get("label") or c.get("id")) for c in unsupported)
             self.log_line(
-                "[QUICK PLACE] Not started: first-fit does not yet implement "
+                "[QUICK FIT] Not started: Quick Fit does not yet implement "
                 f"hard edge anchors/sliding ({labels}). The latest board preview is retained."
             )
             self.statusBar().showMessage("Constraints collected; edge/slide solver support is pending.")
             return
 
-        self.log_line("[QUICK PLACE] Running shared deterministic first-fit placement engine...")
-        from solve import quick_place
-        result = quick_place(self.project)
+        self.log_line("[QUICK FIT] Running shared deterministic net-aware placement engine...")
+        from solve import quick_fit
+        result = quick_fit(self.project)
         for error in result.get("errors", []):
-            self.log_line("[QUICK PLACE][ERROR] " + str(error))
-        if result.get("status") != "PASS":
+            self.log_line("[QUICK FIT][ERROR] " + str(error))
+        for warning in result.get("warnings", []):
+            self.log_line("[QUICK FIT][WARNING] " + str(warning))
+        if result.get("status") != "PLACED":
             self.log_line(
-                f"[QUICK PLACE] {result.get('status', 'FAIL')}: "
+                f"[QUICK FIT] {result.get('status', 'FAIL')}: "
                 f"{result.get('placed', 0)} components placed; current edited preview retained."
             )
             QMessageBox.warning(
-                self, "Quick Place incomplete",
-                "The first-fit placer could not place every included component. "
+                self, "Quick Fit incomplete",
+                 "Quick Fit could not place every included component. "
                 "The latest board preview, including removals, remains displayed. See the log."
             )
-            self.statusBar().showMessage("Quick Place incomplete — latest preview retained.")
+            self.statusBar().showMessage("Quick Fit incomplete — latest preview retained.")
             return
 
         self.project = result["project"]
         top_svg, renderer_log = self._render_component_side(self.project)
         self._show_board(top_svg)
         self.log_line(
-            f"[QUICK PLACE] PASS — {result['placed']} components placed; "
+            f"[QUICK FIT] PLACED — {result['placed']} components placed; "
             f"{result.get('excluded', 0)} off-board/excluded."
         )
         self.log_line("[RENDER] Updated component-side placement displayed.")
         if renderer_log:
             self.log_line("[RENDER] " + renderer_log)
-        self.statusBar().showMessage("Quick Place complete — first-fit preview ready.")
+        self.statusBar().showMessage("Quick Fit complete — net-aware placement preview ready.")
 
     def load_json(self):
         app_dir = Path(__file__).resolve().parent.parent
@@ -405,7 +407,7 @@ class RouteMateWindow(QMainWindow):
             from placement_policy import is_off_board_component
 
             # Preserve and display the positions already present in the imported project.
-            # Quick Place is not Quick Fit and must not overwrite the user's starting layout.
+            # Quick Fit works on a copy and must not overwrite the imported source JSON.
             components = project["components"]
             placed = [component for component in components
                       if isinstance(component.get("boardPos"), dict)

@@ -1,0 +1,128 @@
+"""Quick Fit placement acceptance tests using real benchmark projects."""
+from __future__ import annotations
+
+import copy
+import json
+import unittest
+from pathlib import Path
+
+from placement_policy import is_off_board_component
+from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from solve.quick_fit import quick_fit
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_project(name: str) -> dict:
+    return json.loads((ROOT / "benchmarks" / name / f"{name}.json").read_text(encoding="utf-8"))
+
+
+class QuickFitPlacementTests(unittest.TestCase):
+    PROJECTS = {"moto": {"placed": 32, "excluded": 12},
+                "audio": {"placed": 14, "excluded": 5}}
+
+    def _signature(self, project):
+        return [(c.get("id"), c.get("boardPos"), c.get("rotation")) for c in project["components"]]
+
+    def _assert_physical_layout(self, project):
+        definitions = dict(BUILTIN_DEFS)
+        definitions.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                            if isinstance(d, dict) and d.get("id")})
+        occupied = {}
+        rows, cols = project["board"]["rows"], project["board"]["cols"]
+        for component in project["components"]:
+            if is_off_board_component(component):
+                self.assertIsNone(component.get("boardPos"), component.get("label"))
+                continue
+            self.assertIsInstance(component.get("boardPos"), dict, component.get("label"))
+            pins, body = component_geometry(component, resolve_definition(component, definitions))
+            cells = {(p["row"], p["col"]) for p in pins} | set(body)
+            for row, col in cells:
+                self.assertTrue(0 <= row < rows and 0 <= col < cols,
+                                f"{component.get('label')} outside board at {(row, col)}")
+                self.assertNotIn((row, col), occupied,
+                                 f"{component.get('label')} overlaps {occupied.get((row, col))} at {(row, col)}")
+                occupied[(row, col)] = component.get("label")
+
+    def test_real_benchmarks_place_completely_and_deterministically(self):
+        for name, expected in self.PROJECTS.items():
+            with self.subTest(project=name):
+                source = load_project(name)
+                original = copy.deepcopy(source)
+                first, second = quick_fit(source), quick_fit(source)
+                self.assertEqual(first["status"], "PLACED", first["errors"])
+                self.assertEqual(first["placed"], expected["placed"])
+                self.assertEqual(first["excluded"], expected["excluded"])
+                self.assertEqual(self._signature(first["project"]), self._signature(second["project"]))
+                self.assertEqual(source, original, "Quick Fit must not mutate source JSON")
+                self._assert_physical_layout(first["project"])
+                self.assertGreater(first["report"]["net_links_scored"], 0)
+
+    def test_clearance_fallback_is_reported(self):
+        project = {
+            "board": {"rows": 1, "cols": 2},
+            "componentDefs": [{"id": "pin", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "A", "label": "A", "defId": "pin"},
+                           {"id": "B", "label": "B", "defId": "pin"}],
+            "netAssignments": [],
+        }
+        result = quick_fit(project, clearance=1)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        self.assertEqual(result["report"]["clearance_requested"], 1)
+        self.assertEqual(result["report"]["clearance_used"], 0)
+        self.assertTrue(result["warnings"])
+
+    def test_impossible_layout_has_distinct_no_fit_status(self):
+        project = {
+            "board": {"rows": 1, "cols": 1},
+            "componentDefs": [{"id": "pin", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "A", "defId": "pin"}, {"id": "B", "defId": "pin"}],
+            "netAssignments": [],
+        }
+        self.assertEqual(quick_fit(project, clearance=0)["status"], "NO_FIT_FOUND")
+
+    def test_locked_component_is_preserved_and_not_replaced(self):
+        project = {
+            "board": {"rows": 4, "cols": 6},
+            "componentDefs": [{"id": "two", "width": 2, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0},
+                                        {"id": "2", "offsetRow": 0, "offsetCol": 1}],
+                               "bodyCells": []}],
+            "components": [
+                {"id": "fixed", "label": "Fixed", "defId": "two", "locked": True,
+                 "boardPos": {"row": 2, "col": 3}},
+                {"id": "free", "label": "Free", "defId": "two"},
+            ],
+            "netAssignments": [],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        fixed = next(c for c in result["project"]["components"] if c["id"] == "fixed")
+        self.assertEqual(fixed["boardPos"], {"row": 2, "col": 3})
+        free = next(c for c in result["project"]["components"] if c["id"] == "free")
+        self.assertNotEqual(free["boardPos"], fixed["boardPos"])
+
+    def test_edge_and_slide_constraints_are_not_silently_ignored(self):
+        project = {
+            "board": {"rows": 4, "cols": 4},
+            "componentDefs": [{"id": "pin", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "A", "defId": "pin", "edge": True}],
+            "netAssignments": [],
+        }
+        self.assertEqual(quick_fit(project)["status"], "CONSTRAINT_CONFLICT")
+
+    def test_missing_footprint_is_incomplete_geometry(self):
+        project = {"board": {"rows": 4, "cols": 4},
+                   "components": [{"id": "A", "label": "A", "defId": "missing"}],
+                   "netAssignments": []}
+        self.assertEqual(quick_fit(project)["status"], "INCOMPLETE_GEOMETRY")
+
+
+if __name__ == "__main__":
+    unittest.main()

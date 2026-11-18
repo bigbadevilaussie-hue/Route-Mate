@@ -62,11 +62,11 @@ The current GUI can:
 - preserve and render the component positions already present in the project using the public front renderer, with alternating row guides;
 - run the repository's unittest suite during project loading;
 - collect preliminary Locked / Unlocked, Edge and Slide settings for already-positioned components;
-- invoke the shared deterministic first-fit `solve.quick_place` engine after constraints and render its provisional placement result.
+- invoke the shared deterministic net-aware `solve.quick_fit` engine after supported constraints and render its provisional placement result.
 
-The GUI labels this stage **Quick Place**, not Quick Fit. It is a basic first-fit placement pass, not a net-aware solver. If an edge-anchor or sliding constraint is selected, the GUI stops without changing the layout because the current placer cannot honour those hard constraints. Failed placement also leaves the imported layout displayed.
+The GUI invokes **Quick Fit**, a deterministic greedy net-aware placement engine. It uses net assignments to score candidate positions, honours position-locked components, prevents physical overlap and reports any clearance reduction. Hard edge-anchor and sliding constraints are not implemented yet; if selected, the GUI stops without changing the layout.
 
-**The GUI is not yet a complete stripboard design application.** Net-aware Quick Fit, hard edge-anchor/sliding support, interactive component selection/highlighting, strip-cut and jumper routing, optimisation, independent physical/construction verification and final build output are not implemented.
+**The GUI is not yet a complete stripboard design application.** Hard edge-anchor/sliding support, interactive component selection/highlighting, strip-cut and jumper routing, optimisation, independent physical/construction verification and final build output are not implemented.
 
 The GUI is a presentation and workflow layer. It must call the shared Route-Mate Python packages and consume the same project/result model as the CLI. It must not duplicate electrical checks, placement rules, routing or solver logic.
 
@@ -96,13 +96,13 @@ Route-Mate is under active development. The repository currently contains:
 - the Electrical Sanity package;
 - a front-side SVG board renderer;
 - an early-stage PySide6 desktop GUI (`gui/main.py`);
-- a deterministic first-fit placement module (`solve/quick_place.py`);
+- a deterministic net-aware placement module (`solve/quick_fit.py`) plus the earlier first-fit baseline (`solve/quick_place.py`);
 - an independent electrical copper-connectivity verifier (`solve/verify.py`);
 - benchmark fixtures and automated tests for the implemented modules.
 
 The desktop GUI is real but incomplete. It currently handles project loading, board-dimension entry, collector/electrical checks, component-side rendering, a repository test run and preliminary placement-lock questions. It stops before PRE-SOLVE; it does not yet provide end-to-end placement, strip-cut and jumper routing, optimisation or final result display/export.
 
-The placement module is a basic first-fit component placer, not a complete solver. It does not yet perform net-aware placement or route cuts and jumpers. The verifier checks electrical connectivity for the physical copper model it currently supports; it is not yet the complete physical/construction verifier described by the target architecture.
+Quick Fit is an initial deterministic greedy net-aware component placer, not a complete solver. It does not yet enforce hard edge anchors/sliding or route cuts and jumpers. The verifier checks electrical connectivity for the physical copper model it currently supports; it is not yet the complete physical/construction verifier described by the target architecture.
 
 There is no packaged macOS or Windows desktop application yet. The GUI runs from the development environment; standalone packaging and clean-machine testing remain outstanding.
 
