@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.13"
-CODE_VERSION = "1.13"
+GUI_VERSION = "1.14"
+CODE_VERSION = "1.14"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -103,29 +103,40 @@ class LockDialog(QDialog):
         self.setWindowTitle(f"PRE-SOLVE constraints ({index}/{total})")
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Component: {label}"))
-        self.locked = QRadioButton("Locked — keep this position fixed")
-        self.unlocked = QRadioButton("Unlocked — solver may move this component")
+        self.locked = QRadioButton("Locked — keep on board")
+        self.unlocked = QRadioButton("Unlocked — remove from board")
         self.edge = QCheckBox("Edge constrained")
         self.slide = QCheckBox("May slide along edge")
-        # Position lock, edge constraint and edge sliding are separate settings.
+        # Preserve the established GUI meaning: unlocked parts are removed
+        # from the board preview; edge/slide apply only to retained parts.
         is_locked = bool(component.get("locked", False))
         self.locked.setChecked(is_locked)
         self.unlocked.setChecked(not is_locked)
-        self.edge.setChecked(False)
-        self.slide.setChecked(False)
+        self.edge.setChecked(bool(component.get("edge", False)))
+        self.slide.setChecked(bool(component.get("slide", False)))
+        self.locked.toggled.connect(self._update_constraint_controls)
+        self.unlocked.toggled.connect(self._update_constraint_controls)
         layout.addWidget(self.locked)
         layout.addWidget(self.unlocked)
         layout.addWidget(self.edge)
         layout.addWidget(self.slide)
+        layout.addWidget(QLabel("Unlocked components are excluded from the refreshed board preview."))
+        self._update_constraint_controls()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _update_constraint_controls(self):
+        keep = self.locked.isChecked()
+        self.edge.setEnabled(keep)
+        self.slide.setEnabled(keep)
+
     def values(self):
         return {"locked": self.locked.isChecked(),
-                "edge": self.edge.isChecked(),
-                "slide": self.slide.isChecked()}
+                "edge": self.edge.isChecked() if self.locked.isChecked() else False,
+                "slide": self.slide.isChecked() if self.locked.isChecked() else False,
+                "remove": self.unlocked.isChecked()}
 
 
 class BoardView(QGraphicsView):
@@ -247,44 +258,64 @@ class RouteMateWindow(QMainWindow):
             for index, component in enumerate(placed, 1):
                 dialog = LockDialog(component, index, len(placed), self)
                 if dialog.exec() != QDialog.DialogCode.Accepted:
-                    self.log_line("[LOCKS] Cancelled. Quick Place not started.")
+                    self.log_line("[LOCKS] Cancelled. Changes already accepted remain rendered; Quick Place not started.")
                     return
-                self.presolve_constraints[str(component.get("id"))] = dialog.values()
-                values = self.presolve_constraints[str(component.get("id"))]
-                self.log_line(
-                    f"[LOCKS] {component.get('label') or component.get('id')}: "
-                    f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']}"
-                )
-        # The available engine is deterministic Quick Place (first-fit), not
-        # the future net-aware Quick Fit solver. Never silently discard edge rules.
-        unsupported = [
-            component for component in placed
-            if self.presolve_constraints[str(component.get("id"))]["edge"]
-            or self.presolve_constraints[str(component.get("id"))]["slide"]
-        ]
-        if unsupported:
-            labels = ", ".join(
-                str(c.get("label") or c.get("id")) for c in unsupported
-            )
-            self.log_line(
-                "[QUICK PLACE] Not started: the current first-fit engine does not "
-                f"implement hard edge anchors/sliding ({labels})."
-            )
-            QMessageBox.warning(
-                self, "Edge constraints not supported yet",
-                "Quick Place cannot honour edge anchors or sliding yet. "
-                "No placement was changed. The selected constraints have been retained in the GUI."
-            )
-            self.statusBar().showMessage("Stopped safely: edge constraints need solver support.")
-            return
 
-        for component in placed:
-            values = self.presolve_constraints[str(component.get("id"))]
-            component["locked"] = bool(values["locked"])
+                component_id = str(component.get("id"))
+                values = dialog.values()
+                self.presolve_constraints[component_id] = values
+                label = str(component.get("label") or component.get("id"))
+                self.log_line(
+                    f"[LOCKS] {label}: Locked={values['locked']} "
+                    f"Edge={values['edge']} Slide={values['slide']} "
+                    f"Remove={values['remove']}"
+                )
+
+                # Apply each answer immediately, then redraw before asking about
+                # the next component. This preserves the original interactive flow.
+                if values["remove"]:
+                    component["boardExcluded"] = True
+                    component.pop("boardPos", None)
+                    component.pop("flexibleEndPos", None)
+                    component.pop("locked", None)
+                    component.pop("edge", None)
+                    component.pop("slide", None)
+                    self.log_line(f"[PLACEMENT] Removed {label} from the board.")
+                else:
+                    component["locked"] = True
+                    component["edge"] = bool(values["edge"])
+                    component["slide"] = bool(values["slide"])
+
+                top_svg, renderer_log = self._render_component_side(self.project)
+                self._show_board(top_svg)
+                self.log_line(f"[RENDER] Board refreshed after {label}.")
+                if renderer_log:
+                    self.log_line("[RENDER] " + renderer_log)
 
         self.log_line(
-            f"[LOCKS] Recorded {len(self.presolve_constraints)} component constraints."
+            f"[LOCKS] Recorded {len(self.presolve_constraints)} component responses."
         )
+
+        # Quick Place is appended after the established prompt/remove/render flow.
+        # Do not pass unsupported edge/slide constraints to the first-fit engine.
+        unsupported = [
+            component for component in placed
+            if not component.get("boardExcluded")
+            and not component.get("offBoard")
+            and (
+                self.presolve_constraints.get(str(component.get("id")), {}).get("edge")
+                or self.presolve_constraints.get(str(component.get("id")), {}).get("slide")
+            )
+        ]
+        if unsupported:
+            labels = ", ".join(str(c.get("label") or c.get("id")) for c in unsupported)
+            self.log_line(
+                "[QUICK PLACE] Not started: first-fit does not yet implement "
+                f"hard edge anchors/sliding ({labels}). The latest board preview is retained."
+            )
+            self.statusBar().showMessage("Constraints collected; edge/slide solver support is pending.")
+            return
+
         self.log_line("[QUICK PLACE] Running shared deterministic first-fit placement engine...")
         from solve import quick_place
         result = quick_place(self.project)
@@ -293,14 +324,14 @@ class RouteMateWindow(QMainWindow):
         if result.get("status") != "PASS":
             self.log_line(
                 f"[QUICK PLACE] {result.get('status', 'FAIL')}: "
-                f"{result.get('placed', 0)} components placed; source layout retained."
+                f"{result.get('placed', 0)} components placed; current edited preview retained."
             )
             QMessageBox.warning(
                 self, "Quick Place incomplete",
                 "The first-fit placer could not place every included component. "
-                "The original imported layout remains displayed. See the log."
+                "The latest board preview, including removals, remains displayed. See the log."
             )
-            self.statusBar().showMessage("Quick Place incomplete — original layout retained.")
+            self.statusBar().showMessage("Quick Place incomplete — latest preview retained.")
             return
 
         self.project = result["project"]
