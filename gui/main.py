@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.05"
-CODE_VERSION = "1.05"
+GUI_VERSION = "1.06"
+CODE_VERSION = "1.06"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox, QHBoxLayout,
     QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QComboBox,
-    QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget,
 )
 
 
@@ -153,92 +153,10 @@ class BoardView(QGraphicsView):
         self._renderer = None
 
     def fit_board(self):
-        self.resetTransform()
-        self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.scene() and not self.scene().sceneRect().isEmpty():
-            self.fit_board()
-
-    def show_svg(self, svg: str):
-        import re
-        svg = re.sub(
-            r"(<svg\b[^>]*>)",
-            r"\1<style>text{fill:#000000!important;stroke:#f3e5bf!important;"
-            r"stroke-width:0.55px!important;paint-order:stroke fill!important;"
-            r"stroke-linejoin:round!important;font-weight:700!important;opacity:1!important;}"
-            r"tspan{fill:#000000!important;stroke:#f3e5bf!important;"
-            r"stroke-width:0.55px!important;font-weight:700!important;opacity:1!important;}</style>",
-            svg, count=1,
-        )
-        scene = self.scene()
-        scene.clear()
-        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-        if not renderer.isValid():
-            raise ValueError("Component-side renderer produced invalid SVG.")
-        item = QGraphicsSvgItem()
-        item.setSharedRenderer(renderer)
-        scene.addItem(item)
-        self._renderer = renderer
-        scene.setSceneRect(item.boundingRect())
-        self.fit_board()
-
-
-class RouteMateWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle(f"Route-Mate GUI v{GUI_VERSION} (Code v{CODE_VERSION})")
-        # Give the 24 x 56 board most of the window and keep it fully fitted.
-        self.resize(1600, 950)
-        self.setMinimumSize(1000, 650)
-        self.project: dict[str, Any] | None = None
-        self.project_path: Path | None = None
-        self.presolve_constraints: dict[str, dict[str, bool]] = {}
-        self._rendered_svgs: dict[str, str] = {}
-
-        toolbar = QToolBar("Main")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-        load_action = QAction("Load JSON", self)
-        load_action.triggered.connect(self.load_json)
-        toolbar.addAction(load_action)
-        export_top_action = QAction("Export top SVG", self)
-        export_top_action.triggered.connect(lambda: self.export_svg("top"))
-        toolbar.addAction(export_top_action)
-        export_copper_action = QAction("Export copper SVG", self)
-        export_copper_action.triggered.connect(lambda: self.export_svg("copper"))
-        toolbar.addAction(export_copper_action)
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setMaximumBlockCount(5000)
-        self.log.setPlaceholderText("Route-Mate running log")
-        self.top_view = BoardView()
-        self.copper_view = BoardView()
-        self.board_tabs = QTabWidget()
-        self.board_tabs.addTab(self.top_view, "Component side")
-        self.board_tabs.addTab(self.copper_view, "Copper side")
-        split = QSplitter(Qt.Orientation.Horizontal)
-        split.addWidget(self.log)
-        split.addWidget(self.board_tabs)
-        split.setStretchFactor(0, 0)
-        split.setStretchFactor(1, 1)
-        split.setSizes([320, 1280])
-        self.setCentralWidget(split)
-        self.statusBar().showMessage("Ready. Load a project JSON to begin.")
-        self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: collect → sanity checks → dual-side render → tests → PRE-SOLVE locks.")
-        self.log_line("PRE-SOLVE itself is not implemented; the GUI stops after collecting lock settings.")
-
-    def log_line(self, message: str):
-        self.log.appendPlainText(message)
-
-    def fit_board(self):
         self.top_view.fit_board()
-        self.copper_view.fit_board()
 
-    def _render_board_sides(self, project: dict[str, Any]) -> tuple[str, str, str]:
-        """Render both production views and add row guides behind their artwork."""
+    def _render_component_side(self, project: dict[str, Any]) -> tuple[str, str]:
+        """Render the production board and expose only its component-side SVG."""
         from render.standalone_bridge import add_alternating_row_bands, render_project
 
         with tempfile.TemporaryDirectory(prefix="route-mate-render-") as temp:
@@ -249,39 +167,12 @@ class RouteMateWindow(QMainWindow):
                 json.dumps(project, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-            top_svg, copper_svg, renderer_log = render_project(project_file, output_dir)
+            top_svg, _copper_svg, renderer_log = render_project(project_file, output_dir)
         rows = int(project["board"]["rows"])
-        return (
-            add_alternating_row_bands(top_svg, rows),
-            add_alternating_row_bands(copper_svg, rows),
-            renderer_log,
-        )
+        return add_alternating_row_bands(top_svg, rows), renderer_log
 
-    def _show_board_sides(self, top_svg: str, copper_svg: str):
-        self._rendered_svgs = {"top": top_svg, "copper": copper_svg}
+    def _show_board(self, top_svg: str):
         self.top_view.show_svg(top_svg)
-        self.copper_view.show_svg(copper_svg)
-
-    def export_svg(self, side: str):
-        svg = self._rendered_svgs.get(side)
-        if not svg:
-            QMessageBox.information(self, "No board to export", "Load and render a project first.")
-            return
-        label = "component-side" if side == "top" else "copper-side"
-        base = self.project_path.stem if self.project_path else "board"
-        default_name = f"{base}-{label}.svg"
-        folder = self.project_path.parent if self.project_path else Path.home()
-        filename, _ = QFileDialog.getSaveFileName(
-            self, f"Export {label} SVG", str(folder / default_name), "SVG image (*.svg)",
-        )
-        if not filename:
-            return
-        path = Path(filename)
-        if path.suffix.lower() != ".svg":
-            path = path.with_suffix(".svg")
-        path.write_text(svg, encoding="utf-8")
-        self.log_line(f"[EXPORT] Saved {label} SVG: {path}")
-        self.statusBar().showMessage(f"Exported {label} SVG")
 
     def _run_tests(self):
         self.log_line("[TEST] Running repository unittest suite...")
@@ -316,17 +207,19 @@ class RouteMateWindow(QMainWindow):
         removed = []
         for component in placed:
             values = self.presolve_constraints.get(str(component.get("id")), {})
+            component["locked"] = bool(values.get("locked"))
             if values.get("remove"):
                 component["boardExcluded"] = True
                 component.pop("boardPos", None)
                 component.pop("flexibleEndPos", None)
                 removed.append(str(component.get("label") or component.get("id")))
-        top_svg, copper_svg, renderer_log = self._render_board_sides(self.project)
-        self._show_board_sides(top_svg, copper_svg)
-        self.log_line("[RENDER] Production component-side and copper-side SVGs refreshed.")
-        if renderer_log:
-            self.log_line("[RENDER] " + renderer_log)
-        self.log_line(f"[RENDER] Board refreshed after lock collection; removed {len(removed)} unlocked parts.")
+        if removed:
+            top_svg, renderer_log = self._render_component_side(self.project)
+            self._show_board(top_svg)
+            self.log_line("[RENDER] Component-side preview refreshed.")
+            if renderer_log:
+                self.log_line("[RENDER] " + renderer_log)
+        self.log_line(f"[RENDER] Board placement retained; removed {len(removed)} unlocked parts.")
         for label in removed:
             self.log_line(f"[RENDER] Removed from board: {label}")
         self.log_line("[STOP] Lock settings collected and board refreshed. PRE-SOLVE is not implemented; stopped here.")
@@ -388,41 +281,47 @@ class RouteMateWindow(QMainWindow):
                                     "The project failed electrical sanity checks. See the log.")
                 return
 
-            # Use the production renderer for both complete board views.
-            top_svg, copper_svg, renderer_log = self._render_board_sides(project)
-            self._show_board_sides(top_svg, copper_svg)
-            self.log_line("[RENDER] Production component-side and copper-side SVGs rendered with alternating row bands.")
-            if renderer_log:
-                self.log_line("[RENDER] " + renderer_log)
-
             tests_passed = self._run_tests()
             if not tests_passed:
                 QMessageBox.warning(self, "Tests failed",
-                                    "Repository tests failed. See the log; lock questions were not started.")
+                                    "Repository tests failed. See the log; Quick Place was not started.")
                 return
 
+            # Run the shared deterministic placement engine; never mutate the source JSON.
+            from solve.quick_place import quick_place
+            placement = quick_place(project)
+            for error in placement.get("errors", []):
+                self.log_line("[PLACEMENT][ERROR] " + error)
+            if placement.get("status") != "PASS":
+                QMessageBox.warning(self, "Quick Place failed",
+                                    "Quick Place could not place the project. See the log.")
+                self.log_line("[STOP] Quick Place failed; lock questions were not started.")
+                return
+            project = placement["project"]
             components = project["components"]
-            placed = [c for c in components
-                      if c.get("boardPos") is not None and not c.get("offBoard")
-                      and not c.get("boardExcluded")]
-            on_board = [c for c in components
-                        if not c.get("offBoard") and not c.get("boardExcluded")]
-            self.log_line(f"[PLACEMENT] On-board components={len(on_board)}; already placed={len(placed)}.")
-            if placed:
-                for component in placed:
-                    self.log_line(
-                        f"[PLACEMENT] {component.get('label') or component.get('id')}: "
-                        f"boardPos={component.get('boardPos')}"
-                    )
-            else:
-                self.log_line("[PLACEMENT] No parts currently have boardPos placements.")
+            placed = [component for component in components
+                      if isinstance(component.get("boardPos"), dict)
+                      and not component.get("offBoard") and not component.get("boardExcluded")]
+            on_board = [component for component in components
+                        if not component.get("offBoard") and not component.get("boardExcluded")]
+            self.log_line(
+                f"[PLACEMENT] Quick Place PASS: {placement['placed']} placed; "
+                f"{len(on_board)} included; {placement.get('excluded', 0)} excluded."
+            )
+            for component in placed:
+                self.log_line(
+                    f"[PLACEMENT] {component.get('label') or component.get('id')}: "
+                    f"boardPos={component.get('boardPos')} rotation={component.get('rotation', 0)}"
+                )
 
             self.project = project
             self.project_path = path
+            top_svg, renderer_log = self._render_component_side(project)
+            self._show_board(top_svg)
+            self.log_line("[RENDER] Production component-side SVG rendered with alternating row bands.")
+            if renderer_log:
+                self.log_line("[RENDER] " + renderer_log)
             self._ask_lock_settings(placed)
-            if not placed:
-                self.log_line("[STOP] No placed components to ask lock settings for. PRE-SOLVE is not implemented.")
-                self.statusBar().showMessage("Loaded and checked — stopped before PRE-SOLVE.")
         except Exception as exc:
             self.log_line(f"[ERROR] {type(exc).__name__}: {exc}")
             self.log_line(traceback.format_exc())
