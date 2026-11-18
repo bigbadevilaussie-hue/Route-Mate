@@ -10,8 +10,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-GUI_VERSION = "1.03"
-CODE_VERSION = "1.04"
+GUI_VERSION = "1.04"
+CODE_VERSION = "1.05"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -141,8 +141,9 @@ class BoardView(QGraphicsView):
                             QPainter.RenderHint.TextAntialiasing |
                             QPainter.RenderHint.SmoothPixmapTransform)
         self.setBackgroundBrush(QBrush(QColor("#f2f2f2")))
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        # Fixed view: no mouse-wheel zoom, panning, or visible scrollbars.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._renderer = None
 
@@ -150,10 +151,10 @@ class BoardView(QGraphicsView):
         self.resetTransform()
         self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
-    def wheelEvent(self, event):
-        self.scale(1.25 if event.angleDelta().y() > 0 else 0.8,
-                   1.25 if event.angleDelta().y() > 0 else 0.8)
-        event.accept()
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.scene() and not self.scene().sceneRect().isEmpty():
+            self.fit_board()
 
     def show_svg(self, svg: str):
         import re
@@ -183,9 +184,9 @@ class RouteMateWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Route-Mate GUI v{GUI_VERSION} (Code v{CODE_VERSION})")
-        # 24 x 56 board proportions, with a useful log pane.
-        self.resize(1420, 900)
-        self.setMinimumSize(1100, 720)
+        # Give the 24 x 56 board most of the window and keep it fully fitted.
+        self.resize(1600, 950)
+        self.setMinimumSize(1000, 650)
         self.project: dict[str, Any] | None = None
         self.project_path: Path | None = None
         self.presolve_constraints: dict[str, dict[str, bool]] = {}
@@ -196,10 +197,6 @@ class RouteMateWindow(QMainWindow):
         load_action = QAction("Load JSON", self)
         load_action.triggered.connect(self.load_json)
         toolbar.addAction(load_action)
-        fit_action = QAction("Fit board", self)
-        fit_action.triggered.connect(self.fit_board)
-        toolbar.addAction(fit_action)
-
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(5000)
@@ -210,7 +207,7 @@ class RouteMateWindow(QMainWindow):
         split.addWidget(self.board_view)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
-        split.setSizes([360, 1060])
+        split.setSizes([320, 1280])
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
