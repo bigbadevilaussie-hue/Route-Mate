@@ -1,31 +1,33 @@
 """Deterministic first-fit component placement for Route-Mate."""
 from __future__ import annotations
 from typing import Any
-from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition, rotate_offset
+from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from placement_policy import is_off_board_component
 
 def _excluded(c):
     return is_off_board_component(c)
 
 def _shape(component, definition, rotation):
-    """Return occupied footprint cells in local coordinates.
+    """Return the exact occupied pad/body cells in local coordinates.
 
-    Flexible two-pin parts reserve their actual terminals. Rigid footprints
-    reserve their full declared rectangle, including body clearance.
+    Use the shared geometry resolver so placement, rendering and verification
+    agree about which physical cells a footprint occupies.
     """
-    pins = definition.get("pins") or []
-    if len(pins) == 2 and definition.get("flexible"):
-        probe = {**component, "boardPos": {"row": 0, "col": 0},
-                 "rotation": rotation, "flexibleEndPos": None}
-        pin_points, _body = component_geometry(probe, definition)
-        return {(int(p["row"]), int(p["col"])) for p in pin_points}
-    width, height = int(definition.get("width", 0)), int(definition.get("height", 0))
-    if width < 1 or height < 1:
-        raise ValueError("footprint width and height must be positive")
-    return {
-        rotate_offset(row, col, rotation, height - 1, width - 1)
-        for row in range(height) for col in range(width)
-    }
+    probe = {**component, "boardPos": {"row": 0, "col": 0},
+             "rotation": rotation}
+    end = component.get("flexibleEndPos")
+    base = component.get("boardPos")
+    if isinstance(end, dict) and isinstance(base, dict):
+        probe["flexibleEndPos"] = {
+            "row": int(end.get("row", 0)) - int(base.get("row", 0)),
+            "col": int(end.get("col", 0)) - int(base.get("col", 0)),
+        }
+    else:
+        probe["flexibleEndPos"] = None
+    pin_points, body_points = component_geometry(probe, definition)
+    return ({(int(pin["row"]), int(pin["col"])) for pin in pin_points}
+            | {(int(row), int(col)) for row, col in body_points})
+
 
 def quick_place(project: dict[str, Any]) -> dict[str, Any]:
     """Place included components deterministically, largest footprints first.
