@@ -40,6 +40,7 @@ class VerifyTests(unittest.TestCase):
         data = validate_project(json.loads(path.read_text(encoding="utf-8")))
         report = verify_project(data)
         self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["counts"]["wires"], 14)
         self.assertTrue(
             any("AGM -in pin 2" in error and "outside board" in error
                 for error in report["errors"]),
