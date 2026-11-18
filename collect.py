@@ -63,6 +63,62 @@ def component_def_id(component: dict[str, Any]) -> str | None:
     value = component.get("defId") or component.get("componentDefId")
     return str(value) if value else None
 
+# Karl's editor exports some built-in pin IDs as symbols while its
+# netAssignments retain the stable numeric pin IDs used by the solver.
+# Only exact, known legacy sequences are translated; pin order and all
+# physical geometry remain untouched.
+BUILTIN_PIN_ALIASES = {
+    "def-diode": ("a", "k"),
+    "def-zener": ("a", "k"),
+    "def-led": ("a", "k"),
+    "def-cap-polarized": ("+", "-"),
+    "def-npn": ("b", "c", "e"),
+    "def-pnp": ("b", "c", "e"),
+    "def-pmos": ("g", "d", "s"),
+    "def-nmos": ("g", "d", "s"),
+}
+
+
+def canonicalise_builtin_pin_ids(data: dict[str, Any]) -> list[str]:
+    """Translate known Karl built-in pin aliases to stable 1-based IDs.
+
+    The saved definition's pin order, names, offsets, dimensions and body
+    cells are preserved. Unknown sequences are left unchanged for sanity
+    validation to reject rather than guessed.
+    """
+    warnings: list[str] = []
+    definitions = data.get("componentDefs") or []
+    if not isinstance(definitions, list):
+        return warnings
+    for definition in definitions:
+        if not isinstance(definition, dict):
+            continue
+        definition_id = str(definition.get("id") or "")
+        aliases = BUILTIN_PIN_ALIASES.get(definition_id)
+        pins = definition.get("pins")
+        if not aliases or not isinstance(pins, list):
+            continue
+        ids = tuple(str(pin.get("id", "")).casefold()
+                    for pin in pins if isinstance(pin, dict))
+        if len(ids) != len(pins):
+            warnings.append(f"{definition_id}: malformed pin entry; IDs not normalised")
+            continue
+        if ids == tuple(str(i) for i in range(1, len(pins) + 1)):
+            continue
+        if ids != aliases:
+            warnings.append(
+                f"{definition_id}: unrecognised saved pin IDs {ids}; left unchanged"
+            )
+            continue
+        for index, pin in enumerate(pins, 1):
+            pin["id"] = str(index)
+        warnings.append(
+            f"{definition_id}: normalised legacy pin IDs {ids} to "
+            f"{tuple(str(i) for i in range(1, len(pins) + 1))}; geometry preserved"
+        )
+    return warnings
+
+
 def validate_project(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("project JSON root must be an object")
@@ -74,6 +130,9 @@ def validate_project(data: Any) -> dict[str, Any]:
     for key in ("components", "nets", "netAssignments"):
         if any(not isinstance(item, dict) for item in data[key]):
             raise ValueError(f"every item in {key!r} must be an object")
+    warnings = canonicalise_builtin_pin_ids(data)
+    if warnings:
+        data.setdefault("_collectWarnings", []).extend(warnings)
     return data
 
 def parse_kicad_mod(text: str) -> dict[str, Any] | None:
@@ -204,11 +263,11 @@ def normalise_like_gui(data: dict[str, Any]) -> dict[str, Any]:
     saved_defs = data.get("componentDefs") or []
     if not isinstance(saved_defs, list):
         raise ValueError("componentDefs must be an array")
-    # The editor combines built-ins + project custom definitions. The solver
-    # does the same at runtime, so the campaign JSON stores only custom defs.
+    # Preserve every saved definition. Karl's solved exports include the
+    # actual footprint geometry used for placement; replacing those built-ins
+    # with the local registry can change pin coordinates and board occupancy.
     data["componentDefs"] = [
-        d for d in saved_defs
-        if isinstance(d, dict) and d.get("id") and not is_default_id(str(d["id"]))
+        d for d in saved_defs if isinstance(d, dict) and d.get("id")
     ]
     data["components"] = [
         {**c, "schematicRotation": c.get("schematicRotation", 0)}
@@ -555,7 +614,7 @@ def main() -> int:
             warnings.append(f"{len(missing)} component definitions remain unresolved")
         if entry["shortedDefs"]:
             warnings.append(f"{entry['shortedDefs']} custom footprint(s) place different-net pins on the same hole")
-        warnings.append("Built-in footprint short checks are left to the solver verifier; this collector only has project custom-footprint geometry.")
+        warnings.append("Footprints without saved project geometry are left to the solver verifier; saved built-in and custom geometry is checked by the collector.")
         if net_nodes is not None:
             entry["netlistNodes"] = net_nodes
 
