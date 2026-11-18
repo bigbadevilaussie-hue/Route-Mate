@@ -163,6 +163,27 @@ class QuickFitSourceGeometryTests(unittest.TestCase):
         )
         self.assertEqual(body, [])
 
+    def test_flexible_resistor_body_follows_saved_lead_end(self):
+        component = {
+            "id": "R1", "defId": "def-resistor",
+            "boardPos": {"row": 4, "col": 7},
+            "flexibleEndPos": {"row": 8, "col": 15},
+        }
+        definition = {
+            "width": 1, "height": 5, "flexible": True,
+            "pins": [
+                {"id": "1", "name": "1", "offsetRow": 0, "offsetCol": 0},
+                {"id": "2", "name": "2", "offsetRow": 4, "offsetCol": 0},
+            ],
+            "bodyCells": [
+                {"row": 1, "col": 0}, {"row": 2, "col": 0},
+                {"row": 3, "col": 0},
+            ],
+        }
+        pins, body = component_geometry(component, definition)
+        self.assertEqual([(p["row"], p["col"]) for p in pins], [(4, 7), (8, 15)])
+        self.assertEqual(body, [(5, 9), (6, 11), (7, 13)])
+
     def test_rotation_is_reversible_for_rectangular_footprints(self):
         # Coordinates use row/column extents: height-1 and width-1.
         for height in range(1, 10):

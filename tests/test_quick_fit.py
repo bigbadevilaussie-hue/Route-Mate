@@ -17,6 +17,13 @@ def load_project(name: str) -> dict:
     return json.loads((ROOT / "benchmarks" / name / f"{name}.json").read_text(encoding="utf-8"))
 
 
+def definitions_for_test(project):
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                        if isinstance(d, dict) and d.get("id")})
+    return definitions
+
+
 class QuickFitPlacementTests(unittest.TestCase):
     PROJECTS = {"moto": {"placed": 32, "excluded": 12},
                 "audio": {"placed": 14, "excluded": 5}}
@@ -57,6 +64,42 @@ class QuickFitPlacementTests(unittest.TestCase):
                 self.assertEqual(source, original, "Quick Fit must not mutate source JSON")
                 self._assert_physical_layout(first["project"])
                 self.assertGreater(first["report"]["net_links_scored"], 0)
+
+    def test_q1_cannot_be_placed_through_resistor_body(self):
+        project = {
+            "board": {"rows": 5, "cols": 3},
+            "components": [
+                {"id": "R1", "label": "R1", "defId": "def-resistor", "rotation": 0},
+                {"id": "Q1", "label": "Q1", "defId": "def-npn", "rotation": 0,
+                 "footprintOverride": {
+                     "width": 1, "height": 3,
+                     "pins": [
+                         {"id": "1", "name": "B", "offsetRow": 0, "offsetCol": 0},
+                         {"id": "2", "name": "C", "offsetRow": 1, "offsetCol": 0},
+                         {"id": "3", "name": "E", "offsetRow": 2, "offsetCol": 0},
+                     ],
+                     "bodyCells": [],
+                 }},
+            ],
+            "netAssignments": [],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        resistor = next(c for c in result["project"]["components"] if c["id"] == "R1")
+        transistor = next(c for c in result["project"]["components"] if c["id"] == "Q1")
+
+        # Independent physical oracle: this resistor's four-hole lead span
+        # occupies the three intermediate stripboard cells, not just pads.
+        resistor_body = {
+            (resistor["boardPos"]["row"] + offset, resistor["boardPos"]["col"])
+            for offset in (1, 2, 3)
+        }
+        q_pins, q_body = component_geometry(
+            transistor, resolve_definition(transistor, definitions_for_test(result["project"]))
+        )
+        q_cells = {(p["row"], p["col"]) for p in q_pins} | set(q_body)
+        self.assertTrue(resistor_body.isdisjoint(q_cells),
+                        f"Q1 overlaps R1's physical body at {resistor_body & q_cells}")
 
     def test_clearance_fallback_is_reported(self):
         project = {

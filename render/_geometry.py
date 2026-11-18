@@ -155,13 +155,42 @@ def component_geometry(
             dr = int(pins[1].get("offsetRow", 1))
             dc = int(pins[1].get("offsetCol", 0))
             end = {"row": base_row + dr, "col": base_col + dc}
+        end_row, end_col = int(end.get("row", base_row)), int(end.get("col", base_col))
         pin_points = [
             {"id": str(pins[0].get("id", "1")), "name": str(pins[0].get("name", "1")),
              "row": base_row, "col": base_col},
             {"id": str(pins[1].get("id", "2")), "name": str(pins[1].get("name", "2")),
-             "row": int(end.get("row", base_row)), "col": int(end.get("col", base_col))},
+             "row": end_row, "col": end_col},
         ]
-        return pin_points, []
+
+        # Flexible two-lead parts still occupy their declared body cells.
+        # Map cells along the definition's pin-to-pin axis onto the actual
+        # saved lead endpoints; otherwise resistors reserve only their pads
+        # and another component can be placed directly through the body.
+        first = pins[0]
+        second = pins[1]
+        axis_row = int(second.get("offsetRow", 1)) - int(first.get("offsetRow", 0))
+        axis_col = int(second.get("offsetCol", 0)) - int(first.get("offsetCol", 0))
+        axis_length_sq = axis_row * axis_row + axis_col * axis_col
+        body_points = []
+        if axis_length_sq:
+            for cell in body:
+                if not isinstance(cell, dict):
+                    continue
+                rel_row = int(cell.get("row", 0)) - int(first.get("offsetRow", 0))
+                rel_col = int(cell.get("col", 0)) - int(first.get("offsetCol", 0))
+                # Only map body cells on the lead axis and strictly between
+                # the two pads. Non-collinear custom artwork is not a lead
+                # body cell and remains the responsibility of its own model.
+                if rel_row * axis_col != rel_col * axis_row:
+                    continue
+                fraction = (rel_row * axis_row + rel_col * axis_col) / axis_length_sq
+                if not 0.0 < fraction < 1.0:
+                    continue
+                row = round(base_row + fraction * (end_row - base_row))
+                col = round(base_col + fraction * (end_col - base_col))
+                body_points.append((row, col))
+        return pin_points, body_points
 
     pin_points = []
     for pin in pins:
