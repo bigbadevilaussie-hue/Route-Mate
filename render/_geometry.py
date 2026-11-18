@@ -142,8 +142,14 @@ def component_geometry(
     max_col = max((p[1] for p in points), default=0)
     rotation = int(component.get("rotation", 0) or 0) % 360
 
-    if definition.get("flexible") and len(pins) >= 2:
-        end = component.get("flexibleEndPos")
+    # A solved export may carry an explicit flexible endpoint even when
+    # its saved footprint definition omits the editor's "flexible" flag.
+    # Honour that endpoint for two-pin parts without changing saved geometry.
+    explicit_end = component.get("flexibleEndPos")
+    if len(pins) == 2 and (
+        definition.get("flexible") or isinstance(explicit_end, dict)
+    ):
+        end = explicit_end
         if not isinstance(end, dict):
             # Flexible parts default to pin 2's unrotated offset, matching the source model.
             dr = int(pins[1].get("offsetRow", 1))
