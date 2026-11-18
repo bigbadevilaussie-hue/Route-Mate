@@ -2,9 +2,10 @@
 from __future__ import annotations
 from typing import Any
 from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition, rotate_offset
+from placement_policy import is_off_board_component
 
 def _excluded(c):
-    return c.get("offBoard") is True or c.get("boardExcluded") is True
+    return is_off_board_component(c)
 
 def _shape(component, definition, rotation):
     """Return occupied footprint cells in local coordinates.
