@@ -1,17 +1,30 @@
 """Deterministic first-fit component placement for Route-Mate."""
 from __future__ import annotations
 from typing import Any
-from render._geometry import component_geometry, resolve_definition
+from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition, rotate_offset
 
 def _excluded(c):
     return c.get("offBoard") is True or c.get("boardExcluded") is True
 
 def _shape(component, definition, rotation):
-    probe = {**component, "boardPos": {"row": 0, "col": 0}, "rotation": rotation}
-    pins, body = component_geometry(probe, definition)
-    cells = {(int(p["row"]), int(p["col"])) for p in pins}
-    cells.update((int(r), int(c)) for r, c in body)
-    return cells
+    """Return occupied footprint cells in local coordinates.
+
+    Flexible two-pin parts reserve their actual terminals. Rigid footprints
+    reserve their full declared rectangle, including body clearance.
+    """
+    pins = definition.get("pins") or []
+    if len(pins) == 2 and definition.get("flexible"):
+        probe = {**component, "boardPos": {"row": 0, "col": 0},
+                 "rotation": rotation, "flexibleEndPos": None}
+        pin_points, _body = component_geometry(probe, definition)
+        return {(int(p["row"]), int(p["col"])) for p in pin_points}
+    width, height = int(definition.get("width", 0)), int(definition.get("height", 0))
+    if width < 1 or height < 1:
+        raise ValueError("footprint width and height must be positive")
+    return {
+        rotate_offset(row, col, rotation, height - 1, width - 1)
+        for row in range(height) for col in range(width)
+    }
 
 def quick_place(project: dict[str, Any]) -> dict[str, Any]:
     """Place included components deterministically, largest footprints first.
@@ -29,7 +42,10 @@ def quick_place(project: dict[str, Any]) -> dict[str, Any]:
         if rows < 1 or cols < 1: raise ValueError
     except (KeyError, TypeError, ValueError):
         return {"status":"FAIL","project":result,"errors":["board rows and cols must be positive integers"],"placed":0}
-    defs = {str(d["id"]):d for d in result.get("componentDefs",[]) if isinstance(d,dict) and d.get("id")}
+    # Saved project definitions override shared built-ins.
+    defs = dict(BUILTIN_DEFS)
+    defs.update({str(d["id"]): d for d in result.get("componentDefs", [])
+                 if isinstance(d, dict) and d.get("id")})
     occupied, errors, pending = set(), [], []
     for c in components:
         if not isinstance(c,dict) or _excluded(c): continue
