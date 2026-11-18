@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.08"
-CODE_VERSION = "1.08"
+GUI_VERSION = "1.09"
+CODE_VERSION = "1.09"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -215,20 +215,13 @@ class RouteMateWindow(QMainWindow):
         self.top_view.fit_board()
 
     def _render_component_side(self, project: dict[str, Any]) -> tuple[str, str]:
-        """Render the production board and expose only its component-side SVG."""
-        from render.standalone_bridge import add_alternating_row_bands, render_project
+        """Render the component side through Route-Mate's public renderer API."""
+        from render import render_front
+        from render.standalone_bridge import add_alternating_row_bands
 
-        with tempfile.TemporaryDirectory(prefix="route-mate-render-") as temp:
-            temp_dir = Path(temp)
-            project_file = temp_dir / "project.json"
-            output_dir = temp_dir / "output"
-            project_file.write_text(
-                json.dumps(project, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            top_svg, _copper_svg, renderer_log = render_project(project_file, output_dir)
+        top_svg = render_front(project)
         rows = int(project["board"]["rows"])
-        return add_alternating_row_bands(top_svg, rows), renderer_log
+        return add_alternating_row_bands(top_svg, rows), "render.render_front"
 
     def _show_board(self, top_svg: str):
         self.top_view.show_svg(top_svg)
