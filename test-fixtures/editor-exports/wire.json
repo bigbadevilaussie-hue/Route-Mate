@@ -1,0 +1,46 @@
+{
+  "version": 4,
+  "name": "Untitled Project",
+  "description": "",
+  "notes": "",
+  "componentDefs": [],
+  "components": [],
+  "nets": [],
+  "netAssignments": [],
+  "schematicWires": [],
+  "netLabels": [],
+  "wiring": "touch",
+  "board": {
+    "rows": 20,
+    "cols": 20,
+    "cuts": [],
+    "wires": [
+      {
+        "id": "ffc6cd9f-b0ed-4e77-a260-8034a1ab3a84",
+        "from": {
+          "row": 2,
+          "col": 3
+        },
+        "to": {
+          "row": 2,
+          "col": 4
+        }
+      },
+      {
+        "id": "71ebcd3b-e4c0-47c1-b763-4cd6f03fdf46",
+        "from": {
+          "row": 3,
+          "col": 4
+        },
+        "to": {
+          "row": 2,
+          "col": 4
+        }
+      }
+    ]
+  },
+  "showValuesOnBoard": false,
+  "labelMovement": true,
+  "autoSave": false,
+  "boardEditsSinceAutoLayout": 3
+}
