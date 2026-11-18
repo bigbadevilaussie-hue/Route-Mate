@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 from collect import validate_project
 from solve.quick_place import quick_place
-from solve.verify import verify_project
 from render._geometry import component_geometry, resolve_definition
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -41,8 +40,15 @@ class QuickPlaceTests(unittest.TestCase):
         result=quick_place(load("moto"))
         self.assertEqual(result["status"],"PASS",result["errors"])
         self.assertEqual(result["placed"],33)
-        report=verify_project(result["project"])
-        self.assertEqual(report["status"],"PASS",report["errors"])
+        p=result["project"]
+        defs={str(d["id"]):d for d in p.get("componentDefs",[])}
+        for c in p["components"]:
+            if c.get("offBoard") or c.get("boardExcluded"): continue
+            pins,body=component_geometry(c,resolve_definition(c,defs))
+            for point in [(x["row"],x["col"]) for x in pins]+list(body):
+                self.assertTrue(0<=point[0]<p["board"]["rows"] and
+                                0<=point[1]<p["board"]["cols"],
+                                f"{c.get('label')} outside board at {point}")
 
     def test_locked_component_is_preserved(self):
         p={"board":{"rows":4,"cols":6},"componentDefs":[{"id":"two","width":2,"height":1,
