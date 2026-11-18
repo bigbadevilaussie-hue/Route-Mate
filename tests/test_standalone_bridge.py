@@ -11,9 +11,15 @@ class AlternatingRowBandTests(unittest.TestCase):
         self.assertIn('x="20" y="75" width="100" height="30"', result)
         self.assertLess(result.index('data-route-mate-row-band'), result.index('<circle'))
 
-    def test_even_rows_are_not_shaded(self):
+    def test_two_rows_shades_only_the_alternating_row(self):
         svg = '<svg viewBox="20 20 100 100"><circle cx="60" cy="60" r="4"/></svg>'
-        self.assertNotIn('data-route-mate-row-band', add_alternating_row_bands(svg, 2))
+        result = add_alternating_row_bands(svg, 2)
+        self.assertEqual(result.count('data-route-mate-row-band="1"'), 1)
+        self.assertIn('y="75"', result)
+
+    def test_single_row_has_no_alternating_band(self):
+        svg = '<svg viewBox="20 20 100 100"><circle cx="60" cy="60" r="4"/></svg>'
+        self.assertNotIn('data-route-mate-row-band', add_alternating_row_bands(svg, 1))
 
     def test_requires_valid_svg_viewbox(self):
         with self.assertRaisesRegex(ValueError, "viewBox"):
