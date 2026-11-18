@@ -190,6 +190,7 @@ class RouteMateWindow(QMainWindow):
         self.project: dict[str, Any] | None = None
         self.project_path: Path | None = None
         self.presolve_constraints: dict[str, dict[str, bool]] = {}
+        self._rendered_svgs: dict[str, str] = {}
 
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
