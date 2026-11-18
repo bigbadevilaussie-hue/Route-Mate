@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.09"
-CODE_VERSION = "1.09"
+GUI_VERSION = "1.10"
+CODE_VERSION = "1.10"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -205,8 +205,8 @@ class RouteMateWindow(QMainWindow):
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: collect → electrical sanity → render existing placements → tests → PRE-SOLVE constraints.")
-        self.log_line("Quick Fit / PRE-SOLVE solver is not implemented; existing placements are preserved and constraints are collected only.")
+        self.log_line("Workflow: collect → electrical sanity → render existing layout → tests → constraints → Quick Place → updated render.")
+        self.log_line("Solver available: deterministic Quick Place (first-fit). Net-aware Quick Fit, edge anchors and sliding are not implemented.")
 
     def log_line(self, message: str):
         self.log.appendPlainText(message)
@@ -255,15 +255,65 @@ class RouteMateWindow(QMainWindow):
                 f"[LOCKS] {component.get('label') or component.get('id')}: "
                 f"Locked={values['locked']} Edge={values['edge']} Slide={values['slide']}"
             )
+        # The available engine is deterministic Quick Place (first-fit), not
+        # the future net-aware Quick Fit solver. Never silently discard edge rules.
+        unsupported = [
+            component for component in placed
+            if self.presolve_constraints[str(component.get("id"))]["edge"]
+            or self.presolve_constraints[str(component.get("id"))]["slide"]
+        ]
+        if unsupported:
+            labels = ", ".join(
+                str(c.get("label") or c.get("id")) for c in unsupported
+            )
+            self.log_line(
+                "[QUICK PLACE] Not started: the current first-fit engine does not "
+                f"implement hard edge anchors/sliding ({labels})."
+            )
+            QMessageBox.warning(
+                self, "Edge constraints not supported yet",
+                "Quick Place cannot honour edge anchors or sliding yet. "
+                "No placement was changed. The selected constraints have been retained in the GUI."
+            )
+            self.statusBar().showMessage("Stopped safely: edge constraints need solver support.")
+            return
+
         for component in placed:
             values = self.presolve_constraints[str(component.get("id"))]
             component["locked"] = bool(values["locked"])
+
         self.log_line(
-            f"[LOCKS] Recorded {len(self.presolve_constraints)} component constraints; "
-            "all placed components remain on the board."
+            f"[LOCKS] Recorded {len(self.presolve_constraints)} component constraints."
         )
-        self.log_line("[STOP] Lock / Edge / Slide settings collected. PRE-SOLVE solver is not implemented; stopped here.")
-        self.statusBar().showMessage("Ready for PRE-SOLVE implementation — workflow stopped.")
+        self.log_line("[QUICK PLACE] Running shared deterministic first-fit placement engine...")
+        from solve import quick_place
+        result = quick_place(self.project)
+        for error in result.get("errors", []):
+            self.log_line("[QUICK PLACE][ERROR] " + str(error))
+        if result.get("status") != "PASS":
+            self.log_line(
+                f"[QUICK PLACE] {result.get('status', 'FAIL')}: "
+                f"{result.get('placed', 0)} components placed; source layout retained."
+            )
+            QMessageBox.warning(
+                self, "Quick Place incomplete",
+                "The first-fit placer could not place every included component. "
+                "The original imported layout remains displayed. See the log."
+            )
+            self.statusBar().showMessage("Quick Place incomplete — original layout retained.")
+            return
+
+        self.project = result["project"]
+        top_svg, renderer_log = self._render_component_side(self.project)
+        self._show_board(top_svg)
+        self.log_line(
+            f"[QUICK PLACE] PASS — {result['placed']} components placed; "
+            f"{result.get('excluded', 0)} off-board/excluded."
+        )
+        self.log_line("[RENDER] Updated component-side placement displayed.")
+        if renderer_log:
+            self.log_line("[RENDER] " + renderer_log)
+        self.statusBar().showMessage("Quick Place complete — first-fit preview ready.")
 
     def load_json(self):
         app_dir = Path(__file__).resolve().parent.parent
