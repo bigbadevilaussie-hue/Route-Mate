@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.07"
-CODE_VERSION = "1.07"
+GUI_VERSION = "1.08"
+CODE_VERSION = "1.08"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter
@@ -205,8 +205,8 @@ class RouteMateWindow(QMainWindow):
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: collect → electrical sanity → tests → Quick Place → component-side preview → PRE-SOLVE constraints.")
-        self.log_line("PRE-SOLVE solver is not implemented; this workflow currently prepares placement and constraints.")
+        self.log_line("Workflow: collect → electrical sanity → render existing placements → tests → PRE-SOLVE constraints.")
+        self.log_line("Quick Fit / PRE-SOLVE solver is not implemented; existing placements are preserved and constraints are collected only.")
 
     def log_line(self, message: str):
         self.log.appendPlainText(message)
@@ -328,23 +328,8 @@ class RouteMateWindow(QMainWindow):
                                     "The project failed electrical sanity checks. See the log.")
                 return
 
-            tests_passed = self._run_tests()
-            if not tests_passed:
-                QMessageBox.warning(self, "Tests failed",
-                                    "Repository tests failed. See the log; Quick Place was not started.")
-                return
-
-            # Run the shared deterministic placement engine; never mutate the source JSON.
-            from solve.quick_place import quick_place
-            placement = quick_place(project)
-            for error in placement.get("errors", []):
-                self.log_line("[PLACEMENT][ERROR] " + error)
-            if placement.get("status") != "PASS":
-                QMessageBox.warning(self, "Quick Place failed",
-                                    "Quick Place could not place the project. See the log.")
-                self.log_line("[STOP] Quick Place failed; lock questions were not started.")
-                return
-            project = placement["project"]
+            # Preserve and display the positions already present in the imported project.
+            # Quick Place is not Quick Fit and must not overwrite the user's starting layout.
             components = project["components"]
             placed = [component for component in components
                       if isinstance(component.get("boardPos"), dict)
@@ -352,8 +337,9 @@ class RouteMateWindow(QMainWindow):
             on_board = [component for component in components
                         if not component.get("offBoard") and not component.get("boardExcluded")]
             self.log_line(
-                f"[PLACEMENT] Quick Place PASS: {placement['placed']} placed; "
-                f"{len(on_board)} included; {placement.get('excluded', 0)} excluded."
+                f"[PLACEMENT] Existing layout: {len(placed)} positioned; "
+                f"{len(on_board)} on-board; "
+                f"{len(components) - len(on_board)} off-board/excluded."
             )
             for component in placed:
                 self.log_line(
@@ -365,9 +351,16 @@ class RouteMateWindow(QMainWindow):
             self.project_path = path
             top_svg, renderer_log = self._render_component_side(project)
             self._show_board(top_svg)
-            self.log_line("[RENDER] Production component-side SVG rendered with alternating row bands.")
+            self.log_line("[RENDER] Existing component-side layout rendered with alternating row bands.")
             if renderer_log:
                 self.log_line("[RENDER] " + renderer_log)
+
+            tests_passed = self._run_tests()
+            if not tests_passed:
+                QMessageBox.warning(self, "Tests failed",
+                                    "Repository tests failed. The existing board remains displayed; lock questions were not started.")
+                return
+
             self._ask_lock_settings(placed)
         except Exception as exc:
             self.log_line(f"[ERROR] {type(exc).__name__}: {exc}")
