@@ -59,7 +59,7 @@ This is an implementation guide, not a claim that these files already exist.
 - **Application/controller layer:** translates GUI actions into calls to Route-Mate Python packages and updates the view from returned project/report data.
 - **Engine packages:** remain independent of Qt so CLI tests and future non-GUI use do not require a GUI runtime.
 
-Long-running solve work must not block the GUI event loop. When the solver is implemented, run it through an appropriate worker/task boundary and deliver progress/results back to the GUI thread. This is a design requirement for the future solver integration, not implemented behaviour.
+Long-running solve work must not block the GUI event loop. The current deterministic first-fit Quick Place pass is invoked synchronously after PRE-SOLVE lock questions; this is acceptable only as a temporary small-fixture integration. A full Quick Fit / Quick Solve must run through an appropriate worker/task boundary and deliver progress/results back to the GUI thread. This is a design requirement for the future solver integration, not implemented behaviour.
 
 ## Cross-platform packaging
 
@@ -121,8 +121,7 @@ The next useful display benchmark is GUI-side: initial SVG scene load, zoom/pan 
 - [x] QtSvg and QGraphicsView imports smoke-tested in the Fan-Mate environment.
 - [x] WR and Audio SVG-generation timings recorded.
 - [ ] Dedicated Route-Mate GUI environment.
-- [ ] Main window and workflow UI.
-- [ ] QGraphicsView board integration.
+- [x] Early main window and QGraphicsView component-side board integration.
 - [ ] Selection and lock/edge-anchor overlays.
 - [ ] macOS standalone build and clean-machine test.
 - [ ] Windows standalone build and clean-machine test.
