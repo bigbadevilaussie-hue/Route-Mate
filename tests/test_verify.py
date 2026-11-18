@@ -5,7 +5,7 @@ import copy
 import unittest
 
 from solve.verify import verify_project
-from collect import validate_project
+from collect import normalise_like_gui, validate_project
 from pathlib import Path
 import json
 
@@ -120,6 +120,34 @@ class VerifyTests(unittest.TestCase):
         report = verify_project(data)
         self.assertEqual(report["status"], "PASS", report["errors"])
         self.assertEqual(report["counts"]["on_board_terminals"], 2)
+
+
+    def test_real_editor_wire_export_preserves_ids_and_endpoints(self):
+        path = ROOT / "test-fixtures" / "editor-exports" / "wire.json"
+        data = validate_project(json.loads(path.read_text(encoding="utf-8")))
+        original_wires = copy.deepcopy(data["board"]["wires"])
+        normalise_like_gui(data)
+        self.assertEqual(data["board"]["wires"], original_wires)
+        report = verify_project(data)
+        self.assertEqual(report["counts"]["wires"], 2)
+        self.assertEqual(report["status"], "PASS", report["errors"])
+
+    def test_wire_fractional_coordinate_is_rejected(self):
+        data = project()
+        data["board"]["wires"] = [{
+            "from": {"row": 0.5, "col": 0},
+            "to": {"row": 1, "col": 0},
+        }]
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("integer row and col" in error for error in report["errors"]))
+
+    def test_wire_collection_must_be_a_list(self):
+        data = project()
+        data["board"]["wires"] = {"from": {"row": 0, "col": 0}}
+        report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("board.wires must be a list" in error for error in report["errors"]))
 
     def test_wire_outside_board_is_rejected(self):
         data = project()
