@@ -10,7 +10,7 @@ import html
 import math
 from typing import Any
 
-from ._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from placement_policy import is_off_board_component
 
 PITCH = 30.0
