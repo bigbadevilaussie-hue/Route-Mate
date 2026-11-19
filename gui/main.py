@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.20"
-CODE_VERSION = "1.20"
+GUI_VERSION = "1.21"
+CODE_VERSION = "1.21"
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
@@ -216,8 +216,8 @@ class RouteMateWindow(QMainWindow):
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: collect → electrical sanity → render existing layout → tests → constraints → Quick Fit → updated render.")
-        self.log_line("Solver available: deterministic greedy net-aware Quick Fit. Hard edge anchors and sliding are not implemented.")
+        self.log_line("Workflow: collect → electrical sanity → render existing layout → tests → constraints → Quick Fit → copper route/verify → updated render.")
+        self.log_line("Solver available: deterministic greedy Quick Fit plus first-pass strip copper routing. Hard edge anchors and sliding are not implemented.")
 
     def log_line(self, message: str):
         self.log.appendPlainText(message)
@@ -337,6 +337,26 @@ class RouteMateWindow(QMainWindow):
             return
 
         self.project = result["project"]
+        from solve import route_copper
+        routing = route_copper(self.project)
+        for error in routing.get("errors", []):
+            self.log_line("[ROUTING][ERROR] " + str(error))
+        for warning in routing.get("warnings", []):
+            self.log_line("[ROUTING][WARNING] " + str(warning))
+        routed = routing.get("status") == "ROUTED"
+        if routed:
+            self.project = routing["project"]
+            report = routing["verification"]
+            self.log_line(
+                f"[ROUTING] ROUTED — added {routing['cuts_added']} cuts and "
+                f"{routing['wires_added']} jumpers; copper verification PASS "
+                f"({report['counts']['nets_checked']} nets checked)."
+            )
+        else:
+            self.log_line(
+                f"[ROUTING] {routing.get('status', 'FAILED')} — placement retained; "
+                "no partial routing changes applied."
+            )
         top_svg, renderer_log = self._render_component_side(self.project)
         self._show_board(top_svg)
         self.log_line(
@@ -344,9 +364,13 @@ class RouteMateWindow(QMainWindow):
             f"{result.get('excluded', 0)} off-board/excluded."
         )
         self.log_line("[RENDER] Updated component-side placement displayed.")
+        self.log_line("[RENDER] Component-side preview draws jumpers as straight lines; strip cuts are not drawn yet.")
         if renderer_log:
             self.log_line("[RENDER] " + renderer_log)
-        self.statusBar().showMessage("Quick Fit complete — net-aware placement preview ready.")
+        self.statusBar().showMessage(
+            "Quick Fit and copper connectivity verified." if routed
+            else "Quick Fit complete; copper routing needs attention."
+        )
 
     def load_json(self):
         app_dir = Path(__file__).resolve().parent.parent

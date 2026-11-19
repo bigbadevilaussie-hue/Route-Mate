@@ -68,9 +68,8 @@ Quick Fit must:
 
 The initial engine uses deterministic greedy net-aware placement scoring.
 Its report records the clearance requested/used and net-distance score.
-This is a placement result only; it does not claim copper connectivity,
-strip-cut legality or jumper routability. Those remain Quick Solve and
-independent-verifier responsibilities.
+This is a placement result only. The next stage is the first-pass copper
+router described in [QUICK_SOLVE_ROUTING.md](QUICK_SOLVE_ROUTING.md).
 
 ## Remaining work
 
@@ -80,4 +79,7 @@ independent-verifier responsibilities.
 - [x] Stage 2 placement acceptance tests.
 - [ ] Execute the tests in the user's Route-Mate environment.
 - [ ] Add hard edge-anchor and slide placement constraints.
-- [ ] Run Quick Solve and independent verification separately.
+- [x] First-pass strip copper router and independent connectivity verification.
+- [ ] Execute copper-router tests in the user Route-Mate environment.
+- [ ] Add hard edge-anchor and slide placement constraints.
+- [ ] Add physical jumper path, crossing, clearance and cut-access checks.

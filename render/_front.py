@@ -227,7 +227,7 @@ def render_front_board(
             lx, ly = (x0 + x1) / 2, y0 - 13
             parts.append(
                 f'<text x="{_number(lx)}" y="{_number(ly)}" text-anchor="middle" '
-                'font-family="sans-serif" font-size="12" font-weight="700" '
+                'font-family="Helvetica" font-size="12" font-weight="700" '
                 'fill="#111827" stroke="#fff" stroke-width="3.5" paint-order="stroke">'
                 f'{label}</text>'
             )

@@ -1,0 +1,168 @@
+"""Tests for deterministic first-pass stripboard copper routing."""
+from __future__ import annotations
+
+import copy
+import unittest
+
+from solve.route import route_copper
+from solve.verify import verify_project
+
+
+def make_project(terminals, rows=3, cols=8, cuts=None, wires=None):
+    components = []
+    assignments = []
+    for index, (row, col, net) in enumerate(terminals):
+        cid = f"C{index}"
+        components.append({
+            "id": cid, "label": cid, "defId": "single",
+            "boardPos": {"row": row, "col": col},
+        })
+        assignments.append({"componentId": cid, "pinId": "1", "netId": net})
+    return {
+        "board": {
+            "rows": rows, "cols": cols,
+            "cuts": copy.deepcopy(cuts or []),
+            "wires": copy.deepcopy(wires or []),
+        },
+        "components": components,
+        "componentDefs": [{
+            "id": "single",
+            "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+            "bodyCells": [],
+        }],
+        "nets": [{"id": net} for net in sorted({item[2] for item in terminals})],
+        "netAssignments": assignments,
+    }
+
+
+class RouteCopperTests(unittest.TestCase):
+    def test_different_nets_on_one_strip_get_a_between_cut(self):
+        data = make_project([(0, 1, "A"), (0, 5, "B")])
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["cuts_added"], 1)
+        self.assertEqual(result["wires_added"], 0)
+        self.assertEqual(result["project"]["board"]["cuts"],
+                         [{"row": 0, "col": 1, "kind": "between"}])
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+
+    def test_same_net_across_rows_gets_a_jumper(self):
+        data = make_project([(0, 1, "A"), (2, 6, "A")])
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["cuts_added"], 0)
+        self.assertEqual(result["wires_added"], 1)
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+
+    def test_interleaved_nets_are_cut_and_rejoined(self):
+        data = make_project([(0, 0, "A"), (0, 2, "B"), (0, 4, "A")])
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["cuts_added"], 2)
+        self.assertEqual(result["wires_added"], 1)
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+
+    def test_adjacent_different_net_pins_are_separated(self):
+        data = make_project([(1, 3, "A"), (1, 4, "B")])
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["project"]["board"]["cuts"],
+                         [{"row": 1, "col": 3, "kind": "between"}])
+        self.assertEqual(result["verification"]["counts"]["adjacency_conflicts"], 0)
+
+    def test_different_nets_in_same_hole_are_unroutable(self):
+        data = make_project([(0, 2, "A"), (0, 2, "B")])
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTING_FAILED")
+        self.assertTrue(any("share hole" in error for error in result["errors"]))
+        self.assertEqual(data["board"]["cuts"], [])
+
+    def test_existing_manual_cuts_and_wires_are_preserved(self):
+        cuts = [{"row": 0, "col": 2, "kind": "hole"}]
+        wires = [{
+            "id": "manual-1",
+            "from": {"row": 0, "col": 2},
+            "to": {"row": 2, "col": 2},
+        }]
+        data = make_project([(0, 2, "A"), (2, 2, "A")], cuts=cuts, wires=wires)
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["project"]["board"]["cuts"], cuts)
+        self.assertEqual(result["project"]["board"]["wires"][0], wires[0])
+        self.assertEqual(result["wires_added"], 0)
+
+    def test_existing_jumper_short_is_not_hidden_by_more_cuts(self):
+        data = make_project(
+            [(0, 1, "A"), (0, 5, "B")],
+            wires=[{
+                "id": "manual-short",
+                "from": {"row": 0, "col": 1},
+                "to": {"row": 0, "col": 5},
+            }],
+        )
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTING_FAILED")
+        self.assertTrue(any("shorts different nets" in error for error in result["errors"]))
+        self.assertEqual(data["board"]["wires"][0]["id"], "manual-short")
+
+    def test_router_does_not_mutate_source_project(self):
+        data = make_project([(0, 0, "A"), (1, 3, "A")])
+        before = copy.deepcopy(data)
+        route_copper(data)
+        self.assertEqual(data, before)
+
+    def test_router_is_deterministic(self):
+        data = make_project([(0, 0, "A"), (0, 2, "B"), (0, 4, "A"), (2, 7, "B")])
+        first = route_copper(data)
+        second = route_copper(data)
+        self.assertEqual(first["status"], "ROUTED", first["errors"])
+        self.assertEqual(first["project"]["board"], second["project"]["board"])
+
+    def test_builtin_footprint_geometry_is_resolved(self):
+        data = {
+            "board": {"rows": 4, "cols": 8, "cuts": [], "wires": []},
+            "components": [
+                {"id": "A", "label": "A", "defId": "def-npn",
+                 "boardPos": {"row": 0, "col": 0}},
+                {"id": "B", "label": "B", "defId": "def-npn",
+                 "boardPos": {"row": 2, "col": 4}},
+            ],
+            "nets": [{"id": "N"}],
+            "netAssignments": [
+                {"componentId": "A", "pinId": "1", "netId": "N"},
+                {"componentId": "B", "pinId": "1", "netId": "N"},
+            ],
+        }
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["wires_added"], 1)
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+
+    def test_multi_pad_logical_pins_expand_to_physical_holes(self):
+        data = {
+            "board": {"rows": 4, "cols": 8, "cuts": [], "wires": []},
+            "components": [{
+                "id": "SW1", "label": "Wake", "defId": "def-pushbutton",
+                "boardPos": {"row": 0, "col": 0},
+            }],
+            "nets": [{"id": "A"}, {"id": "B"}],
+            "netAssignments": [
+                {"componentId": "SW1", "pinId": "1", "netId": "A"},
+                {"componentId": "SW1", "pinId": "2", "netId": "B"},
+            ],
+        }
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["verification"]["counts"]["on_board_terminals"], 4)
+        self.assertEqual(result["cuts_added"], 0)
+        self.assertEqual(result["wires_added"], 0)
+
+    def test_no_physical_terminals_is_not_reported_as_routed(self):
+        data = make_project([])
+        result = route_copper(data)
+        self.assertEqual(result["status"], "INVALID_INPUT")
+        self.assertTrue(any("no assigned physical terminals" in error for error in result["errors"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

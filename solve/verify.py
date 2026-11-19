@@ -12,7 +12,7 @@ from typing import Any
 from adjacency import adjacency_conflicts
 from placement_policy import is_off_board_component
 
-from render._geometry import component_geometry, resolve_definition
+from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 
 
 class _UnionFind:
@@ -144,10 +144,11 @@ def verify_project(project: Any) -> dict[str, Any]:
         except (ValueError, AttributeError) as exc:
             errors.append(str(exc))
 
-    definitions = {
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({
         str(d.get("id")): d for d in (project.get("componentDefs") or [])
         if isinstance(d, dict) and d.get("id")
-    }
+    })
     component_by_id = {str(c.get("id")): c for c in components
                        if isinstance(c, dict) and c.get("id")}
     net_by_terminal: dict[tuple[str, str], str] = {}
@@ -170,7 +171,7 @@ def verify_project(project: Any) -> dict[str, Any]:
             if lead is None:
                 continue
             try:
-                point = _coord(lead, f"{label} lead {pid}")
+                points = [_coord(lead, f"{label} lead {pid}")]
             except ValueError as exc:
                 errors.append(str(exc))
                 continue
@@ -188,22 +189,23 @@ def verify_project(project: Any) -> dict[str, Any]:
                 errors.append(f"{label}: invalid footprint geometry: {exc}")
                 continue
             matches = [pin for pin in pins if str(pin.get("id")) == pid]
-            if len(matches) != 1:
-                errors.append(f"{label}: pin {pid!r} resolves to {len(matches)} physical pins")
+            if not matches:
+                errors.append(f"{label}: pin {pid!r} has no physical pads")
                 continue
-            point = (int(matches[0]["row"]), int(matches[0]["col"]))
-        if not (0 <= point[0] < rows and 0 <= point[1] < cols):
-            errors.append(f"{component.get('label') or cid} pin {pid}: hole {point} outside board")
-            continue
+            points = [(int(pin["row"]), int(pin["col"])) for pin in matches]
         terminal = (cid, pid)
         if terminal in net_by_terminal:
             errors.append(f"duplicate physical assignment for {cid} pin {pid}")
             continue
         net_by_terminal[terminal] = nid
-        ref = f"{label}.{pid}"
-        terminals_by_net[nid].append((point[0], point[1], ref))
-        physical_pin_records.append((point[0], point[1], nid, ref))
-        counts["on_board_terminals"] += 1
+        for pad_index, point in enumerate(points, 1):
+            if not (0 <= point[0] < rows and 0 <= point[1] < cols):
+                errors.append(f"{component.get('label') or cid} pin {pid}: hole {point} outside board")
+                continue
+            ref = f"{label}.{pid}" if len(points) == 1 else f"{label}.{pid}[{pad_index}]"
+            terminals_by_net[nid].append((point[0], point[1], ref))
+            physical_pin_records.append((point[0], point[1], nid, ref))
+            counts["on_board_terminals"] += 1
 
     # Report direct different-net conflicts. Between cuts and isolated drilled
     # holes resolve adjacent pairs; no cut can resolve two nets in one hole.

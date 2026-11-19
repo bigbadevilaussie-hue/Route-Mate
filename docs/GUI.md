@@ -7,7 +7,7 @@
 - Qt Widgets provides the desktop application shell and conventional controls.
 - QGraphicsView provides the interactive stripboard viewport.
 - QtSvg displays the SVG produced by the existing Python front renderer.
-- Python remains responsible for project processing, validation, rendering and (when implemented) solving.
+- Python remains responsible for project processing, validation, rendering and solving.
 - PyInstaller is the selected starting point for standalone packaging.
 
 QML is not part of the selected Route-Mate GUI architecture. This is a deliberate choice to use Qt Widgets for the application interface rather than introduce a second UI language.
@@ -37,7 +37,7 @@ from render import render_front
 svg = render_front(project)
 ```
 
-The renderer returns SVG text and does not perform file I/O. The current front renderer is intended for PREPARE / Quick Set previews; it is not a placement solver, route planner, connectivity verifier or copper-side renderer.
+The renderer returns SVG text and does not perform file I/O. The current front renderer is intended for PREPARE / placement previews; it is not a placement solver, route planner, connectivity verifier or copper-side renderer. Copper routing and verification live in the separate shared solve.route and solve.verify modules.
 
 QtSvg is available in the checked Fan-Mate environment. The GUI can place the SVG into a QGraphicsScene using Qt's SVG graphics support and show that scene through QGraphicsView.
 
@@ -59,7 +59,7 @@ This is an implementation guide, not a claim that these files already exist.
 - **Application/controller layer:** translates GUI actions into calls to Route-Mate Python packages and updates the view from returned project/report data.
 - **Engine packages:** remain independent of Qt so CLI tests and future non-GUI use do not require a GUI runtime.
 
-Long-running solve work must not block the GUI event loop. The current deterministic first-fit Quick Place pass is invoked synchronously after PRE-SOLVE lock questions; this is acceptable only as a temporary small-fixture integration. A full Quick Fit / Quick Solve must run through an appropriate worker/task boundary and deliver progress/results back to the GUI thread. This is a design requirement for the future solver integration, not implemented behaviour.
+Long-running solve work must not block the GUI event loop. The current deterministic Quick Fit and first-pass copper router are invoked synchronously after PRE-SOLVE lock questions; this is acceptable only as a temporary small-fixture integration. A full Quick Fit / Quick Solve must run through an appropriate worker/task boundary and deliver progress/results back to the GUI thread.
 
 ## Cross-platform packaging
 
@@ -122,6 +122,8 @@ The next useful display benchmark is GUI-side: initial SVG scene load, zoom/pan 
 - [x] WR and Audio SVG-generation timings recorded.
 - [ ] Dedicated Route-Mate GUI environment.
 - [x] Early main window and QGraphicsView component-side board integration.
+- [x] GUI invokes shared Quick Fit, first-pass copper routing and independent connectivity verification.
+- [ ] Display strip-cut artwork in the board view; the current renderer already draws jumper connections as straight lines.
 - [ ] Selection and lock/edge-anchor overlays.
 - [ ] macOS standalone build and clean-machine test.
 - [ ] Windows standalone build and clean-machine test.
