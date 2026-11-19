@@ -296,7 +296,7 @@ Tests and benchmark JSON/netlist files are inputs/fixtures, not pipeline modules
 ## 4. Cross-cutting problems
 
 1. **Shared result contract is partially integrated.** Contract adapters now wrap the existing collector manifest/index and electrical sanity report. The legacy stage APIs and algorithms remain unchanged; GUI/CLI orchestration and the remaining SOLVE/DISPLAY adapters are still outstanding.
-2. **Findings are retained by the new adapters, but not yet by the live workflow.** Collector warnings and electrical sanity errors/warnings can now be converted to stable Finding records and StageResult references. The GUI/CLI does not yet call these adapters or persist the ledger.
+2. **Findings are retained by the new adapters, but not yet by the live workflow.** Collector warnings and electrical sanity errors/warnings can now be converted to stable Finding records and StageResult references; repeated identical source messages remain separate findings. The GUI/CLI does not yet call these adapters or persist the ledger.
 3. **No provenance chain.** Derived geometry, selected constraints and reports do not consistently identify the input hash, producing module/version or source evidence.
 4. **No distinction between facts and interpretations.** For example, an off-board boolean can hide whether saved physical leads exist.
 5. **No stage snapshots.** It is difficult to inspect exactly what PREPARE or SOLVE received and produced.
