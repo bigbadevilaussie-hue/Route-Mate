@@ -125,7 +125,8 @@ Normalized coordinates are a mathematical board frame only. They are not millime
 ## 5. Gate status
 
 - **Gate 0:** audit expanded; follow-up coverage in §2 remains open until tests and call-path checks are completed.
-- **Gate 1:** coordinate-frame implementation and tests may proceed. Physical envelopes and occupancy/accessibility rules remain blocked pending explicit definitions.
+- **Gate 1 progress:** shared logical footprint geometry has been moved out of the renderer package. Quick Fit, Quick Place, the legacy router, the electrical verifier and the front renderer now import the shared implementation directly. The renderer module preserves its previous import surface.
+- **Gate 1:** logical board coordinates and shared discrete footprint geometry are implemented on the Gate 1 branch. Pin/body cells, rotations, footprint overrides and flexible endpoints now resolve through the renderer-independent `board_geometry.py`; `render/_geometry.py` remains a compatibility re-export. New unit tests cover coordinate mapping and these geometry behaviours. This is logical hole/cell occupancy only, not measured physical body geometry. Physical envelopes and occupancy/accessibility rules remain blocked pending explicit definitions.
 - **No router, physical verifier, placement-policy or GUI behaviour is authorised by this audit update alone.**
 
 This document records the repository baseline and implementation boundaries. The normative physical rules remain in `docs/PHYSICAL_MODEL_SPEC.md` v1.0.
