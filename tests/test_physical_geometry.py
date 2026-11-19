@@ -62,9 +62,9 @@ class PhysicalGeometryTests(unittest.TestCase):
         cells = physical_component_body(component, definition)
         self.assertEqual(len(cells), 1)
         cell = cells[0]
-        self.assertEqual((cell.row, cell.col), (10, 21))
-        self.assertEqual(cell.left_mm, Fraction(5207, 100))
-        self.assertEqual(cell.right_mm, Fraction(5461, 100))
+        self.assertEqual((cell.row, cell.col), (10, 20))
+        self.assertEqual(cell.left_mm, Fraction(4953, 100))
+        self.assertEqual(cell.right_mm, Fraction(5207, 100))
         self.assertEqual(cell.top_mm, Fraction(2413, 100))
         self.assertEqual(cell.bottom_mm, Fraction(2667, 100))
 
