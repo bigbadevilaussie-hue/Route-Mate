@@ -236,11 +236,11 @@ class RouteMateWindow(QMainWindow):
     ) -> tuple[str, str]:
         """Render the component side, optionally highlighting the part under review."""
         from render import render_front
-        from render.standalone_bridge import add_alternating_row_bands
 
+        # render_front is the public production-renderer API. It supplies the
+        # parity-tested artwork, row bands and optional review highlight.
         top_svg = render_front(project, highlight_component_id=highlight_component_id)
-        rows = int(project["board"]["rows"])
-        return add_alternating_row_bands(top_svg, rows), "render.render_front"
+        return top_svg, "production standalone renderer"
 
     def _show_board(self, top_svg: str):
         self.top_view.show_svg(top_svg)
@@ -402,7 +402,7 @@ class RouteMateWindow(QMainWindow):
             f"{result.get('excluded', 0)} off-board/excluded."
         )
         self.log_line("[RENDER] Updated component-side placement displayed.")
-        self.log_line("[RENDER] Component-side preview draws jumpers as straight lines; strip cuts are not drawn yet.")
+        self.log_line("[RENDER] Production renderer generated component artwork and both board-side SVGs.")
         if renderer_log:
             self.log_line("[RENDER] " + renderer_log)
         self.statusBar().showMessage(
