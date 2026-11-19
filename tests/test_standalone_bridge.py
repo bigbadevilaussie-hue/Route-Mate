@@ -1,6 +1,6 @@
 import unittest
 
-from render.standalone_bridge import add_alternating_row_bands, add_component_highlight
+from render.standalone_bridge import (\n    add_alternating_row_bands, add_board_coordinate_labels, add_component_highlight,\n)
 
 
 class AlternatingRowBandTests(unittest.TestCase):
@@ -44,6 +44,34 @@ class AlternatingRowBandTests(unittest.TestCase):
     def test_no_component_highlight_leaves_production_svg_unchanged(self):
         svg = '<svg viewBox="20 20 100 100"></svg>'
         self.assertEqual(add_component_highlight(svg, {}, None), svg)
+
+
+    def test_coordinate_labels_follow_hole_centres_and_start_at_one(self):
+        svg = '<svg viewBox="20 20 200 200"><text>Top · R0·C0</text></svg>'
+        result = add_board_coordinate_labels(svg, 3, 4)
+        self.assertIn('x="60" y="38"', result)
+        self.assertIn('data-route-mate-column="1">1</text>', result)
+        self.assertIn('x="150" y="38"', result)
+        self.assertIn('data-route-mate-column="4">4</text>', result)
+        self.assertIn('x="38" y="63"', result)
+        self.assertIn('data-route-mate-row="1">1</text>', result)
+        self.assertIn('data-route-mate-row="3">3</text>', result)
+        self.assertNotIn("R0·C0", result)
+
+    def test_copper_coordinate_labels_reverse_columns_for_mirrored_view(self):
+        svg = '<svg viewBox="20 20 200 200"></svg>'
+        result = add_board_coordinate_labels(svg, 2, 3, mirrored=True)
+        self.assertIn('x="120" y="38"', result)
+        self.assertIn('data-route-mate-column="1">1</text>', result)
+        self.assertIn('x="60" y="38"', result)
+        self.assertIn('data-route-mate-column="3">3</text>', result)
+
+    def test_coordinate_labels_reject_invalid_dimensions(self):
+        svg = '<svg viewBox="20 20 200 200"></svg>'
+        with self.assertRaisesRegex(ValueError, "rows"):
+            add_board_coordinate_labels(svg, 0, 3)
+        with self.assertRaisesRegex(ValueError, "cols"):
+            add_board_coordinate_labels(svg, 2, 0)
 
     def test_requires_valid_svg_viewbox(self):
         with self.assertRaisesRegex(ValueError, "viewBox"):
