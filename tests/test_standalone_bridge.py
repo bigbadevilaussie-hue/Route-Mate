@@ -1,6 +1,6 @@
 import unittest
 
-from render.standalone_bridge import (\n    add_alternating_row_bands,\n    add_board_coordinate_labels,\n    add_component_highlight,\n)
+from render.standalone_bridge import add_alternating_row_bands, add_board_coordinate_labels, add_component_highlight
 
 
 class AlternatingRowBandTests(unittest.TestCase):
