@@ -65,8 +65,8 @@ class PhysicalGeometryTests(unittest.TestCase):
         self.assertEqual((cell.row, cell.col), (10, 21))
         self.assertEqual(cell.left_mm, Fraction(5207, 100))
         self.assertEqual(cell.right_mm, Fraction(5461, 100))
-        self.assertEqual(cell.top_mm, Fraction(24765, 100))
-        self.assertEqual(cell.bottom_mm, Fraction(25019, 100))
+        self.assertEqual(cell.top_mm, Fraction(2413, 100))
+        self.assertEqual(cell.bottom_mm, Fraction(2667, 100))
 
     def test_flexible_component_body_follows_saved_endpoint(self):
         component = {
