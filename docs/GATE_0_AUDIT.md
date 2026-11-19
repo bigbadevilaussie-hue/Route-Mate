@@ -34,6 +34,7 @@ These findings are based on direct inspection of the repository source, not arch
 ### 1.3 Placement and adjacency
 
 - `solve/quick_fit.py` rejects different-net adjacency conflicts for already locked pins and rejects candidate placements that create adjacency conflicts. It therefore cannot currently accept an adjacent different-net pair merely because a legal between-hole cut could isolate it.
+- The module docstring in `tests/test_quick_fit_geometry.py` says the repository has no Quick Fit engine, which is stale: `solve/quick_fit.py` exists. The test file validates source-footprint geometry, not the absence of a placer.
 - `adjacency.py` reports same-hole and adjacent-hole different-net conflicts. The caller decides how to resolve or reject them.
 - `solve/quick_place.py` performs deterministic first-fit placement using discrete pad/body cells. It does not perform physical cut-tool or jumper routing checks.
 - Both placement implementations use `render/_geometry.py` for footprint geometry.
