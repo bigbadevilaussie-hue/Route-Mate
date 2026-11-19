@@ -1,5 +1,7 @@
 # Stripboard design research and routing direction
 
+> **Authority notice:** This is background research, not the normative solver specification. The physical rules are frozen in [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md). If any statement or earlier proposed step below conflicts with that specification, the specification wins. In particular, older suggestions to defer cut-access verification or to retain hole cuts in the initial model are superseded. Follow the specification's implementation gates; do not treat this document's former §10/§11 plan as current.
+
 ## Purpose
 
 This document records the stripboard construction findings that should guide Route-Mate's next routing stage. It distinguishes established construction principles and external software behaviour from Route-Mate's current implementation.
@@ -194,94 +196,10 @@ Not implemented:
 
 Therefore, ROUTED currently means the supported electrical connectivity model passed. It does not mean the layout is physically buildable or approved for construction.
 
-## 10. Next implementation step — physical routing foundation
+## 10. Current implementation direction
 
-Do not start by adding a cost-based diagonal or Manhattan jumper path. Diagonal jumpers are prohibited, and two jumper legs are not the intended L-shaped construction.
+The former step-by-step proposal and acceptance list in this document are superseded by the locked [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md). That specification is now the sole implementation plan and acceptance authority.
 
-The next step is to replace endpoint-only jumper assumptions with an explicit copper-run/bridge model, beginning with a small, testable vertical-jumper rule set.
+The implementation order is fixed: audit legacy assumptions; define/test geometry and occupancy; model copper runs after between-hole cuts; prove one legal vertical jumper bridge; implement independent electrical and physical verification; run regression measurements; only then integrate placement and GUI behaviour.
 
-### Step 1 — define and test the board-coordinate convention
-
-- Identify the actual copper-strip axis in Route-Mate's row/column coordinates.
-- Define the perpendicular jumper axis.
-- Add tests proving that the mapping agrees with the board artwork and existing component pin geometry.
-- Do not change the project's coordinate convention silently.
-
-### Step 2 — expose copper runs after cuts
-
-Create a deterministic representation of each continuous copper run after applying existing and proposed cuts.
-
-Each run needs at least:
-- strip identity;
-- first and last usable hole;
-- excluded/cut holes;
-- terminals and nets present;
-- adjacent-run relationships.
-
-The electrical verifier and router should use the same documented copper topology model, while the verifier remains independently implemented where practical so it can catch router errors.
-
-### Step 3 — route one physical bridge
-
-For two separate copper runs on the same net:
-- choose legal endpoint holes;
-- create a jumper perpendicular to the strips;
-- represent the jumper's physical occupied path, not only its endpoints;
-- reject occupied endpoints, component-body obstruction and jumper overlap;
-- connect the two copper runs electrically through the jumper.
-
-For the first pass, support only this simple bridge geometry. Do not add diagonal or arbitrary Manhattan wires.
-
-### Step 4 — add physical verification
-
-Report electrical and physical results separately.
-
-Physical checks should initially include:
-- diagonal jumper: hard failure;
-- jumper not perpendicular to the strips: hard failure;
-- jumper overlap/crossing: hard failure for the uninsulated-wire mode;
-- jumper through component body: hard failure;
-- inaccessible/occupied endpoint: hard failure.
-
-Cut-tool and soldering access can follow once the geometric occupancy model is reliable.
-
-### Step 5 — regression fixture and measurements
-
-Use moto14wires30cuts.json as a reference fixture.
-
-Record:
-- copper runs and terminals per net;
-- forced cuts and optional cuts;
-- jumper count and physical jumper length;
-- jumper crossings and body conflicts;
-- electrical verifier result;
-- physical verifier result.
-
-Keep the existing legacy expectation that the fixture's current test reports its known failure condition; add a separate assertion for the physical-routing metric rather than changing the historical expectation.
-
-Compare the current v1.21 output (50 cuts / 38 jumpers) with the legacy reference (30 cuts / 14 wires), but do not assume the legacy counts are a universal optimum. The target is a valid, physically buildable layout, then optimisation.
-
-### Explicitly out of scope for this first step
-
-- Genetic algorithms or large-scale search.
-- New placement scoring.
-- Cost tuning.
-- Full cut optimisation.
-- UI redesign.
-- Changing source project JSON or off-board component policy.
-
-First prove that Route-Mate can represent and verify one real copper-run-to-copper-run jumper bridge correctly. Then expand the router.
-
-## 11. Acceptance criteria for the next step
-
-The first physical-routing increment is complete only when:
-
-1. The strip axis and jumper axis are explicit and covered by tests.
-2. Copper runs are correctly split by cuts.
-3. A same-net bridge uses one permitted jumper segment between two copper runs.
-4. Diagonal jumpers are rejected.
-5. A jumper crossing another jumper is rejected in uninsulated-wire mode.
-6. A jumper passing through a component body is rejected.
-7. Electrical connectivity still passes for a valid bridge.
-8. Invalid physical routes fail independently of electrical connectivity.
-9. Existing route, adjacency and saved-geometry tests remain passing.
-10. The GUI does not label electrical-only success as physically buildable.
+Do not copy the v1.21 Manhattan endpoint router forward as the physical routing foundation. Historical v1.21 and legacy benchmark counts are comparison data only, not acceptance targets.
