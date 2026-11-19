@@ -1,7 +1,8 @@
-"""Component-side board preview.
+"""Legacy lightweight renderer retained only for isolated unit tests.
 
-This module intentionally omits copper-side cuts and copper artwork. It is
-kept dependency-free so PREPARE/Quick Set can request repeated previews cheaply.
+Application and GUI previews must use the production renderer exposed by
+render.render. This module intentionally omits production package artwork and
+must not be wired into the application workflow.
 """
 
 from __future__ import annotations
