@@ -1,5 +1,7 @@
 # Route-Mate desktop GUI
 
+> **Physical-routing authority:** [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md) is the sole source of truth for cuts, jumper geometry, physical accessibility and acceptance. GUI behaviour must not imply that the legacy v1.21 electrical-only route is physically buildable. Keep electrical and physical results distinct; a solution is accepted only when both pass.
+
 ## Decision
 
 **Selected stack: PySide6 + Qt Widgets + QGraphicsView.**
@@ -49,7 +51,7 @@ Changing the selected component should update the overlay, not regenerate the co
 
 The front renderer's public API should remain the boundary; GUI code should not import its private modules.
 
-The current straight-line jumper preview must not be interpreted as a buildable wire route. The physical stripboard model requires copper runs segmented by cuts and jumper wires bridging between runs at right angles. Diagonal jumpers are prohibited. The component-side wire view and copper-side cut view should eventually be separate, correctly oriented layers; see [Stripboard design research and routing direction](STRIPBOARD_DESIGN_RESEARCH.md).
+The current straight-line jumper preview is a legacy logical-link display, not a buildable wire route. The frozen model requires horizontal copper runs segmented by accessible between-hole cuts and single vertical jumper bridges. Diagonal, horizontal and multi-leg jumpers are prohibited. Component-side jumper artwork and copper-side cut artwork must eventually be separate, correctly oriented views. Follow [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md); the research document is background only.
 
 ## Suggested application structure
 
@@ -124,8 +126,9 @@ The next useful display benchmark is GUI-side: initial SVG scene load, zoom/pan 
 - [x] WR and Audio SVG-generation timings recorded.
 - [ ] Dedicated Route-Mate GUI environment.
 - [x] Early main window and QGraphicsView component-side board integration.
-- [x] GUI invokes shared Quick Fit, first-pass copper routing and independent connectivity verification.
-- [ ] Display strip-cut artwork in the board view. The current renderer draws endpoint-to-endpoint jumper lines only; these are logical links, not physical jumper paths.
+- [x] GUI invokes shared Quick Fit, legacy v1.21 endpoint routing and electrical connectivity verification only.
+- [ ] Replace legacy endpoint-link preview with physical jumper-path display and copper-side between-hole cut artwork, only after the frozen router/verifier gates pass.
+- [ ] Display separate electrical and physical verification reports; never label electrical-only success as physically routed/buildable.
 - [ ] Selection and lock/edge-anchor overlays.
 - [ ] macOS standalone build and clean-machine test.
 - [ ] Windows standalone build and clean-machine test.
