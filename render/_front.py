@@ -1,7 +1,8 @@
-"""Component-side board preview.
+"""Legacy lightweight renderer retained only for isolated unit tests.
 
-This module intentionally omits copper-side cuts and copper artwork. It is
-kept dependency-free so PREPARE/Quick Set can request repeated previews cheaply.
+Application and GUI previews must use the production renderer exposed by
+render.render. This module intentionally omits production package artwork and
+must not be wired into the application workflow.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import html
 import math
 from typing import Any
 
-from ._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from placement_policy import is_off_board_component
 
 PITCH = 30.0
@@ -81,6 +82,7 @@ def render_front_board(
     show_labels: bool = True,
     show_pin_labels: bool = False,
     scale: float = 1.0,
+    highlight_component_id: str | None = None,
 ) -> str:
     """Render a project dict to a component-side SVG string."""
     if not isinstance(project, dict):
@@ -175,6 +177,11 @@ def render_front_board(
                 f'<g><circle cx="{_number(x)}" cy="{_number(y)}" r="8" fill="#fff2cc" stroke="#b45309" stroke-width="2"/>'
                 f'<text x="{_number(x)}" y="{_number(y + 4)}" text-anchor="middle" font-size="11" fill="#78350f">?</text></g>'
             )
+            if str(component.get("id")) == str(highlight_component_id):
+                parts.append(
+                    f'<circle cx="{_number(x)}" cy="{_number(y)}" r="19" '
+                    'fill="none" stroke="#f97316" stroke-width="4" stroke-dasharray="5 3"/>'
+                )
             continue
 
         pins, body_cells = component_geometry(component, definition)
@@ -221,6 +228,17 @@ def render_front_board(
                     f'font-size="8" fill="#111827" stroke="#fff" stroke-width="2.5" paint-order="stroke">'
                     f'{html.escape(str(pin["name"]))}</text>'
                 )
+
+        if str(component.get("id")) == str(highlight_component_id):
+            hx0, hy0 = _xy(min_row, min_col)
+            hx1, hy1 = _xy(max_row, max_col)
+            parts.append(
+                f'<rect x="{_number(hx0 - 17)}" y="{_number(hy0 - 17)}" '
+                f'width="{_number(hx1 - hx0 + 34)}" height="{_number(hy1 - hy0 + 34)}" '
+                'rx="9" fill="#f59e0b" fill-opacity=".12" stroke="#f97316" '
+                'stroke-width="3.5" stroke-dasharray="7 4" '
+                'data-route-mate-highlight="1"/>'
+            )
 
         if show_labels:
             label = html.escape(str(component.get("label") or component.get("id") or ""))

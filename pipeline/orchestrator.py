@@ -1,0 +1,100 @@
+"""Run-state lifecycle and sidecar persistence for the shared pipeline.
+
+This module records existing stage outputs. It does not execute, reorder, or
+change collector, sanity, placement, routing, or verification algorithms.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import uuid
+from typing import Any, Mapping
+
+from .contracts import Finding, PipelineContext, StageResult, project_sha256
+
+
+def sidecar_path(project_path: str | Path) -> Path:
+    """Return the run-state sidecar path associated with a project file."""
+    path = Path(project_path)
+    return path.with_name(f"{path.stem}.routemate-state.json")
+
+
+class PipelineRun:
+    """Own one PipelineContext and persist it beside its canonical project."""
+
+    def __init__(
+        self,
+        context: PipelineContext,
+        state_path: str | Path | None = None,
+    ) -> None:
+        if not isinstance(context, PipelineContext):
+            raise TypeError("context must be a PipelineContext")
+        self.context = context
+        self.state_path = Path(state_path) if state_path is not None else sidecar_path(
+            context.project_path
+        )
+
+    @classmethod
+    def create(
+        cls,
+        project_path: str | Path,
+        project: Mapping[str, Any],
+        *,
+        sources: list[dict[str, Any]] | None = None,
+        state_path: str | Path | None = None,
+        run_id: str | None = None,
+    ) -> "PipelineRun":
+        """Create a new run for the supplied canonical project snapshot."""
+        if not isinstance(project, Mapping):
+            raise ValueError("project must be an object")
+        path = str(Path(project_path))
+        context = PipelineContext(
+            run_id=run_id or uuid.uuid4().hex,
+            project_path=path,
+            project_sha256=project_sha256(dict(project)),
+            sources=[] if sources is None else sources,
+        )
+        return cls(context, state_path)
+
+    @classmethod
+    def load(cls, state_path: str | Path) -> "PipelineRun":
+        """Load and validate an existing run-state sidecar."""
+        path = Path(state_path)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"could not read pipeline state {path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("pipeline state root must be an object")
+        return cls(PipelineContext.from_dict(data), path)
+
+    def record_stage(
+        self,
+        result: StageResult,
+        findings: list[Finding] | None = None,
+        *,
+        save: bool = True,
+    ) -> None:
+        """Record one adapter result, then persist the updated run by default."""
+        self.context.record_stage(result, findings)
+        if result.output_project_sha256 is not None:
+            self.context.project_sha256 = result.output_project_sha256
+        if save:
+            self.save()
+
+    def save(self) -> Path:
+        """Atomically replace the sidecar with the complete current run state."""
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_path.with_name(self.state_path.name + ".tmp")
+        payload = json.dumps(
+            self.context.to_dict(),
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        ) + "\n"
+        temporary.write_text(payload, encoding="utf-8")
+        temporary.replace(self.state_path)
+        return self.state_path
+
+
+__all__ = ["PipelineRun", "sidecar_path"]

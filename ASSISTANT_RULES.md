@@ -38,3 +38,9 @@ These are project-specific rules for the assistant contributing to Route-Mate.
 - Do not claim code, tests, commits or pushes that did not happen.
 - Avoid long explanations unless Nick asks for the long version.
 - Make progress tangible. Keep it fun.
+
+## Physical routing handoff
+
+- For current physical-routing implementation status, read [docs/GATE1_HANDOFF.md](docs/GATE1_HANDOFF.md) before coding. It records the verified Gate 1 baseline, known limitations, next task and protected areas.
+- [docs/PHYSICAL_MODEL_SPEC.md](docs/PHYSICAL_MODEL_SPEC.md) remains LOCKED and is the normative source. The handoff is status documentation only; it does not supersede or amend the specification.
+- Confirm the live branch, HEAD and working tree before relying on a handoff snapshot. Re-run tests after code changes; never present a user-reported test run as an assistant-run or CI result.

@@ -1,8 +1,8 @@
 """Quick Fit source-geometry acceptance tests.
 
-These tests deliberately stop before placement and routing: the repository has
-no Quick Fit engine yet. They prove that the real Moto and Audio inputs have
-complete, internally valid footprint geometry for a future placer to consume.
+These tests validate source footprint geometry independently of placement and
+routing. They prove that the real Moto and Audio inputs have complete,
+internally valid footprint geometry for the placement pipeline to consume.
 """
 from __future__ import annotations
 

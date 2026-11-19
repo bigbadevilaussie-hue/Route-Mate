@@ -1,4 +1,4 @@
-"""Fast component-side SVG rendering for Route-Mate."""
+"""Production stripboard rendering for Route-Mate."""
 
 from .render import render_front, render_front_svg, write_front_svg
 

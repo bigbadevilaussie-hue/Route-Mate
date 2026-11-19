@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 GUI_VERSION = "1.21"
 CODE_VERSION = "1.21"
 
-from PySide6.QtCore import Qt, QByteArray
+from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QGraphicsSvgItem
@@ -101,6 +101,11 @@ class LockDialog(QDialog):
         super().__init__(parent)
         label = str(component.get("label") or component.get("name") or component.get("id"))
         self.setWindowTitle(f"PRE-SOLVE constraints ({index}/{total})")
+        self.setMinimumWidth(340)
+        if parent is not None:
+            # Keep the prompt over the left log pane so the highlighted board
+            # remains visible while the user makes the decision.
+            self.move(parent.mapToGlobal(QPoint(24, 90)))
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Component: {label}"))
         self.locked = QRadioButton("Locked — keep on board")
@@ -194,6 +199,7 @@ class RouteMateWindow(QMainWindow):
         self.project: dict[str, Any] | None = None
         self.project_path: Path | None = None
         self.presolve_constraints: dict[str, dict[str, bool]] = {}
+        self.pipeline_run = None
 
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
@@ -225,14 +231,16 @@ class RouteMateWindow(QMainWindow):
     def fit_board(self):
         self.top_view.fit_board()
 
-    def _render_component_side(self, project: dict[str, Any]) -> tuple[str, str]:
-        """Render the component side through Route-Mate's public renderer API."""
+    def _render_component_side(
+        self, project: dict[str, Any], *, highlight_component_id: str | None = None
+    ) -> tuple[str, str]:
+        """Render the component side, optionally highlighting the part under review."""
         from render import render_front
-        from render.standalone_bridge import add_alternating_row_bands
 
-        top_svg = render_front(project)
-        rows = int(project["board"]["rows"])
-        return add_alternating_row_bands(top_svg, rows), "render.render_front"
+        # render_front is the public production-renderer API. It supplies the
+        # parity-tested artwork, row bands and optional review highlight.
+        top_svg = render_front(project, highlight_component_id=highlight_component_id)
+        return top_svg, "production standalone renderer"
 
     def _show_board(self, top_svg: str):
         self.top_view.show_svg(top_svg)
@@ -256,15 +264,27 @@ class RouteMateWindow(QMainWindow):
         else:
             self.log_line(f"[LOCKS] Asking Locked / Edge / Slide for {len(placed)} placed components.")
             for index, component in enumerate(placed, 1):
+                component_id = str(component.get("id"))
+                label = str(component.get("label") or component.get("id"))
+                highlighted_svg, renderer_log = self._render_component_side(
+                    self.project, highlight_component_id=component_id
+                )
+                self._show_board(highlighted_svg)
+                self.statusBar().showMessage(
+                    f"Reviewing component {index}/{len(placed)}: {label}"
+                )
+                self.log_line(f"[LOCKS] Highlighting {label} on the board ({index}/{len(placed)}).")
+                if renderer_log:
+                    self.log_line("[RENDER] " + renderer_log)
                 dialog = LockDialog(component, index, len(placed), self)
                 if dialog.exec() != QDialog.DialogCode.Accepted:
+                    top_svg, _ = self._render_component_side(self.project)
+                    self._show_board(top_svg)
                     self.log_line("[LOCKS] Cancelled. Changes already accepted remain rendered; Quick Place not started.")
                     return
 
-                component_id = str(component.get("id"))
                 values = dialog.values()
                 self.presolve_constraints[component_id] = values
-                label = str(component.get("label") or component.get("id"))
                 self.log_line(
                     f"[LOCKS] {label}: Locked={values['locked']} "
                     f"Edge={values['edge']} Slide={values['slide']} "
@@ -295,6 +315,10 @@ class RouteMateWindow(QMainWindow):
         self.log_line(
             f"[LOCKS] Recorded {len(self.presolve_constraints)} component responses."
         )
+        self._record_project_stage(
+            "PREPARE.constraints", "gui.lock_dialog",
+            {"constraints": copy.deepcopy(self.presolve_constraints)},
+        )
 
         # Quick Fit follows the established prompt/remove/render flow.
         # Do not pass unsupported edge/slide constraints to Quick Fit.
@@ -317,8 +341,12 @@ class RouteMateWindow(QMainWindow):
             return
 
         self.log_line("[QUICK FIT] Running shared deterministic net-aware placement engine...")
+        from pipeline import quick_fit_stage_result
         from solve import quick_fit
+        quick_fit_input = copy.deepcopy(self.project)
         result = quick_fit(self.project)
+        stage_result, findings = quick_fit_stage_result(quick_fit_input, result)
+        self._record_pipeline_result(stage_result, findings)
         for error in result.get("errors", []):
             self.log_line("[QUICK FIT][ERROR] " + str(error))
         for warning in result.get("warnings", []):
@@ -337,8 +365,18 @@ class RouteMateWindow(QMainWindow):
             return
 
         self.project = result["project"]
+        from pipeline import route_stage_result, verification_stage_result
         from solve import route_copper
+        route_input = copy.deepcopy(self.project)
         routing = route_copper(self.project)
+        route_result, route_findings = route_stage_result(route_input, routing)
+        self._record_pipeline_result(route_result, route_findings)
+        verification = routing.get("verification")
+        if isinstance(verification, dict) and verification.get("status") in {"PASS", "FAIL"}:
+            verify_result, verify_findings = verification_stage_result(
+                routing.get("project", route_input), verification
+            )
+            self._record_pipeline_result(verify_result, verify_findings)
         for error in routing.get("errors", []):
             self.log_line("[ROUTING][ERROR] " + str(error))
         for warning in routing.get("warnings", []):
@@ -364,13 +402,36 @@ class RouteMateWindow(QMainWindow):
             f"{result.get('excluded', 0)} off-board/excluded."
         )
         self.log_line("[RENDER] Updated component-side placement displayed.")
-        self.log_line("[RENDER] Component-side preview draws jumpers as straight lines; strip cuts are not drawn yet.")
+        self.log_line("[RENDER] Production renderer generated component artwork and both board-side SVGs.")
         if renderer_log:
             self.log_line("[RENDER] " + renderer_log)
         self.statusBar().showMessage(
             "Quick Fit and copper connectivity verified." if routed
             else "Quick Fit complete; copper routing needs attention."
         )
+
+    def _record_pipeline_result(self, result, findings):
+        if self.pipeline_run is None:
+            return
+        self.pipeline_run.record_stage(result, findings)
+        self.log_line(
+            f"[PIPELINE] {result.stage}: {result.summary or result.status}; "
+            f"state saved to {self.pipeline_run.state_path.name}"
+        )
+
+    def _record_project_stage(self, stage: str, module: str, report: dict[str, Any]):
+        if self.pipeline_run is None or self.project is None:
+            return
+        from pipeline import StageResult, project_sha256
+        current_hash = project_sha256(self.project)
+        result = StageResult(
+            stage=stage, status="completed", module=module,
+            input_project_sha256=self.pipeline_run.context.project_sha256,
+            output_project_sha256=current_hash,
+            report=copy.deepcopy(report),
+            summary=f"{stage}: recorded {len(report.get('constraints', {}))} component constraint(s).",
+        )
+        self._record_pipeline_result(result, [])
 
     def load_json(self):
         app_dir = Path(__file__).resolve().parent.parent
@@ -392,7 +453,8 @@ class RouteMateWindow(QMainWindow):
             # Collector validation and explicit board-size collection.
             from collect import validate_project
             project = validate_project(copy.deepcopy(source))
-            for warning in project.pop("_collectWarnings", []):
+            collect_warnings = list(project.pop("_collectWarnings", []))
+            for warning in collect_warnings:
                 self.log_line("[COLLECT][WARN] " + warning)
             board_dialog = BoardSizeDialog(project.get("board", {}), self)
             if board_dialog.exec() != QDialog.DialogCode.Accepted:
@@ -406,6 +468,18 @@ class RouteMateWindow(QMainWindow):
             project["board"].update(dimensions)
             project["board"]["rows"] = dimensions["actualRows"]
             project["board"]["cols"] = dimensions["actualCols"]
+            self.project_path = path
+            from pipeline import PipelineRun, project_import_stage_result
+            self.pipeline_run = PipelineRun.create(
+                path, source,
+                sources=[{"kind": "project_json", "path": str(path.resolve())}],
+            )
+            import_result, import_findings = project_import_stage_result(
+                source, project,
+                warnings=collect_warnings,
+                options=dimensions,
+            )
+            self._record_pipeline_result(import_result, import_findings)
             self.log_line(
                 f"[COLLECT] Actual board {dimensions['actualRows']} x {dimensions['actualCols']}; "
                 f"preferred rows {dimensions['wantedRows']} ({dimensions['wantedRowsMode']}), "
@@ -418,6 +492,9 @@ class RouteMateWindow(QMainWindow):
 
             from prepare.sanity.electrical import run_electrical_sanity
             sanity = run_electrical_sanity(project)
+            from pipeline import electrical_sanity_stage_result
+            sanity_result, sanity_findings = electrical_sanity_stage_result(project, sanity)
+            self._record_pipeline_result(sanity_result, sanity_findings)
             self.log_line(f"[SANITY] Electrical integrity: {sanity['status']}")
             for error in sanity["errors"]:
                 self.log_line("[SANITY][ERROR] " + error)
