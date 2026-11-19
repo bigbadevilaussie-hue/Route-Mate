@@ -6,7 +6,7 @@ from typing import Any
 
 from adjacency import adjacency_conflicts, candidate_conflicts, hole_index
 from placement_policy import is_off_board_component
-from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 
 _ROTATIONS = (0, 90, 180, 270)
 
