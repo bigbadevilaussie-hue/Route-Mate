@@ -15,14 +15,14 @@ def render_front(
     project: dict[str, Any],
     *,
     show_labels: bool = True,
-    show_pin_labels: bool = False,
+    show_pin_labels: bool = True,
     scale: float = 1.0,
     highlight_component_id: str | None = None,
 ) -> str:
     """Return the production component-side SVG for an in-memory project."""
-    if not show_labels or scale != 1.0:
+    if not show_labels or not show_pin_labels or scale != 1.0:
         raise ValueError(
-            "The production renderer currently fixes labels and scale."
+            "The production renderer currently requires labels and pin labels, at native scale."
         )
     top_svg, _copper_svg, _log = render_project_data(
         project, highlight_component_id=highlight_component_id
