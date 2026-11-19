@@ -49,13 +49,17 @@ class PipelineAdapterTests(unittest.TestCase):
         self.assertEqual(findings[0].severity, "warning")
         self.assertEqual(result.finding_ids, [findings[0].finding_id])
 
-    def test_collector_warning_ids_are_stable_and_duplicate_messages_collapse(self):
+    def test_collector_preserves_repeated_messages_with_stable_distinct_ids(self):
         manifest = {"warnings": ["same warning", "same warning"]}
         first, first_findings = collector_stage_result(self.project, manifest)
         second, second_findings = collector_stage_result(self.project, manifest)
 
-        self.assertEqual(len(first_findings), 1)
-        self.assertEqual(first_findings[0].finding_id, second_findings[0].finding_id)
+        self.assertEqual(len(first_findings), 2)
+        self.assertNotEqual(first_findings[0].finding_id, first_findings[1].finding_id)
+        self.assertEqual(
+            [item.finding_id for item in first_findings],
+            [item.finding_id for item in second_findings],
+        )
         self.assertEqual(first.finding_ids, second.finding_ids)
 
     def test_collector_does_not_claim_source_hash_when_not_supplied(self):
