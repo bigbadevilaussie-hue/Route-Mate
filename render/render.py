@@ -34,7 +34,7 @@ def render_front_svg(
     project: dict[str, Any],
     *,
     show_labels: bool = True,
-    show_pin_labels: bool = False,
+    show_pin_labels: bool = True,
     scale: float = 1.0,
     highlight_component_id: str | None = None,
 ) -> str:
@@ -53,7 +53,7 @@ def write_front_svg(
     destination: str | Path,
     *,
     show_labels: bool = True,
-    show_pin_labels: bool = False,
+    show_pin_labels: bool = True,
     scale: float = 1.0,
     highlight_component_id: str | None = None,
 ) -> Path:
