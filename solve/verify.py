@@ -12,7 +12,7 @@ from typing import Any
 from adjacency import adjacency_conflicts
 from placement_policy import is_off_board_component
 
-from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 
 
 class _UnionFind:
