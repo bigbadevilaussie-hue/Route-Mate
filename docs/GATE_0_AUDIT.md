@@ -89,7 +89,7 @@ The independent review correctly identified areas not sufficiently covered in th
 4. **Collection and round-trip preservation:** test IDs, defIds, net IDs, footprint overrides, labels, schematic/display metadata, manual cuts/wires, off-board leads and unknown fields. Distinguish documented normalisation from destructive mutation.
 5. **Electrical verification coverage:** inventory tests for multiple pads sharing one net, duplicate assignments, floating/single-terminal nets, off-board leads, board-excluded components, shorts, opens and cuts.
 6. **All user-facing result paths:** audit GUI, CLI, public renderer and standalone bridge for status labels and any implication that rendering or electrical PASS proves buildability.
-7. **Moto legacy cut semantics:** the fixture contains 30 legacy cuts and 14 vertical endpoint wires. Preserve it as a legacy/import regression fixture. Verify the exact cut-kind encoding in the fixture and tests before describing those cuts; do not use it as a new-model positive fixture. Add a dedicated between-hole-cut physical fixture.
+7. **Moto legacy cut semantics:** direct inspection confirms the fixture is 24×56, contains 30 cuts all explicitly marked `kind: "hole"`, and has 14 endpoint wires, all vertical. Preserve it as a legacy/import regression fixture. These are drilled-hole cuts and therefore not a positive fixture for the initial between-hole-only physical model. Add a dedicated between-hole-cut physical fixture.
 
 ## 3. Replacement boundaries
 
