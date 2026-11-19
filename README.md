@@ -105,6 +105,8 @@ The desktop GUI is real but incomplete. It handles project loading, board-dimens
 
 Quick Fit is an initial deterministic greedy net-aware component placer, not a complete solver. It does not yet enforce hard edge anchors/sliding. The first-pass copper router places between-cuts to separate different nets on a strip and uses a deterministic Manhattan minimum spanning tree to connect same-net copper groups with jumpers. The verifier checks electrical connectivity for the supported horizontal-strip, between/hole-cut and jumper model. Jumper paths/crossings, cut access, component interference and construction constraints remain outside the current model.
 
+The physical construction rules and next routing increment are recorded in [Stripboard design research and routing direction](docs/STRIPBOARD_DESIGN_RESEARCH.md). The key model is copper runs split by cuts, bridged by perpendicular jumper wires; diagonal jumpers are prohibited. The current v1.21 Manhattan endpoint connections are electrical links only, not physical wire paths.
+
 There is no packaged macOS or Windows desktop application yet. The GUI runs from the development environment; standalone packaging and clean-machine testing remain outstanding.
 
 A documented feature, target behaviour or architecture decision is not proof that the executable already implements it. The sections below distinguish current implementation from intended behaviour.
