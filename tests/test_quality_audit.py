@@ -1,7 +1,12 @@
 """Tests for the routed solve measurement audit."""
+import json
 import unittest
+from pathlib import Path
 
 from solve.quality_audit import audit_project
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def sample_project():
@@ -58,6 +63,22 @@ class QualityAuditTests(unittest.TestCase):
         data["board"]["cuts"] = {}
         with self.assertRaisesRegex(ValueError, "board.cuts must be a list"):
             audit_project(data)
+
+    def test_audio_benchmark_measurements(self):
+        path = ROOT / "benchmarks" / "audio" / "audio10wires38cuts.json"
+        project = json.loads(path.read_text(encoding="utf-8"))
+        report = audit_project(project, expected_cuts=38, expected_wires=10)
+        self.assertEqual(report["status"], "PASS", report)
+        self.assertEqual(report["jumper_audit"]["diagonal_count"], 0)
+        self.assertEqual(report["jumper_audit"]["total_length_hole_pitches"], 119.0)
+
+    def test_moto_benchmark_measurements(self):
+        path = ROOT / "benchmarks" / "moto" / "moto14wires30cuts.json"
+        project = json.loads(path.read_text(encoding="utf-8"))
+        report = audit_project(project, expected_cuts=30, expected_wires=14)
+        self.assertEqual(report["status"], "PASS", report)
+        self.assertEqual(report["jumper_audit"]["diagonal_count"], 0)
+        self.assertEqual(report["jumper_audit"]["total_length_hole_pitches"], 85.0)
 
 
 if __name__ == "__main__":
