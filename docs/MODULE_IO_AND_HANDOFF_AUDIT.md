@@ -295,8 +295,8 @@ Tests and benchmark JSON/netlist files are inputs/fixtures, not pipeline modules
 
 ## 4. Cross-cutting problems
 
-1. **Shared result contract exists but is not integrated.** The new types are available; current stages still return their original ad hoc result shapes.
-2. **Findings are still ephemeral in the live workflow.** The new findings ledger is not yet populated by existing modules.
+1. **Shared result contract is partially integrated.** Contract adapters now wrap the existing collector manifest/index and electrical sanity report. The legacy stage APIs and algorithms remain unchanged; GUI/CLI orchestration and the remaining SOLVE/DISPLAY adapters are still outstanding.
+2. **Findings are retained by the new adapters, but not yet by the live workflow.** Collector warnings and electrical sanity errors/warnings can now be converted to stable Finding records and StageResult references. The GUI/CLI does not yet call these adapters or persist the ledger.
 3. **No provenance chain.** Derived geometry, selected constraints and reports do not consistently identify the input hash, producing module/version or source evidence.
 4. **No distinction between facts and interpretations.** For example, an off-board boolean can hide whether saved physical leads exist.
 5. **No stage snapshots.** It is difficult to inspect exactly what PREPARE or SOLVE received and produced.
@@ -446,7 +446,7 @@ This gives every module the same findings and project context without coupling m
 
 1. **Freeze this audit as the baseline.** No solver behaviour change.
 2. **Define and test the contract types.** Round-trip JSON tests, stable IDs, severity/status validation, unknown-field policy and project hash tests.
-3. **Wrap existing outputs.** Adapt collector, sanity, Quick Fit, Quick Place, route and verifier reports into StageResult/Findings without changing their algorithms.
+3. **Wrap existing outputs.** In progress: collector and electrical sanity adapters are implemented and covered by adapter tests. Next: adapt Quick Fit, Quick Place, route and verifier reports without changing their algorithms.
 4. **Add the pipeline orchestrator.** One shared path used by CLI and GUI; GUI becomes a client of it.
 5. **Persist/load the sidecar.** Atomic writes, source/project hash validation, stale-stage propagation and recovery tests.
 6. **Connect DISPLAY.** Renderer receives the project plus a read-only findings/report view; it must not change result status.
@@ -470,4 +470,4 @@ This gives every module the same findings and project context without coupling m
 
 This is a source-level audit of the current branch and its documented public workflow. It is not a claim that every possible runtime path, third-party renderer implementation, or external Karl export variant has been exercised. The current unit-test suite establishes regression coverage for implemented behaviour; it does not prove the proposed pipeline contract exists.
 
-No implementation, test run, commit or push is claimed by this document.
+### 8.1 Implementation progress — IN and PREPARE adapters\n\nThe first output adapters now exist in `pipeline/adapters.py`:\n\n- `collector_stage_result()` wraps the canonical collected project, existing manifest and index entry. It carries collector warnings as stable warning findings, captures board options and collection metrics, retains the original manifest/index in the report, and records the output project hash. The source-project hash is recorded only when the caller supplies the parsed source project; it is not guessed from the manifest's raw-file hash.\n- `electrical_sanity_stage_result()` wraps the existing electrical sanity report. Each error/warning becomes a stable finding. The original PASS/FAIL report is retained, while the StageResult execution status is completed for either domain outcome. Input/output hashes are the same because this stage does not modify the project.\n- Both adapters return a StageResult plus Finding records. They do not mutate the project or alter the existing collector/sanity functions. `pipeline/__init__.py` exports both adapters.\n- `tests/test_pipeline_adapters.py` covers report retention, stable/deduplicated finding IDs, hashes, PASS/FAIL distinction and hand-off into PipelineContext.\n\nThese are adapter-level integrations only. The current GUI and CLI have not yet been wired to call them, and no sidecar persistence or orchestrator has been added. Test execution remains the user's local verification step.
