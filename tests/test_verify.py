@@ -167,7 +167,8 @@ class VerifyTests(unittest.TestCase):
         data["components"][1]["leads"] = {"1": {"row": 0, "col": 1}}
         report = verify_project(data)
         self.assertEqual(report["counts"]["on_board_terminals"], 3)
-        self.assertEqual(report["counts"]["adjacency_conflicts"], 1)
+        # B.1 at column 1 is adjacent to both A.1 at column 0 and A.2 at column 2.
+        self.assertEqual(report["counts"]["adjacency_conflicts"], 2)
         self.assertTrue(any("adjacent different-net" in error for error in report["errors"]))
 
     def test_between_cut_resolves_adjacent_different_net_pins(self):

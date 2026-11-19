@@ -15,11 +15,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.19"
-CODE_VERSION = "1.19"
+GUI_VERSION = "1.20"
+CODE_VERSION = "1.20"
 
 from PySide6.QtCore import Qt, QByteArray
-from PySide6.QtGui import QAction, QBrush, QColor, QPainter
+from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import (
@@ -451,6 +451,8 @@ class RouteMateWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    # Use the platform-selected concrete font instead of Qt’s unresolved generic Sans-serif alias.
+    app.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont))
     app.setApplicationName("Route-Mate")
     window = RouteMateWindow()
     window.show()
