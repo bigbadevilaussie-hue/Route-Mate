@@ -3,7 +3,7 @@
 **Audit target:** `gate1-geometry-contract`  
 **Audit basis:** source inspection of every production Python module in the branch, plus the current README, CLI/GUI documentation, Gate 0 audit and locked Physical Model Specification.  
 **Purpose:** document what modules actually consume and return today, identify where findings are lost, and define a practical shared storage/handoff contract.  
-**Status:** audit and proposed contract only. No runtime modules or project formats are changed by this document.
+**Status:** source audit plus initial contract implementation. The contract types and unit tests now exist on this branch; existing processing modules are not yet adapted to use them, and no project format or solver behaviour has been changed.
 
 ## 1. Executive finding
 
@@ -17,9 +17,19 @@ Most modules accept a plain project dictionary and return either:
 - a list of strings; or
 - a low-level geometry value.
 
-There is no common stage-result type, no persistent findings collection, no provenance record for derived values, and no pipeline orchestrator that consistently carries reports forward. The GUI currently logs many reports and then discards them. Consequently, downstream modules often receive the project but not the reasoning, warnings, rejected alternatives or unresolved questions discovered upstream.
+There was no common stage-result type or persistent findings collection. The first implementation increment now adds shared contract records in `pipeline/contracts.py`, but existing modules and the GUI are not yet adapted to use them. Findings therefore remain ephemeral in the current end-to-end workflow. Consequently, downstream modules often receive the project but not the reasoning, warnings, rejected alternatives or unresolved questions discovered upstream.
 
 **Recommendation:** retain the existing canonical project dictionary as the authoritative circuit/layout data, and add a separate Route-Mate run-state envelope around it. Pass a typed stage result between modules and persist that envelope as a sidecar state file. Do not put Route-Mate workflow metadata into Karl's source JSON or invent another board-dimension source.
+
+## 1.1 Implementation progress
+
+The first contract increment has been added on `gate1-geometry-contract`:
+
+- `pipeline/contracts.py`: `PipelineContext`, `StageResult`, `Finding`, deterministic project SHA-256 and stable finding-ID helpers.
+- `pipeline/__init__.py`: public exports for those contract types.
+- `tests/test_pipeline_contracts.py`: tests for hashing, stable identity, validation, JSON round trips, unknown-field preservation and non-destructive finding hand-off.
+
+This is a data-contract foundation only. It does not yet wrap collector/sanity/solver/router/verifier outputs, persist a sidecar, or change GUI/CLI orchestration. Existing callers still use their original return shapes until the next integration increment.
 
 ## 2. Existing workflow and actual module inventory
 
@@ -285,8 +295,8 @@ Tests and benchmark JSON/netlist files are inputs/fixtures, not pipeline modules
 
 ## 4. Cross-cutting problems
 
-1. **No shared result contract.** Each stage invents its own result shape.
-2. **Findings are ephemeral.** Errors/warnings are strings or transient dictionaries, generally logged and discarded.
+1. **Shared result contract exists but is not integrated.** The new types are available; current stages still return their original ad hoc result shapes.
+2. **Findings are still ephemeral in the live workflow.** The new findings ledger is not yet populated by existing modules.
 3. **No provenance chain.** Derived geometry, selected constraints and reports do not consistently identify the input hash, producing module/version or source evidence.
 4. **No distinction between facts and interpretations.** For example, an off-board boolean can hide whether saved physical leads exist.
 5. **No stage snapshots.** It is difficult to inspect exactly what PREPARE or SOLVE received and produced.
