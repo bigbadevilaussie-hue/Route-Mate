@@ -128,6 +128,45 @@ def collector_stage_result(
     return result, findings
 
 
+
+def project_import_stage_result(
+    source_project: Mapping[str, Any],
+    project: Mapping[str, Any],
+    *,
+    warnings: list[str] | None = None,
+    options: Mapping[str, Any] | None = None,
+) -> tuple[StageResult, list[Finding]]:
+    """Adapt GUI JSON validation and explicit board sizing as an IN stage.
+
+    This is intentionally distinct from collector_stage_result: the GUI's
+    JSON-load path does not create a collector manifest or campaign index.
+    """
+    source = _mapping(source_project, "source_project")
+    canonical = _mapping(project, "project")
+    messages = _messages([] if warnings is None else warnings, "warnings")
+    stage, module = "IN.project_import", "gui.project_import"
+    findings = _findings(stage, module, [
+        ("project_import_warning", "warning", messages),
+    ])
+    result = StageResult(
+        stage=stage,
+        status="completed",
+        module=module,
+        input_project_sha256=project_sha256(source),
+        output_project_sha256=project_sha256(canonical),
+        options={} if options is None else deepcopy(dict(options)),
+        metrics={
+            "components": len(canonical.get("components", [])),
+            "nets": len(canonical.get("nets", [])),
+            "assignments": len(canonical.get("netAssignments", [])),
+            "warnings": len(messages),
+        },
+        finding_ids=[item.finding_id for item in findings],
+        report={"warnings": messages},
+        summary=f"Imported {len(canonical.get('components', []))} components with {len(messages)} warning(s).",
+    )
+    return result, findings
+
 def electrical_sanity_stage_result(
     project: Mapping[str, Any], report: Mapping[str, Any],
 ) -> tuple[StageResult, list[Finding]]:
