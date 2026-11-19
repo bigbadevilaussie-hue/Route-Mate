@@ -1,7 +1,8 @@
-"""Bridge to the parity-tested standalone stripboard production renderer.
+""""Bridge to the parity-tested standalone stripboard production renderer.
 
 The production renderer is the single source of board artwork for the GUI.
 It is fetched as a sparse checkout of the upstream project on first use.
+Route-Mate's mounting policy is applied before production rendering.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ def add_alternating_row_bands(
 
     if type(rows) is not int or rows < 1:
         raise ValueError("rows must be a positive integer")
-    match = re.search(r'<svg\b[^>]*\bviewBox="([^"]+)"', svg)
+    match = re.search(r'<svg\\b[^>]*\\bviewBox="([^"]+)"', svg)
     if not match:
         raise ValueError("Renderer SVG has no viewBox")
     values = [float(value) for value in match.group(1).replace(",", " ").split()]
@@ -46,7 +47,7 @@ def add_alternating_row_bands(
             'fill="#f1f3f5" opacity="0.72" data-route-mate-row-band="1"/>'
         )
     insertion = "".join(bands)
-    return re.sub(r'(<svg\b[^>]*>)', lambda m: m.group(1) + insertion, svg, count=1)
+    return re.sub(r'(<svg\\b[^>]*>)', lambda m: m.group(1) + insertion, svg, count=1)
 
 
 def add_component_highlight(
@@ -99,7 +100,7 @@ def add_component_highlight(
         'stroke-width="3.5" stroke-dasharray="7 4" '
         'data-route-mate-highlight="1"/>'
     )
-    return re.sub(r'</svg\s*>', overlay + '</svg>', svg, count=1)
+    return re.sub(r'</svg\\s*>', overlay + '</svg>', svg, count=1)
 
 
 def _run(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -122,13 +123,27 @@ def ensure_renderer() -> Path:
             UPSTREAM, str(CACHE),
         ])
         if result.returncode:
-            raise RuntimeError("Could not fetch production renderer:\n" + result.stdout)
+            raise RuntimeError("Could not fetch production renderer:\\n" + result.stdout)
     result = _run(["git", "sparse-checkout", "set", SPARSE_PATH], cwd=CACHE)
     if result.returncode:
-        raise RuntimeError("Could not prepare production renderer:\n" + result.stdout)
+        raise RuntimeError("Could not prepare production renderer:\\n" + result.stdout)
     if not CLI.is_file():
         raise RuntimeError(f"Production renderer CLI is missing: {CLI}")
     return CLI
+
+
+def _renderer_input(project: dict[str, Any]) -> dict[str, Any]:
+    """Copy the project and remove components not mounted on the stripboard."""
+    from placement_policy import is_off_board_component
+
+    render_project = dict(project)
+    components = project.get("components", [])
+    if isinstance(components, list):
+        render_project["components"] = [
+            component for component in components
+            if not is_off_board_component(component)
+        ]
+    return render_project
 
 
 def render_project(
@@ -137,18 +152,26 @@ def render_project(
 ) -> tuple[str, str, str]:
     """Render both production board sides and return top SVG, copper SVG and log."""
     cli = ensure_renderer()
+    project = _renderer_input(json.loads(project_path.read_text(encoding="utf-8")))
     output_dir.mkdir(parents=True, exist_ok=True)
-    result = _run([
-        "node", str(cli), str(project_path), "--output", str(output_dir),
-    ])
+
+    # Never rewrite the caller's project file: the production renderer receives
+    # a temporary copy with Route-Mate's off-board mounting policy applied.
+    with tempfile.TemporaryDirectory(prefix="route-mate-render-input-") as tmp:
+        render_input = Path(tmp) / "project.json"
+        render_input.write_text(
+            json.dumps(project, ensure_ascii=False), encoding="utf-8"
+        )
+        result = _run([
+            "node", str(cli), str(render_input), "--output", str(output_dir),
+        ])
     if result.returncode:
-        raise RuntimeError("Production renderer failed:\n" + result.stdout)
+        raise RuntimeError("Production renderer failed:\\n" + result.stdout)
     top = output_dir / "board-top.svg"
     copper = output_dir / "board-copper.svg"
     if not top.is_file() or not copper.is_file():
         raise RuntimeError("Production renderer did not produce both board SVGs.")
 
-    project = json.loads(project_path.read_text(encoding="utf-8"))
     top_svg = add_alternating_row_bands(
         top.read_text(encoding="utf-8"), int(project["board"]["rows"])
     )
@@ -170,3 +193,4 @@ def render_project_data(
             project_path, root / "output",
             highlight_component_id=highlight_component_id,
         )
+"
