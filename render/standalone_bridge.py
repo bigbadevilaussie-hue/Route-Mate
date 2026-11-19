@@ -64,12 +64,12 @@ def add_board_coordinate_labels(
         raise ValueError("cols must be a positive integer")
     if pitch <= 0:
         raise ValueError("pitch must be positive")
-    if not re.search(r'<svg\\b[^>]*\\bviewBox="[^"]+"', svg):
+    if not re.search(r'<svg\b[^>]*\bviewBox="[^"]+"', svg):
         raise ValueError("Renderer SVG has no viewBox")
 
     # The production renderer's R0·C0 caption is superseded by these rulers.
     svg = re.sub(
-        r'<text\\b[^>]*>[^<]*R0·C0[^<]*</text>', "", svg, count=1
+        r'<text\b[^>]*>[^<]*R0·C0[^<]*</text>', "", svg, count=1
     )
     labels = []
     label_y = origin - 22
@@ -93,7 +93,7 @@ def add_board_coordinate_labels(
             'fill="#555" data-route-mate-row="' + str(number) + '">'
             + str(number) + '</text>'
         )
-    return re.sub(r'</svg\\s*>', "".join(labels) + '</svg>', svg, count=1)
+    return re.sub(r'</svg\s*>', "".join(labels) + '</svg>', svg, count=1)
 
 
 def add_component_highlight(
