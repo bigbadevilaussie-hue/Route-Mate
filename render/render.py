@@ -45,6 +45,7 @@ def render_front_svg(
         show_labels=show_labels,
         show_pin_labels=show_pin_labels,
         scale=scale,
+        highlight_component_id=highlight_component_id,
     )
 
 
@@ -55,6 +56,7 @@ def write_front_svg(
     show_labels: bool = True,
     show_pin_labels: bool = False,
     scale: float = 1.0,
+    highlight_component_id: str | None = None,
 ) -> Path:
     """Render and write one component-side SVG file."""
     path = Path(destination)
