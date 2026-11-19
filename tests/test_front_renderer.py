@@ -31,6 +31,25 @@ class FrontRendererTests(unittest.TestCase):
         self.assertIn("R&lt;&amp;1", svg)
         self.assertEqual(svg.count("<circle"), 17)  # 15 holes + 2 component pins
 
+    def test_highlight_marks_only_the_selected_component(self):
+        plain = render_front(self.project)
+        highlighted = render_front(self.project, highlight_component_id="r1")
+        self.assertNotIn('data-route-mate-highlight="1"', plain)
+        self.assertIn('data-route-mate-highlight="1"', highlighted)
+        self.assertIn('stroke="#f97316"', highlighted)
+
+    def test_unknown_definition_can_be_highlighted(self):
+        project = {
+            "board": {"rows": 2, "cols": 2},
+            "components": [{
+                "id": "x1", "defId": "missing-def", "label": "X1",
+                "boardPos": {"row": 0, "col": 0},
+            }],
+        }
+        svg = render_front(project, highlight_component_id="x1")
+        self.assertIn('stroke="#f97316"', svg)
+        self.assertIn(">?</text>", svg)
+
     def test_pin_labels_are_opt_in(self):
         without = render_front(self.project)
         with_labels = render_front(self.project, show_pin_labels=True)
