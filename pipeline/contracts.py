@@ -106,9 +106,9 @@ class Finding:
     def __post_init__(self) -> None:
         _string(self.finding_id, "finding_id")
         _string(self.code, "code")
-        if self.severity not in FINDING_SEVERITIES:
+        if not isinstance(self.severity, str) or self.severity not in FINDING_SEVERITIES:
             raise ValueError(f"unsupported finding severity: {self.severity!r}")
-        if self.status not in FINDING_STATUSES:
+        if not isinstance(self.status, str) or self.status not in FINDING_STATUSES:
             raise ValueError(f"unsupported finding status: {self.status!r}")
         _string(self.message, "message", allow_empty=True)
         self.producer = _object(self.producer, "producer")
@@ -181,7 +181,7 @@ class StageResult:
     def __post_init__(self) -> None:
         _string(self.stage, "stage")
         _string(self.module, "module")
-        if self.status not in STAGE_STATUSES:
+        if not isinstance(self.status, str) or self.status not in STAGE_STATUSES:
             raise ValueError(f"unsupported stage status: {self.status!r}")
         for name in ("input_project_sha256", "output_project_sha256"):
             value = getattr(self, name)
@@ -259,6 +259,8 @@ class PipelineContext:
     findings: list[Finding] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
+    project_extra: dict[str, Any] = field(default_factory=dict)
+    pipeline_extra: dict[str, Any] = field(default_factory=dict)
     schema: str = RUN_STATE_SCHEMA
     schema_version: int = RUN_STATE_SCHEMA_VERSION
 
@@ -268,7 +270,7 @@ class PipelineContext:
         _string(self.project_sha256, "project_sha256")
         if self.schema != RUN_STATE_SCHEMA:
             raise ValueError(f"unsupported run-state schema: {self.schema!r}")
-        if self.schema_version != RUN_STATE_SCHEMA_VERSION:
+        if type(self.schema_version) is not int or self.schema_version != RUN_STATE_SCHEMA_VERSION:
             raise ValueError(f"unsupported run-state schema version: {self.schema_version!r}")
         if self.current_stage is not None:
             _string(self.current_stage, "current_stage")
@@ -293,6 +295,8 @@ class PipelineContext:
             raise ValueError("artifacts must be an array")
         self.artifacts = [_object(item, "artifact") for item in self.artifacts]
         self.extra = _object(self.extra, "extra")
+        self.project_extra = _object(self.project_extra, "project_extra")
+        self.pipeline_extra = _object(self.pipeline_extra, "pipeline_extra")
         self._validate_finding_ids()
         _json_copy(self.to_dict(), "pipeline context")
 
@@ -307,6 +311,7 @@ class PipelineContext:
     def add_findings(self, findings: list[Finding]) -> None:
         """Append new findings without deleting or silently replacing old ones."""
         existing = {item.finding_id: item for item in self.findings}
+        additions: list[Finding] = []
         for finding in findings:
             if not isinstance(finding, Finding):
                 raise TypeError("add_findings accepts Finding records")
@@ -315,8 +320,9 @@ class PipelineContext:
                 if previous.to_dict() != finding.to_dict():
                     raise ValueError(f"conflicting duplicate finding ID {finding.finding_id!r}")
                 continue
-            self.findings.append(finding)
             existing[finding.finding_id] = finding
+            additions.append(finding)
+        self.findings.extend(additions)
 
     def record_stage(
         self, result: StageResult, findings: list[Finding] | None = None
@@ -324,31 +330,40 @@ class PipelineContext:
         """Store a stage result and its findings as one validated hand-off."""
         if not isinstance(result, StageResult):
             raise TypeError("result must be a StageResult")
-        self.add_findings(findings or [])
-        known_ids = {item.finding_id for item in self.findings}
-        missing = sorted(set(result.finding_ids) - known_ids)
+        incoming = findings or []
+        existing = {item.finding_id: item for item in self.findings}
+        for finding in incoming:
+            if not isinstance(finding, Finding):
+                raise TypeError("findings must contain Finding records")
+            previous = existing.get(finding.finding_id)
+            if previous is not None and previous.to_dict() != finding.to_dict():
+                raise ValueError(f"conflicting duplicate finding ID {finding.finding_id!r}")
+            existing[finding.finding_id] = finding
+        missing = sorted(set(result.finding_ids) - set(existing))
         if missing:
             raise ValueError(f"stage references unknown finding IDs: {', '.join(missing)}")
+        self.add_findings(incoming)
         self.stages[result.stage] = result
         self.current_stage = result.stage
 
     def to_dict(self) -> dict[str, Any]:
+        project = dict(self.project_extra)
+        project.update({"path": self.project_path, "sha256": self.project_sha256})
+        pipeline = dict(self.pipeline_extra)
+        pipeline.update({
+            "current_stage": self.current_stage,
+            "stages": {key: value.to_dict() for key, value in self.stages.items()},
+            "findings": [item.to_dict() for item in self.findings],
+            "artifacts": _json_copy(self.artifacts, "artifacts"),
+        })
         result = dict(self.extra)
         result.update({
             "schema": self.schema,
             "schema_version": self.schema_version,
             "run_id": self.run_id,
-            "project": {
-                "path": self.project_path,
-                "sha256": self.project_sha256,
-            },
+            "project": project,
             "sources": _json_copy(self.sources, "sources"),
-            "pipeline": {
-                "current_stage": self.current_stage,
-                "stages": {key: value.to_dict() for key, value in self.stages.items()},
-                "findings": [item.to_dict() for item in self.findings],
-                "artifacts": _json_copy(self.artifacts, "artifacts"),
-            },
+            "pipeline": pipeline,
         })
         return result
 
@@ -360,17 +375,9 @@ class PipelineContext:
         known_top = {"schema", "schema_version", "run_id", "project", "sources", "pipeline"}
         known_pipeline = {"current_stage", "stages", "findings", "artifacts"}
         pipeline_extra = {key: value for key, value in pipeline.items() if key not in known_pipeline}
-        if pipeline_extra:
-            # Preserve future pipeline-level fields without losing them on a round trip.
-            extra = dict(raw.get("extra", {}))
-            extra["_pipeline_extra"] = pipeline_extra
-        else:
-            extra = dict(raw.get("extra", {}))
+        project_extra = {key: value for key, value in project.items()
+                         if key not in {"path", "sha256"}}
         top_extra = {key: value for key, value in raw.items() if key not in known_top}
-        extra.update(top_extra)
-        if "_pipeline_extra" in extra:
-            # Stored under a reserved extension key to preserve unknown nested fields.
-            pass
         return cls(
             run_id=raw.get("run_id"),
             project_path=project.get("path"),
@@ -380,7 +387,9 @@ class PipelineContext:
             stages=pipeline.get("stages", {}),
             findings=pipeline.get("findings", []),
             artifacts=pipeline.get("artifacts", []),
-            extra=extra,
+            extra=top_extra,
+            project_extra=project_extra,
+            pipeline_extra=pipeline_extra,
             schema=raw.get("schema", RUN_STATE_SCHEMA),
             schema_version=raw.get("schema_version", RUN_STATE_SCHEMA_VERSION),
         )
