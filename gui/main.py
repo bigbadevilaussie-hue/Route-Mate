@@ -194,6 +194,7 @@ class RouteMateWindow(QMainWindow):
         self.project: dict[str, Any] | None = None
         self.project_path: Path | None = None
         self.presolve_constraints: dict[str, dict[str, bool]] = {}
+        self.pipeline_run = None
 
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
@@ -295,6 +296,10 @@ class RouteMateWindow(QMainWindow):
         self.log_line(
             f"[LOCKS] Recorded {len(self.presolve_constraints)} component responses."
         )
+        self._record_project_stage(
+            "PREPARE.constraints", "gui.lock_dialog",
+            {"constraints": copy.deepcopy(self.presolve_constraints)},
+        )
 
         # Quick Fit follows the established prompt/remove/render flow.
         # Do not pass unsupported edge/slide constraints to Quick Fit.
@@ -317,8 +322,12 @@ class RouteMateWindow(QMainWindow):
             return
 
         self.log_line("[QUICK FIT] Running shared deterministic net-aware placement engine...")
+        from pipeline import quick_fit_stage_result
         from solve import quick_fit
+        quick_fit_input = copy.deepcopy(self.project)
         result = quick_fit(self.project)
+        stage_result, findings = quick_fit_stage_result(quick_fit_input, result)
+        self._record_pipeline_result(stage_result, findings)
         for error in result.get("errors", []):
             self.log_line("[QUICK FIT][ERROR] " + str(error))
         for warning in result.get("warnings", []):
@@ -337,8 +346,18 @@ class RouteMateWindow(QMainWindow):
             return
 
         self.project = result["project"]
+        from pipeline import route_stage_result, verification_stage_result
         from solve import route_copper
+        route_input = copy.deepcopy(self.project)
         routing = route_copper(self.project)
+        route_result, route_findings = route_stage_result(route_input, routing)
+        self._record_pipeline_result(route_result, route_findings)
+        verification = routing.get("verification")
+        if isinstance(verification, dict) and verification.get("status") in {"PASS", "FAIL"}:
+            verify_result, verify_findings = verification_stage_result(
+                routing.get("project", route_input), verification
+            )
+            self._record_pipeline_result(verify_result, verify_findings)
         for error in routing.get("errors", []):
             self.log_line("[ROUTING][ERROR] " + str(error))
         for warning in routing.get("warnings", []):
@@ -371,6 +390,29 @@ class RouteMateWindow(QMainWindow):
             "Quick Fit and copper connectivity verified." if routed
             else "Quick Fit complete; copper routing needs attention."
         )
+
+    def _record_pipeline_result(self, result, findings):
+        if self.pipeline_run is None:
+            return
+        self.pipeline_run.record_stage(result, findings)
+        self.log_line(
+            f"[PIPELINE] {result.stage}: {result.summary or result.status}; "
+            f"state saved to {self.pipeline_run.state_path.name}"
+        )
+
+    def _record_project_stage(self, stage: str, module: str, report: dict[str, Any]):
+        if self.pipeline_run is None or self.project is None:
+            return
+        from pipeline import StageResult, project_sha256
+        current_hash = project_sha256(self.project)
+        result = StageResult(
+            stage=stage, status="completed", module=module,
+            input_project_sha256=self.pipeline_run.context.project_sha256,
+            output_project_sha256=current_hash,
+            report=copy.deepcopy(report),
+            summary=f"{stage}: recorded {len(report.get('constraints', {}))} component constraint(s).",
+        )
+        self._record_pipeline_result(result, [])
 
     def load_json(self):
         app_dir = Path(__file__).resolve().parent.parent
@@ -406,6 +448,18 @@ class RouteMateWindow(QMainWindow):
             project["board"].update(dimensions)
             project["board"]["rows"] = dimensions["actualRows"]
             project["board"]["cols"] = dimensions["actualCols"]
+            self.project_path = path
+            from pipeline import PipelineRun, project_import_stage_result
+            self.pipeline_run = PipelineRun.create(
+                path, source,
+                sources=[{"kind": "project_json", "path": str(path.resolve())}],
+            )
+            import_result, import_findings = project_import_stage_result(
+                source, project,
+                warnings=list(project.get("_collectWarnings", [])),
+                options=dimensions,
+            )
+            self._record_pipeline_result(import_result, import_findings)
             self.log_line(
                 f"[COLLECT] Actual board {dimensions['actualRows']} x {dimensions['actualCols']}; "
                 f"preferred rows {dimensions['wantedRows']} ({dimensions['wantedRowsMode']}), "
@@ -418,6 +472,9 @@ class RouteMateWindow(QMainWindow):
 
             from prepare.sanity.electrical import run_electrical_sanity
             sanity = run_electrical_sanity(project)
+            from pipeline import electrical_sanity_stage_result
+            sanity_result, sanity_findings = electrical_sanity_stage_result(project, sanity)
+            self._record_pipeline_result(sanity_result, sanity_findings)
             self.log_line(f"[SANITY] Electrical integrity: {sanity['status']}")
             for error in sanity["errors"]:
                 self.log_line("[SANITY][ERROR] " + error)
