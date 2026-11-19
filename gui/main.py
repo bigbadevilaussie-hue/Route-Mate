@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.23"
-CODE_VERSION = "1.23"
+GUI_VERSION = "1.24"
+CODE_VERSION = "1.24"
 
 from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
@@ -194,8 +194,8 @@ class RouteMateWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Route-Mate GUI v{GUI_VERSION} (Code v{CODE_VERSION})")
-        self.resize(1600, 950)
-        self.setMinimumSize(1000, 650)
+        self.resize(1600, 760)
+        self.setMinimumSize(1000, 600)
         self.project: dict[str, Any] | None = None
         self.project_path: Path | None = None
         self.presolve_constraints: dict[str, dict[str, bool]] = {}
