@@ -434,7 +434,8 @@ class RouteMateWindow(QMainWindow):
             # Collector validation and explicit board-size collection.
             from collect import validate_project
             project = validate_project(copy.deepcopy(source))
-            for warning in project.pop("_collectWarnings", []):
+            collect_warnings = list(project.pop("_collectWarnings", []))
+            for warning in collect_warnings:
                 self.log_line("[COLLECT][WARN] " + warning)
             board_dialog = BoardSizeDialog(project.get("board", {}), self)
             if board_dialog.exec() != QDialog.DialogCode.Accepted:
@@ -456,7 +457,7 @@ class RouteMateWindow(QMainWindow):
             )
             import_result, import_findings = project_import_stage_result(
                 source, project,
-                warnings=list(project.get("_collectWarnings", [])),
+                warnings=collect_warnings,
                 options=dimensions,
             )
             self._record_pipeline_result(import_result, import_findings)
