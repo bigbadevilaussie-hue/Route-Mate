@@ -49,6 +49,8 @@ Changing the selected component should update the overlay, not regenerate the co
 
 The front renderer's public API should remain the boundary; GUI code should not import its private modules.
 
+The current straight-line jumper preview must not be interpreted as a buildable wire route. The physical stripboard model requires copper runs segmented by cuts and jumper wires bridging between runs at right angles. Diagonal jumpers are prohibited. The component-side wire view and copper-side cut view should eventually be separate, correctly oriented layers; see [Stripboard design research and routing direction](STRIPBOARD_DESIGN_RESEARCH.md).
+
 ## Suggested application structure
 
 This is an implementation guide, not a claim that these files already exist.
@@ -123,7 +125,7 @@ The next useful display benchmark is GUI-side: initial SVG scene load, zoom/pan 
 - [ ] Dedicated Route-Mate GUI environment.
 - [x] Early main window and QGraphicsView component-side board integration.
 - [x] GUI invokes shared Quick Fit, first-pass copper routing and independent connectivity verification.
-- [ ] Display strip-cut artwork in the board view; the current renderer already draws jumper connections as straight lines.
+- [ ] Display strip-cut artwork in the board view. The current renderer draws endpoint-to-endpoint jumper lines only; these are logical links, not physical jumper paths.
 - [ ] Selection and lock/edge-anchor overlays.
 - [ ] macOS standalone build and clean-machine test.
 - [ ] Windows standalone build and clean-machine test.
