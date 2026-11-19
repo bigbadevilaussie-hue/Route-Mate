@@ -1,7 +1,7 @@
 """Deterministic first-fit component placement for Route-Mate."""
 from __future__ import annotations
 from typing import Any
-from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from placement_policy import is_off_board_component
 
 def _excluded(c):
