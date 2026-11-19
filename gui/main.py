@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 GUI_VERSION = "1.21"
 CODE_VERSION = "1.21"
 
-from PySide6.QtCore import Qt, QByteArray
+from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QGraphicsSvgItem
@@ -101,6 +101,11 @@ class LockDialog(QDialog):
         super().__init__(parent)
         label = str(component.get("label") or component.get("name") or component.get("id"))
         self.setWindowTitle(f"PRE-SOLVE constraints ({index}/{total})")
+        self.setMinimumWidth(340)
+        if parent is not None:
+            # Keep the prompt over the left log pane so the highlighted board
+            # remains visible while the user makes the decision.
+            self.move(parent.mapToGlobal(QPoint(24, 90)))
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Component: {label}"))
         self.locked = QRadioButton("Locked — keep on board")
