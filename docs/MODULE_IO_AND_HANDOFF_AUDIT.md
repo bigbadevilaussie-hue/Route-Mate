@@ -478,4 +478,20 @@ This is a source-level audit of the current branch and its documented public wor
 
 All adapters use a completed StageResult to mean the function returned a result; domain PASS/FAIL remains inside the retained report. Errors and warnings become separate findings. Repeated identical messages are retained as distinct findings with deterministic occurrence-based IDs.
 
-These remain adapter-level integrations only. The current GUI and CLI have not yet been wired to call them, and no sidecar persistence or orchestrator has been added. Test execution remains the user's local verification step.
+The shared run-state layer is now implemented in `pipeline/orchestrator.py`:
+- `PipelineRun.create()` starts a run from a source project and records its SHA-256 and provenance.
+- `PipelineRun.record_stage()` appends a StageResult and its findings, advances the current project hash to the stage output hash, and persists by default.
+- `PipelineRun.load()` validates and restores a sidecar.
+- `PipelineRun.save()` writes the sidecar through a temporary file and atomic rename.
+- `sidecar_path()` uses the sibling name `<project-stem>.routemate-state.json`.
+- The canonical project JSON is never rewritten by the run-state layer.
+
+The GUI is now connected to this shared state:
+- JSON validation and explicit board sizing are recorded as `IN.project_import`. This is intentionally separate from `collector_stage_result()`: the GUI import path does not create the collector manifest/index, so it does not fabricate those artifacts.
+- Electrical sanity is recorded as `PREPARE.electrical`, including findings even when the domain result is FAIL.
+- User lock/remove/edge/slide responses are recorded as `PREPARE.constraints`.
+- Quick Fit, copper routing and the route's verifier report are recorded through their existing adapters.
+- Each recorded stage saves the sidecar. The GUI log reports the sidecar filename.
+- Existing GUI interaction order and solver calls remain unchanged. Unsupported edge/slide constraints still stop Quick Fit as before.
+
+The collector CLI remains a standalone IN command; there is not yet a complete shared CLI workflow. DISPLAY artifact integration and stale-stage propagation remain future work. Test execution remains the user's local verification step.
