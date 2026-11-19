@@ -11,7 +11,7 @@ from collections import defaultdict
 from typing import Any
 
 from placement_policy import is_off_board_component
-from render._geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from .verify import verify_project
 
 
