@@ -24,8 +24,9 @@ def _messages(value: Any, name: str) -> list[str]:
         return []
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError(f"{name} must be an array of strings")
-    # Preserve order while avoiding duplicate findings from repeated log lines.
-    return list(dict.fromkeys(value))
+    # Preserve every source occurrence; identical messages may represent
+    # separate source findings and must not be silently collapsed.
+    return list(value)
 
 
 def _finding(
@@ -35,11 +36,12 @@ def _finding(
     code: str,
     severity: str,
     message: str,
+    occurrence: int = 0,
 ) -> Finding:
-    # The digest gives repeated identical messages a stable identity while
-    # allowing multiple different messages from the same stage/code.
+    # The digest identifies the message; occurrence preserves repeated
+    # identical source entries without assigning them the same finding ID.
     key = hashlib.sha256(message.encode("utf-8")).hexdigest()[:16]
-    subjects = [{"type": "stage_message", "key": key}]
+    subjects = [{"type": "stage_message", "key": key, "occurrence": occurrence}]
     return Finding(
         finding_id=make_finding_id(stage, code, subjects),
         code=code,
@@ -73,16 +75,19 @@ def collector_stage_result(
 
     stage = "IN.collect"
     module = "collect"
-    findings = [
-        _finding(
+    warning_occurrences: dict[str, int] = {}
+    findings = []
+    for message in warnings:
+        occurrence = warning_occurrences.get(message, 0)
+        warning_occurrences[message] = occurrence + 1
+        findings.append(_finding(
             stage=stage,
             module=module,
             code="collector_warning",
             severity="warning",
             message=message,
-        )
-        for message in warnings
-    ]
+            occurrence=occurrence,
+        ))
 
     actual_board = manifest_data.get("actual_board", {})
     wanted_board = manifest_data.get("wanted_board", {})
@@ -151,26 +156,23 @@ def electrical_sanity_stage_result(
     warnings = _messages(sanity_report.get("warnings", []), "report.warnings")
     stage = "PREPARE.electrical"
     module = "prepare.sanity.electrical"
-    findings = [
-        _finding(
-            stage=stage,
-            module=module,
-            code="electrical_sanity_error",
-            severity="error",
-            message=message,
-        )
-        for message in errors
-    ]
-    findings.extend(
-        _finding(
-            stage=stage,
-            module=module,
-            code="electrical_sanity_warning",
-            severity="warning",
-            message=message,
-        )
-        for message in warnings
-    )
+    findings = []
+    for code, severity, messages in (
+        ("electrical_sanity_error", "error", errors),
+        ("electrical_sanity_warning", "warning", warnings),
+    ):
+        occurrences: dict[str, int] = {}
+        for message in messages:
+            occurrence = occurrences.get(message, 0)
+            occurrences[message] = occurrence + 1
+            findings.append(_finding(
+                stage=stage,
+                module=module,
+                code=code,
+                severity=severity,
+                message=message,
+                occurrence=occurrence,
+            ))
 
     counts = sanity_report.get("counts", {})
     if not isinstance(counts, Mapping):
