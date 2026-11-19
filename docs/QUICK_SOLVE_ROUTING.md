@@ -1,5 +1,7 @@
 # First-pass copper routing
 
+> **LEGACY IMPLEMENTATION — DESIGN FROZEN AGAINST EXTENSION.** This document describes v1.21 behaviour for audit and regression purposes. It is not the current physical routing design. The sole normative source and implementation plan is [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md). Do not add features to the Manhattan endpoint router; replace its physical assumptions by following the specification's gates.
+
 ## Purpose
 
 solve.route.route_copper(project) is the first working copper-routing stage after component placement. It accepts a placed project, adds strip cuts and jumper connections, and runs the independent solve.verify.verify_project verifier before reporting success.
@@ -63,22 +65,19 @@ The router currently chooses the left boundary after the preceding terminal grou
 
 The GUI runs the router after a successful Quick Fit. Its current component-side SVG preview draws jumper connections as direct straight lines but does not draw strip cuts. These lines are not physical jumper paths.
 
-## Next implementation step
+## Replacement plan — follow the locked specification
 
-Do not extend the current Manhattan endpoint router by merely banning diagonal lines or by splitting a diagonal into two jumper legs.
+The previous next-step proposal is superseded. Implementation must follow [PHYSICAL_MODEL_SPEC.md](PHYSICAL_MODEL_SPEC.md), in order:
 
-The next step is a small physical-routing foundation:
+1. Audit all v1.21 endpoint-only jumper and hole-cut assumptions.
+2. Define and test board axes, cut-tool clearance, component occupancy, jumper body geometry and endpoint access.
+3. Build explicit copper runs using between-hole cuts only.
+4. Prove one legal same-column vertical jumper bridge between two same-net runs.
+5. Independently verify electrical connectivity and all physical constraints, including cut accessibility.
+6. Add regression tests and report electrical and physical outcomes separately.
+7. Only after those gates pass, integrate the new rules into placement and GUI status/display.
 
-1. Define and test the actual copper-strip axis and perpendicular jumper axis in Route-Mate coordinates.
-2. Build explicit copper runs after applying cuts.
-3. Add one legal bridge operation between two same-net copper runs: one jumper segment perpendicular to the strips, joining legal holes.
-4. Store/check the jumper's occupied physical path, not just its endpoints.
-5. Add independent physical checks for diagonal/non-perpendicular jumpers, jumper crossings, component-body obstruction and inaccessible endpoints.
-6. Keep electrical connectivity PASS and physical construction PASS as separate results.
-
-Start with a deterministic single-bridge model and tests. Do not add genetic search, cost tuning, new placement scoring or broad optimisation in this increment.
-
-Use benchmarks/moto14wires30cuts.json as the reference fixture. Preserve its existing historical test expectation; add separate physical-route assertions. Record copper runs, forced/optional cuts, jumper count/length, crossings/body conflicts and both verifier outcomes. The known v1.21 Moto result (50 cuts / 38 jumpers) can be compared with the legacy reference (30 cuts / 14 wires), but counts alone do not prove quality or correctness.
+No Manhattan endpoint-distance routing, diagonal/horizontal/dog-leg wires, hole cuts in the initial model, cost tuning or broad search expansion. A result is accepted only when both independent verification reports pass. See the specification for exact definitions and acceptance criteria.
 
 ## External routing references
 
