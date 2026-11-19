@@ -226,12 +226,14 @@ class RouteMateWindow(QMainWindow):
     def fit_board(self):
         self.top_view.fit_board()
 
-    def _render_component_side(self, project: dict[str, Any]) -> tuple[str, str]:
-        """Render the component side through Route-Mate's public renderer API."""
+    def _render_component_side(
+        self, project: dict[str, Any], *, highlight_component_id: str | None = None
+    ) -> tuple[str, str]:
+        """Render the component side, optionally highlighting the part under review."""
         from render import render_front
         from render.standalone_bridge import add_alternating_row_bands
 
-        top_svg = render_front(project)
+        top_svg = render_front(project, highlight_component_id=highlight_component_id)
         rows = int(project["board"]["rows"])
         return add_alternating_row_bands(top_svg, rows), "render.render_front"
 
@@ -257,15 +259,27 @@ class RouteMateWindow(QMainWindow):
         else:
             self.log_line(f"[LOCKS] Asking Locked / Edge / Slide for {len(placed)} placed components.")
             for index, component in enumerate(placed, 1):
+                component_id = str(component.get("id"))
+                label = str(component.get("label") or component.get("id"))
+                highlighted_svg, renderer_log = self._render_component_side(
+                    self.project, highlight_component_id=component_id
+                )
+                self._show_board(highlighted_svg)
+                self.statusBar().showMessage(
+                    f"Reviewing component {index}/{len(placed)}: {label}"
+                )
+                self.log_line(f"[LOCKS] Highlighting {label} on the board ({index}/{len(placed)}).")
+                if renderer_log:
+                    self.log_line("[RENDER] " + renderer_log)
                 dialog = LockDialog(component, index, len(placed), self)
                 if dialog.exec() != QDialog.DialogCode.Accepted:
+                    top_svg, _ = self._render_component_side(self.project)
+                    self._show_board(top_svg)
                     self.log_line("[LOCKS] Cancelled. Changes already accepted remain rendered; Quick Place not started.")
                     return
 
-                component_id = str(component.get("id"))
                 values = dialog.values()
                 self.presolve_constraints[component_id] = values
-                label = str(component.get("label") or component.get("id"))
                 self.log_line(
                     f"[LOCKS] {label}: Locked={values['locked']} "
                     f"Edge={values['edge']} Slide={values['slide']} "
