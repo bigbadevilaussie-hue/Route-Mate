@@ -1,5 +1,7 @@
 # Route-Mate
 
+> **DESIGN FREEZE — authoritative physical model:** [PHYSICAL_MODEL_SPEC.md](docs/PHYSICAL_MODEL_SPEC.md) is the single source of truth. It supersedes older routing assumptions and implementation plans. v1.21 is a legacy electrical-routing baseline, not a physically verified router. Do not extend its Manhattan endpoint algorithm. The frozen model requires horizontal copper, between-hole cuts only, single vertical jumpers, accessible cuts, and independent electrical **and** physical verification. The implementation gates and exclusions are defined in the specification.
+
 An independent stripboard placement, routing and optimisation engine.
 
 Karl's Circuit Designer remains the circuit-design front end. Route-Mate takes Karl's exported project data and owns the physical stripboard problem: component placement, strip cuts, jumper routing, construction checks, optimisation and build output. Route-Mate is not a replacement for Karl's schematic editor and is not a re-skinned copy of the legacy GUI solver.
@@ -98,14 +100,14 @@ Route-Mate is under active development. The repository currently contains:
 - a front-side SVG board renderer;
 - an early-stage PySide6 desktop GUI (`gui/main.py`);
 - a deterministic net-aware placement module (`solve/quick_fit.py`) plus the earlier first-fit baseline (`solve/quick_place.py`);
-- a first-pass deterministic copper router (`solve/route.py`) and independent electrical copper-connectivity verifier (`solve/verify.py`);
+- a legacy first-pass deterministic copper router (`solve/route.py`) and electrical copper-connectivity verifier (`solve/verify.py`), neither of which implements the frozen physical model;
 - benchmark fixtures and automated tests for the implemented modules.
 
 The desktop GUI is real but incomplete. It handles project loading, board-dimension entry, collector/electrical checks, component-side rendering, a repository test run, preliminary placement-lock questions, Quick Fit placement and first-pass copper routing with independent connectivity verification. The component-side preview draws jumper connections as straight lines but does not yet draw strip cuts.
 
-Quick Fit is an initial deterministic greedy net-aware component placer, not a complete solver. It does not yet enforce hard edge anchors/sliding. The first-pass copper router places between-cuts to separate different nets on a strip and uses a deterministic Manhattan minimum spanning tree to connect same-net copper groups with jumpers. The verifier checks electrical connectivity for the supported horizontal-strip, between/hole-cut and jumper model. Jumper paths/crossings, cut access, component interference and construction constraints remain outside the current model.
+Quick Fit is an initial deterministic greedy net-aware component placer, not a complete solver. It does not yet enforce hard edge anchors/sliding. The v1.21 first-pass router places cuts and uses a deterministic Manhattan minimum spanning tree of endpoint links. This is legacy behaviour only and conflicts with the frozen physical model in important respects: it supports assumptions beyond the initial between-hole-only model and does not represent/verify physical jumper paths or cut accessibility. Do not extend it. Replace it in the ordered gates in [PHYSICAL_MODEL_SPEC.md](docs/PHYSICAL_MODEL_SPEC.md).
 
-The physical construction rules and next routing increment are recorded in [Stripboard design research and routing direction](docs/STRIPBOARD_DESIGN_RESEARCH.md). The key model is copper runs split by cuts, bridged by perpendicular jumper wires; diagonal jumpers are prohibited. The current v1.21 Manhattan endpoint connections are electrical links only, not physical wire paths.
+The locked physical construction rules and implementation sequence are defined only in [Physical Model Specification v1.0](docs/PHYSICAL_MODEL_SPEC.md). The [stripboard design research](docs/STRIPBOARD_DESIGN_RESEARCH.md) is background/reference material, not a competing specification. The current v1.21 Manhattan endpoint connections are legacy electrical links only, not physical wire paths.
 
 There is no packaged macOS or Windows desktop application yet. The GUI runs from the development environment; standalone packaging and clean-machine testing remain outstanding.
 
