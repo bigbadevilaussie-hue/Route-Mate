@@ -1,6 +1,6 @@
 # Route-Mate
 
-> **DESIGN FREEZE — authoritative physical model:** [PHYSICAL_MODEL_SPEC.md](docs/PHYSICAL_MODEL_SPEC.md) is the single source of truth. It supersedes older routing assumptions and implementation plans. v1.21 is a legacy electrical-routing baseline, not a physically verified router. Do not extend its Manhattan endpoint algorithm. The frozen model requires horizontal copper, between-hole cuts only, single vertical jumpers, accessible cuts, and independent electrical **and** physical verification. The implementation gates and exclusions are defined in the specification.
+> **DESIGN FREEZE — authoritative physical model:** [PHYSICAL_MODEL_SPEC.md](docs/PHYSICAL_MODEL_SPEC.md) is the single source of truth. It supersedes older routing assumptions and implementation plans. v1.21 is a legacy electrical-routing baseline, not a physically verified router. Do not extend its Manhattan endpoint algorithm. The frozen model requires horizontal copper, between-hole cuts only, single vertical jumpers, accessible cuts, and independent electrical **and** physical verification. The implementation gates and exclusions are defined in the specification. The expanded [Gate 0 repository audit](docs/GATE_0_AUDIT.md) records verified legacy behaviour and remaining compatibility checks.
 
 An independent stripboard placement, routing and optimisation engine.
 
