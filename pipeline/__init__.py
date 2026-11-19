@@ -1,5 +1,6 @@
-"""Route-Mate pipeline contracts and orchestration helpers."""
+"""Route-Mate pipeline contracts and stage-output adapters."""
 
+from .adapters import collector_stage_result, electrical_sanity_stage_result
 from .contracts import (
     Finding,
     PipelineContext,
@@ -10,5 +11,6 @@ from .contracts import (
 
 __all__ = [
     "Finding", "PipelineContext", "StageResult",
+    "collector_stage_result", "electrical_sanity_stage_result",
     "make_finding_id", "project_sha256",
 ]
