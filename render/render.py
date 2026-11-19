@@ -19,6 +19,7 @@ def render_front(
     show_labels: bool = True,
     show_pin_labels: bool = False,
     scale: float = 1.0,
+    highlight_component_id: str | None = None,
 ) -> str:
     """Return a fast component-side SVG preview for a Route-Mate project."""
     return render_front_board(
@@ -26,6 +27,7 @@ def render_front(
         show_labels=show_labels,
         show_pin_labels=show_pin_labels,
         scale=scale,
+        highlight_component_id=highlight_component_id,
     )
 
 
@@ -35,6 +37,7 @@ def render_front_svg(
     show_labels: bool = True,
     show_pin_labels: bool = False,
     scale: float = 1.0,
+    highlight_component_id: str | None = None,
 ) -> str:
     """Explicitly named alias for render_front()."""
     return render_front(
@@ -62,6 +65,7 @@ def write_front_svg(
             show_labels=show_labels,
             show_pin_labels=show_pin_labels,
             scale=scale,
+            highlight_component_id=highlight_component_id,
         ),
         encoding="utf-8",
     )
