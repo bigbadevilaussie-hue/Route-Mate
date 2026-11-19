@@ -42,10 +42,8 @@ def add_alternating_row_bands(
             continue
         band_y = origin + row * pitch - pitch / 2
         bands.append(
-            '<rect x="{0:g}" y="{1:g}" width="{2:g}" height="{3:g}" '
-            'fill="#f1f3f5" opacity="0.72" data-route-mate-row-band="1"/>'.format(
-                x, band_y, width
-            )
+            f'<rect x="{x:g}" y="{band_y:g}" width="{width:g}" height="{pitch:g}" '
+            'fill="#f1f3f5" opacity="0.72" data-route-mate-row-band="1"/>'
         )
     insertion = "".join(bands)
     return re.sub(r'(<svg\b[^>]*>)', lambda m: m.group(1) + insertion, svg, count=1)
@@ -124,10 +122,10 @@ def ensure_renderer() -> Path:
             UPSTREAM, str(CACHE),
         ])
         if result.returncode:
-            raise RuntimeError("Could not fetch production renderer: " + result.stdout)
+            raise RuntimeError("Could not fetch production renderer:\n" + result.stdout)
     result = _run(["git", "sparse-checkout", "set", SPARSE_PATH], cwd=CACHE)
     if result.returncode:
-        raise RuntimeError("Could not prepare production renderer: " + result.stdout)
+        raise RuntimeError("Could not prepare production renderer:\n" + result.stdout)
     if not CLI.is_file():
         raise RuntimeError(f"Production renderer CLI is missing: {CLI}")
     return CLI
@@ -144,7 +142,7 @@ def render_project(
         "node", str(cli), str(project_path), "--output", str(output_dir),
     ])
     if result.returncode:
-        raise RuntimeError("Production renderer failed:\\n" + result.stdout)
+        raise RuntimeError("Production renderer failed:\n" + result.stdout)
     top = output_dir / "board-top.svg"
     copper = output_dir / "board-copper.svg"
     if not top.is_file() or not copper.is_file():
