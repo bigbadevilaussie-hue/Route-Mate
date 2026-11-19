@@ -6,7 +6,6 @@ It is fetched as a sparse checkout of the upstream project on first use.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -30,7 +29,7 @@ def add_alternating_row_bands(
 
     if type(rows) is not int or rows < 1:
         raise ValueError("rows must be a positive integer")
-    match = re.search(r'<svg\\b[^>]*\\bviewBox="([^"]+)"', svg)
+    match = re.search(r'<svg\b[^>]*\bviewBox="([^"]+)"', svg)
     if not match:
         raise ValueError("Renderer SVG has no viewBox")
     values = [float(value) for value in match.group(1).replace(",", " ").split()]
@@ -49,7 +48,7 @@ def add_alternating_row_bands(
             )
         )
     insertion = "".join(bands)
-    return re.sub(r'(<svg\\b[^>]*>)', lambda m: m.group(1) + insertion, svg, count=1)
+    return re.sub(r'(<svg\b[^>]*>)', lambda m: m.group(1) + insertion, svg, count=1)
 
 
 def add_component_highlight(
@@ -102,7 +101,7 @@ def add_component_highlight(
         'stroke-width="3.5" stroke-dasharray="7 4" '
         'data-route-mate-highlight="1"/>'
     )
-    return re.sub(r'</svg\\s*>', overlay + '</svg>', svg, count=1)
+    return re.sub(r'</svg\s*>', overlay + '</svg>', svg, count=1)
 
 
 def _run(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -125,10 +124,10 @@ def ensure_renderer() -> Path:
             UPSTREAM, str(CACHE),
         ])
         if result.returncode:
-            raise RuntimeError("Could not fetch production renderer:\\n" + result.stdout)
+            raise RuntimeError("Could not fetch production renderer: " + result.stdout)
     result = _run(["git", "sparse-checkout", "set", SPARSE_PATH], cwd=CACHE)
     if result.returncode:
-        raise RuntimeError("Could not prepare production renderer:\\n" + result.stdout)
+        raise RuntimeError("Could not prepare production renderer: " + result.stdout)
     if not CLI.is_file():
         raise RuntimeError(f"Production renderer CLI is missing: {CLI}")
     return CLI
