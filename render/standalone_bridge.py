@@ -50,6 +50,52 @@ def add_alternating_row_bands(
     return re.sub(r'(<svg\b[^>]*>)', lambda m: m.group(1) + insertion, svg, count=1)
 
 
+def add_board_coordinate_labels(
+    svg: str, rows: int, cols: int, *,
+    pitch: float = HOLE_PITCH, origin: float = HOLE_ORIGIN,
+    mirrored: bool = False,
+) -> str:
+    """Add unobtrusive 1-based row and column labels aligned to board holes."""
+    import re
+
+    if type(rows) is not int or rows < 1:
+        raise ValueError("rows must be a positive integer")
+    if type(cols) is not int or cols < 1:
+        raise ValueError("cols must be a positive integer")
+    if pitch <= 0:
+        raise ValueError("pitch must be positive")
+    if not re.search(r'<svg\\b[^>]*\\bviewBox="[^"]+"', svg):
+        raise ValueError("Renderer SVG has no viewBox")
+
+    # The production renderer's R0·C0 caption is superseded by these rulers.
+    svg = re.sub(
+        r'<text\\b[^>]*>[^<]*R0·C0[^<]*</text>', "", svg, count=1
+    )
+    labels = []
+    label_y = origin - 22
+    for col in range(cols):
+        visual_col = cols - 1 - col if mirrored else col
+        number = col + 1
+        x = origin + visual_col * pitch
+        labels.append(
+            f'<text x="{x:g}" y="{label_y:g}" text-anchor="middle" '
+            'font-family="sans-serif" font-size="10" font-weight="400" '
+            'fill="#555" data-route-mate-column="' + str(number) + '">'
+            + str(number) + '</text>'
+        )
+    label_x = origin - 22
+    for row in range(rows):
+        y = origin + row * pitch + 3
+        number = row + 1
+        labels.append(
+            f'<text x="{label_x:g}" y="{y:g}" text-anchor="end" '
+            'font-family="sans-serif" font-size="10" font-weight="400" '
+            'fill="#555" data-route-mate-row="' + str(number) + '">'
+            + str(number) + '</text>'
+        )
+    return re.sub(r'</svg\\s*>', "".join(labels) + '</svg>', svg, count=1)
+
+
 def add_component_highlight(
     svg: str, project: dict[str, Any], component_id: str | None
 ) -> str:
@@ -172,11 +218,15 @@ def render_project(
     if not top.is_file() or not copper.is_file():
         raise RuntimeError("Production renderer did not produce both board SVGs.")
 
-    top_svg = add_alternating_row_bands(
-        top.read_text(encoding="utf-8"), int(project["board"]["rows"])
-    )
+    rows = int(project["board"]["rows"])
+    cols = int(project["board"]["cols"])
+    top_svg = add_alternating_row_bands(top.read_text(encoding="utf-8"), rows)
     top_svg = add_component_highlight(top_svg, project, highlight_component_id)
-    return top_svg, copper.read_text(encoding="utf-8"), result.stdout.strip()
+    top_svg = add_board_coordinate_labels(top_svg, rows, cols)
+    copper_svg = add_board_coordinate_labels(
+        copper.read_text(encoding="utf-8"), rows, cols, mirrored=True
+    )
+    return top_svg, copper_svg, result.stdout.strip()
 
 
 def render_project_data(
