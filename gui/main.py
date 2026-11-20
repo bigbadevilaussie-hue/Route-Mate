@@ -109,11 +109,10 @@ class LockDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Component: {label}"))
         self.locked = QRadioButton("Locked — keep on board")
-        self.unlocked = QRadioButton("Unlocked — remove from board")
+        self.unlocked = QRadioButton("Unlocked — return to placement pool")
         self.edge = QCheckBox("Edge constrained")
         self.slide = QCheckBox("May slide along edge")
-        # Preserve the established GUI meaning: unlocked parts are removed
-        # from the board preview; edge/slide apply only to retained parts.
+        # Unlocked parts lose their old placement and return to Quick Fit.
         is_locked = bool(component.get("locked", False))
         self.locked.setChecked(is_locked)
         self.unlocked.setChecked(not is_locked)
@@ -125,7 +124,7 @@ class LockDialog(QDialog):
         layout.addWidget(self.unlocked)
         layout.addWidget(self.edge)
         layout.addWidget(self.slide)
-        layout.addWidget(QLabel("Unlocked components are excluded from the refreshed board preview."))
+        layout.addWidget(QLabel("Unlocked components are repositioned by Quick Fit."))
         self._update_constraint_controls()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -141,7 +140,7 @@ class LockDialog(QDialog):
         return {"locked": self.locked.isChecked(),
                 "edge": self.edge.isChecked() if self.locked.isChecked() else False,
                 "slide": self.slide.isChecked() if self.locked.isChecked() else False,
-                "remove": self.unlocked.isChecked()}
+                "reposition": self.unlocked.isChecked()}
 
 
 class BoardView(QGraphicsView):
@@ -419,21 +418,22 @@ class RouteMateWindow(QMainWindow):
                 self.log_line(
                     f"[LOCKS] {label}: Locked={values['locked']} "
                     f"Edge={values['edge']} Slide={values['slide']} "
-                    f"Remove={values['remove']}"
+                    f"Reposition={values['reposition']}"
                 )
 
                 # Apply each answer immediately, then redraw before asking about
                 # the next component. This preserves the original interactive flow.
-                if values["remove"]:
-                    component["boardExcluded"] = True
+                if values["reposition"]:
+                    # Return the part to the solver pool without excluding it,
+                    # deleting its net assignments or losing its footprint.
                     component.pop("boardPos", None)
                     component.pop("flexibleEndPos", None)
-                    component.pop("locked", None)
-                    component.pop("edge", None)
-                    component.pop("slide", None)
-                    self.log_line(f"[PLACEMENT] Removed {label} from the board.")
+                    component["locked"] = False
+                    component["edge"] = False
+                    component["slide"] = False
+                    self.log_line(f"[PLACEMENT] {label} returned to Quick Fit placement pool.")
                 else:
-                    component["locked"] = bool(values["locked"])
+                    component["locked"] = True
                     component["edge"] = bool(values["edge"])
                     component["slide"] = bool(values["slide"])
 
