@@ -85,6 +85,8 @@ def _terminals(project: dict, rows: int, cols: int) -> list[tuple[int, int, str,
         label = str(component.get("label") or cid)
 
         if is_off_board_component(component):
+            if component.get("boardExcluded") is True and component.get("offBoard") is not True:
+                continue
             leads = component.get("leads")
             lead = leads.get(pid) if isinstance(leads, dict) else None
             if lead is None:
