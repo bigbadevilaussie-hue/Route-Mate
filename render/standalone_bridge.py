@@ -96,6 +96,53 @@ def add_board_coordinate_labels(
     return re.sub(r'</svg\s*>', "".join(labels) + '</svg>', svg, count=1)
 
 
+def add_top_side_cuts(svg: str, project: dict[str, Any]) -> str:
+    """Mark routed copper cuts on the component-side preview at their exact locations.
+
+    These are reference markers: cuts are physically made on the copper side.
+    Coordinates are zero-based in project JSON and use the production hole grid.
+    """
+    import re
+    from html import escape
+
+    board = project.get("board", {})
+    rows, cols = int(board.get("rows", 0)), int(board.get("cols", 0))
+    cuts = board.get("cuts", [])
+    if not isinstance(cuts, list) or not cuts:
+        return svg
+    marks = []
+    for index, cut in enumerate(cuts, 1):
+        if not isinstance(cut, dict):
+            continue
+        row, col = cut.get("row"), cut.get("col")
+        if type(row) is not int or type(col) is not int:
+            continue
+        kind = cut.get("kind", "between")
+        if not (0 <= row < rows and 0 <= col < cols):
+            continue
+        if kind == "between":
+            if col >= cols - 1:
+                continue
+            x = HOLE_ORIGIN + (col + 0.5) * HOLE_PITCH
+        elif kind == "hole":
+            x = HOLE_ORIGIN + col * HOLE_PITCH
+        else:
+            continue
+        y = HOLE_ORIGIN + row * HOLE_PITCH
+        # White backing keeps the mark visible over dark copper/wires.
+        marks.append(
+            f'<g data-route-mate-cut="{index}" data-cut-row="{row}" '
+            f'data-cut-col="{col}" data-cut-kind="{escape(str(kind))}">'
+            f'<circle cx="{x:g}" cy="{y:g}" r="10" fill="#fff" '
+            f'fill-opacity="0.93" stroke="#b91c1c" stroke-width="1.4"/>'
+            f'<path d="M {x-5:g} {y-5:g} L {x+5:g} {y+5:g} '
+            f'M {x+5:g} {y-5:g} L {x-5:g} {y+5:g}" '
+            f'stroke="#dc2626" stroke-width="2.8" stroke-linecap="round"/>'
+            '</g>'
+        )
+    return re.sub(r'</svg\\s*>', lambda m: ''.join(marks) + m.group(0), svg, count=1)
+
+
 def add_component_highlight(
     svg: str, project: dict[str, Any], component_id: str | None
 ) -> str:
@@ -221,6 +268,7 @@ def render_project(
     rows = int(project["board"]["rows"])
     cols = int(project["board"]["cols"])
     top_svg = add_alternating_row_bands(top.read_text(encoding="utf-8"), rows)
+    top_svg = add_top_side_cuts(top_svg, project)
     top_svg = add_component_highlight(top_svg, project, highlight_component_id)
     top_svg = add_board_coordinate_labels(top_svg, rows, cols)
     copper_svg = add_board_coordinate_labels(
