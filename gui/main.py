@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.27"
-CODE_VERSION = "1.27"
+GUI_VERSION = "1.28"
+CODE_VERSION = "1.28"
 
 from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
@@ -456,6 +456,34 @@ class RouteMateWindow(QMainWindow):
         self.log_line("[QUICK FIT] Running shared deterministic net-aware placement engine...")
         from pipeline import quick_fit_stage_result
         from solve import quick_fit
+        # Read the persisted PREPARE decisions back from disk before placement.
+        # This makes the saved sidecar an audited input rather than a write-only log.
+        from pipeline import PipelineRun, project_sha256
+        saved_run = PipelineRun.load(self.pipeline_run.state_path)
+        saved_constraints_stage = saved_run.context.stages.get("PREPARE.constraints")
+        if saved_constraints_stage is None or not isinstance(saved_constraints_stage.report, dict):
+            raise ValueError("QUICKSOLVE requires saved PREPARE.constraints in the sidecar")
+        saved_constraints = saved_constraints_stage.report.get("constraints")
+        if not isinstance(saved_constraints, dict):
+            raise ValueError("QUICKSOLVE sidecar lock constraints are missing or invalid")
+        if saved_run.context.project_sha256 != project_sha256(self.project):
+            raise ValueError("QUICKSOLVE sidecar project hash does not match the current project")
+        for component in self.project.get("components", []):
+            if not isinstance(component, dict):
+                continue
+            cid = str(component.get("id"))
+            if cid not in saved_constraints:
+                continue
+            flags = saved_constraints[cid]
+            if not isinstance(flags, dict):
+                raise ValueError(f"QUICKSOLVE invalid saved lock settings for {cid}")
+            for key in ("locked", "edge", "slide"):
+                expected = bool(flags.get(key, False))
+                if bool(component.get(key, False)) != expected:
+                    raise ValueError(f"QUICKSOLVE saved {key} disagrees with project for {cid}")
+            if flags.get("reposition") and isinstance(component.get("boardPos"), dict):
+                raise ValueError(f"QUICKSOLVE {cid} was returned to placement pool but still positioned")
+        self.log_line(f"[QUICK FIT] Read and verified {len(saved_constraints)} lock decisions from sidecar.")
         quick_fit_handoff = self.pipeline_run.handoff(self.project, "solve.quick_fit")
         self._log_handoff(quick_fit_handoff)
         quick_fit_input = quick_fit_handoff["project"]
