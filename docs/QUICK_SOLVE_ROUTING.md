@@ -2,6 +2,10 @@
 
 > **LEGACY IMPLEMENTATION — DESIGN FROZEN AGAINST EXTENSION.** This document describes v1.21 behaviour for audit and regression purposes. It is not the current physical routing design. The sole normative source and implementation plan is [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md). Do not add features to the Manhattan endpoint router; replace its physical assumptions by following the specification's gates.
 
+## Current architecture decision
+
+Quick Solve and Hell Mode are separate search strategies within **one shared solver engine**, with shared hard constraints and independent electrical/physical verification. This legacy document does not describe that future implementation. See [Solver Architecture Decision](SOLVER_ARCHITECTURE_DECISION.md); the locked physical model still governs the replacement gates.
+
 ## Purpose
 
 solve.route.route_copper(project) is the first working copper-routing stage after component placement. It accepts a placed project, adds strip cuts and jumper connections, and runs the independent solve.verify.verify_project verifier before reporting success.
