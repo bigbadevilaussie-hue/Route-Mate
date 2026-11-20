@@ -31,6 +31,10 @@ These are project-specific rules for the assistant contributing to Route-Mate.
 - Inspect upstream source and licences before reusing code. Do not assume a licence from a repository name or a previous summary.
 - Preserve source files and identifiers; report ambiguity instead of guessing.
 
+## Solver architecture decision
+
+Use [docs/SOLVER_ARCHITECTURE_DECISION.md](docs/SOLVER_ARCHITECTURE_DECISION.md): one shared engine with separate Quick Solve (fast, deterministic) and Hell Mode (deeper optimisation) search strategies; shared hard constraints and independent electrical/physical verification. Study Karl's decoder, annealing, copper grouping and routing algorithms without inheriting soft penalties as legality rules. The locked physical specification and implementation gates remain authoritative. This is a design decision, not a statement of current implementation.
+
 ## Communication rules
 
 - Be direct, technically precise and honest.
