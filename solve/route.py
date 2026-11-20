@@ -7,6 +7,7 @@ It does not yet model the physical path or crossing of jumper wire bodies.
 from __future__ import annotations
 
 import copy
+from bisect import bisect_left
 from collections import defaultdict
 from typing import Any
 
@@ -301,41 +302,58 @@ def route_copper(project: Any) -> dict[str, Any]:
             "cuts_added": len(new_cuts), "wires_added": 0, "verification": None,
         }
 
-    # Dahl-inspired net reuse: route between existing copper islands rather
-    # than only between their terminal pins. Prefer legal vertical links when
-    # two islands share a column. This remains an electrical first pass; the
-    # independent physical verifier must still approve jumper geometry.
+    # Dahl-inspired copper reuse, with indexed nearest-hole search.
+    # Row-sorted copper islands avoid quadratic all-hole-pairs enumeration.
+    # These links are still electrical candidates, not physical clearance PASS.
     wires_added: list[dict[str, Any]] = []
     serial = 1
-    holes_by_root: dict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
+    holes_by_root: dict[tuple[int, int], dict[int, list[int]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for row in range(rows):
         for col in range(cols):
-            point = (row, col)
-            holes_by_root[groups.find(point)].append(point)
+            holes_by_root[groups.find((row, col))][row].append(col)
+
+    def nearest_link(left_rows, right_rows):
+        best = None
+        for lr, left_cols in left_rows.items():
+            for rr, right_cols in right_rows.items():
+                row_cost = abs(lr - rr)
+                for lc in left_cols:
+                    index = bisect_left(right_cols, lc)
+                    # Nearest columns on either side suffice for minimum
+                    # Manhattan distance, including deterministic tie-breaks.
+                    for pos in (index - 1, index):
+                        if 0 <= pos < len(right_cols):
+                            rc = right_cols[pos]
+                            candidate = (
+                                row_cost + abs(lc - rc), int(lc != rc),
+                                (lr, lc), (rr, rc),
+                            )
+                            if best is None or candidate < best:
+                                best = candidate
+        return best
 
     for net in sorted(terminals_by_net):
         roots = sorted({groups.find(point) for point in terminals_by_net[net]})
         if len(roots) < 2:
             continue
-        connected = {roots[0]}
+        # Keep one growing connected island; merging into a previously
+        # selected root without this invariant could lose its endpoint list.
+        connected_rows = {
+            row: list(columns)
+            for row, columns in holes_by_root[roots[0]].items()
+        }
         remaining = set(roots[1:])
         while remaining:
-            candidates = []
-            for left_root in sorted(connected):
-                for right_root in sorted(remaining):
-                    # A root may contain many free copper holes. Choosing an
-                    # endpoint from the whole island reuses existing copper
-                    # without adding redundant jumper segments.
-                    left_holes = holes_by_root[left_root]
-                    right_holes = holes_by_root[right_root]
-                    for left in left_holes:
-                        for right in right_holes:
-                            distance = abs(left[0] - right[0]) + abs(left[1] - right[1])
-                            # Same-column links win ties, but not at the
-                            # expense of a longer jumper in this first pass.
-                            diagonal = int(left[1] != right[1])
-                            candidates.append((distance, diagonal, left, right, left_root, right_root))
-            _distance, _diagonal, start, end, left_root, chosen = min(candidates)
+            choices = []
+            for root in sorted(remaining):
+                candidate = nearest_link(connected_rows, holes_by_root[root])
+                if candidate is not None:
+                    choices.append((*candidate, root))
+            if not choices:
+                break
+            _distance, _diagonal, start, end, chosen = min(choices)
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
             wires_added.append({
                 "id": wire_id,
@@ -343,10 +361,9 @@ def route_copper(project: Any) -> dict[str, Any]:
                 "to": {"row": end[0], "col": end[1]},
             })
             groups.union(start, end)
-            # The two connected islands become one electrically. Keep their
-            # candidate endpoints available for the next connection.
-            holes_by_root[left_root].extend(holes_by_root.pop(chosen))
-            connected.add(chosen)
+            for row, columns in holes_by_root[chosen].items():
+                connected_rows.setdefault(row, []).extend(columns)
+                connected_rows[row].sort()
             remaining.remove(chosen)
 
     board["cuts"] = all_cuts
