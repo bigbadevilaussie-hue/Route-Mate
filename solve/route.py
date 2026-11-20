@@ -375,9 +375,29 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     if best_choice is None or choice < best_choice:
                         best_choice = choice
             if best_choice is None:
+                # Diagnose the obstruction; another placement may still route.
+                connected_columns = sorted({
+                    col for columns in connected_rows.values() for col in columns
+                })
+                stranded_columns = sorted({
+                    col for root in remaining
+                    for columns in holes_by_root[root].values()
+                    for col in columns
+                })
+                shared_columns = sorted(set(connected_columns) & set(stranded_columns))
+                if vertical_only:
+                    detail = (
+                        f"no same-column jumper connects remaining copper islands; "
+                        f"connected columns={connected_columns}; "
+                        f"remaining columns={stranded_columns}; "
+                        f"shared columns={shared_columns}; "
+                        f"remaining islands={len(remaining)}"
+                    )
+                else:
+                    detail = "no jumper connects remaining copper islands"
                 return {
                     "status": "ROUTING_FAILED", "project": copy.deepcopy(project),
-                    "errors": [f"net {net}: no same-column jumper connects remaining copper islands"],
+                    "errors": [f"net {net}: {detail}"],
                     "warnings": [], "cuts_added": 0, "wires_added": 0,
                     "verification": None,
                 }
