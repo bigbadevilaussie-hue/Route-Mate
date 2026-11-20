@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.25"
-CODE_VERSION = "1.25"
+GUI_VERSION = "1.26"
+CODE_VERSION = "1.26"
 
 from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
@@ -246,6 +246,10 @@ class RouteMateWindow(QMainWindow):
         self.top_view.show_svg(top_svg)
 
     def _run_tests(self):
+        if getattr(sys, "frozen", False):
+            self.log_line("[TEST] Skipped: running standalone application.")
+            return True
+
         self.log_line("[TEST] Running repository unittest suite...")
         result = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
