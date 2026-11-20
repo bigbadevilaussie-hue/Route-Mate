@@ -301,38 +301,51 @@ def route_copper(project: Any) -> dict[str, Any]:
             "cuts_added": len(new_cuts), "wires_added": 0, "verification": None,
         }
 
-    # For each net, connect its remaining copper groups with a deterministic
-    # Manhattan minimum spanning tree. Wire bodies/crossings are not yet modeled.
+    # Dahl-inspired net reuse: route between existing copper islands rather
+    # than only between their terminal pins. Prefer legal vertical links when
+    # two islands share a column. This remains an electrical first pass; the
+    # independent physical verifier must still approve jumper geometry.
     wires_added: list[dict[str, Any]] = []
     serial = 1
-    for net in sorted(terminals_by_net):
-        representatives: dict[tuple[int, int], tuple[int, int]] = {}
-        for point in sorted(set(terminals_by_net[net])):
-            root = groups.find(point)
-            representatives[root] = min(point, representatives.get(root, point))
-        points = sorted(representatives.values())
-        if len(points) < 2:
-            continue
+    holes_by_root: dict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
+    for row in range(rows):
+        for col in range(cols):
+            point = (row, col)
+            holes_by_root[groups.find(point)].append(point)
 
-        connected = {0}
-        remaining = set(range(1, len(points)))
+    for net in sorted(terminals_by_net):
+        roots = sorted({groups.find(point) for point in terminals_by_net[net]})
+        if len(roots) < 2:
+            continue
+        connected = {roots[0]}
+        remaining = set(roots[1:])
         while remaining:
             candidates = []
-            for left_index in sorted(connected):
-                left = points[left_index]
-                for right_index in sorted(remaining):
-                    right = points[right_index]
-                    distance = abs(left[0] - right[0]) + abs(left[1] - right[1])
-                    candidates.append((distance, left, right, left_index, right_index))
-            _distance, start, end, _left_index, chosen = min(candidates)
+            for left_root in sorted(connected):
+                for right_root in sorted(remaining):
+                    # A root may contain many free copper holes. Choosing an
+                    # endpoint from the whole island reuses existing copper
+                    # without adding redundant jumper segments.
+                    left_holes = holes_by_root[left_root]
+                    right_holes = holes_by_root[right_root]
+                    for left in left_holes:
+                        for right in right_holes:
+                            distance = abs(left[0] - right[0]) + abs(left[1] - right[1])
+                            # Same-column links win ties, but not at the
+                            # expense of a longer jumper in this first pass.
+                            diagonal = int(left[1] != right[1])
+                            candidates.append((distance, diagonal, left, right, left_root, right_root))
+            _distance, _diagonal, start, end, left_root, chosen = min(candidates)
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
-            wire = {
+            wires_added.append({
                 "id": wire_id,
                 "from": {"row": start[0], "col": start[1]},
                 "to": {"row": end[0], "col": end[1]},
-            }
-            wires_added.append(wire)
+            })
             groups.union(start, end)
+            # The two connected islands become one electrically. Keep their
+            # candidate endpoints available for the next connection.
+            holes_by_root[left_root].extend(holes_by_root.pop(chosen))
             connected.add(chosen)
             remaining.remove(chosen)
 
