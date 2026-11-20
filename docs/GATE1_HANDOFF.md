@@ -1,5 +1,7 @@
 # Gate 1 Implementation Handoff
 
+> **HISTORICAL SNAPSHOT (2026-11-19):** This document records an earlier branch, HEAD and test count. For current document authority see [Documentation map](README.md); inspect live code and rerun tests before relying on implementation claims. This banner does not change the locked specification.
+
 **Status date:** 2026-11-19  
 **Branch:** `gate1-geometry-contract`  
 **Last verified branch HEAD before this handoff:** `8e7811f73d2be1ff3a7b1c2d213f6d32c2f0d04f`  
