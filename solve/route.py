@@ -319,6 +319,11 @@ def route_copper(project: Any) -> dict[str, Any]:
         for lr, left_cols in left_rows.items():
             for rr, right_cols in right_rows.items():
                 row_cost = abs(lr - rr)
+                # Manhattan distance cannot be smaller than the row gap.
+                # Prune only strictly worse rows: equal-distance routes
+                # still need the vertical/coordinate tie-breaks.
+                if best is not None and row_cost > best[0]:
+                    continue
                 for lc in left_cols:
                     index = bisect_left(right_cols, lc)
                     # Nearest columns on either side suffice for minimum
@@ -346,14 +351,16 @@ def route_copper(project: Any) -> dict[str, Any]:
         }
         remaining = set(roots[1:])
         while remaining:
-            choices = []
+            best_choice = None
             for root in sorted(remaining):
                 candidate = nearest_link(connected_rows, holes_by_root[root])
                 if candidate is not None:
-                    choices.append((*candidate, root))
-            if not choices:
+                    choice = (*candidate, root)
+                    if best_choice is None or choice < best_choice:
+                        best_choice = choice
+            if best_choice is None:
                 break
-            _distance, _diagonal, start, end, chosen = min(choices)
+            _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
             wires_added.append({
                 "id": wire_id,
