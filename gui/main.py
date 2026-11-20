@@ -291,6 +291,9 @@ class RouteMateWindow(QMainWindow):
         self.copper_action.setCheckable(True)
         self.copper_action.triggered.connect(lambda: self._switch_board_side("copper"))
         toolbar.addAction(self.copper_action)
+        render_action = QAction("Render / Export SVG", self)
+        render_action.triggered.connect(self.export_board_svgs)
+        toolbar.addAction(render_action)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -398,6 +401,38 @@ class RouteMateWindow(QMainWindow):
         )
         self._copper_svg = copper_svg
         return top_svg, "production standalone renderer (both board sides)"
+
+    def export_board_svgs(self):
+        """Refresh the current board and save both production SVG views."""
+        if self.project is None:
+            QMessageBox.information(self, "Render SVG", "Load a project first.")
+            return
+        directory = self.project_path.parent if self.project_path else REPO_ROOT
+        suggested = directory / "route-mate-board.svg"
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export component-side SVG", str(suggested),
+            "SVG image (*.svg)",
+        )
+        if not filename:
+            return
+        output = Path(filename)
+        if output.suffix.lower() != ".svg":
+            output = output.with_suffix(".svg")
+        copper_output = output.with_name(output.stem + "-copper.svg")
+        try:
+            top_svg, renderer_log = self._render_component_side(self.project)
+            self._show_board(top_svg)
+            output.write_text(top_svg, encoding="utf-8")
+            copper_output.write_text(self._copper_svg, encoding="utf-8")
+        except (OSError, ValueError, TypeError) as exc:
+            self.log_line(f"[RENDER][ERROR] {exc}")
+            QMessageBox.warning(self, "SVG export failed", str(exc))
+            return
+        self.log_line(f"[RENDER] Component side: {output}")
+        self.log_line(f"[RENDER] Copper side: {copper_output}")
+        if renderer_log:
+            self.log_line("[RENDER] " + renderer_log)
+        self.statusBar().showMessage(f"Exported both SVG board views to {output.parent}")
 
     def _switch_board_side(self, side: str):
         self._board_side = side
