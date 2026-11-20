@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.29"
-CODE_VERSION = "1.29"
+GUI_VERSION = "1.30"
+CODE_VERSION = "1.30"
 
 from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
@@ -28,6 +28,53 @@ from PySide6.QtWidgets import (
     QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QComboBox,
     QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget,
 )
+
+
+def audit_quick_pads(path: Path) -> dict[str, Any]:
+    """Check each on-board pin and pad against saved quick.json."""
+    from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+    from placement_policy import is_off_board_component
+    from solve.verify import verify_project
+
+    project = json.loads(path.read_text(encoding="utf-8"))
+    electrical = verify_project(project)
+    errors = list(electrical["errors"])
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                        if isinstance(d, dict) and d.get("id")})
+    assignments = {(str(a.get("componentId")), str(a.get("pinId")))
+                   for a in project.get("netAssignments", []) if isinstance(a, dict)}
+    rows, cols = int(project["board"]["rows"]), int(project["board"]["cols"])
+    checked = 0
+    skipped = 0
+    for component in project.get("components", []):
+        if not isinstance(component, dict):
+            continue
+        if is_off_board_component(component):
+            skipped += 1
+            continue
+        label = str(component.get("label") or component.get("id"))
+        if not isinstance(component.get("boardPos"), dict):
+            continue
+        definition = resolve_definition(component, definitions)
+        if not definition:
+            errors.append(f"{label}: missing footprint definition")
+            continue
+        try:
+            pins, _ = component_geometry(component, definition)
+            for pin in pins:
+                checked += 1
+                pid = str(pin.get("id"))
+                if (str(component.get("id")), pid) not in assignments:
+                    errors.append(f"{label} pin {pid}: no electrical net assignment")
+                row, col = int(pin["row"]), int(pin["col"])
+                if not (0 <= row < rows and 0 <= col < cols):
+                    errors.append(f"{label} pin {pid}: pad outside board at ({row}, {col})")
+        except (TypeError, ValueError, KeyError) as exc:
+            errors.append(f"{label}: invalid pad geometry: {exc}")
+    return {"status": "FAIL" if errors else "PASS", "checked": checked,
+            "off_board_skipped": skipped, "errors": errors,
+            "electrical": electrical["counts"]}
 
 
 class BoardSizeDialog(QDialog):
@@ -569,6 +616,18 @@ class RouteMateWindow(QMainWindow):
             QMessageBox.warning(self, "Quick JSON export failed", str(exc))
         top_svg, renderer_log = self._render_component_side(self.project)
         self._show_board(top_svg)
+        if quick_path.is_file():
+            try:
+                audit = audit_quick_pads(quick_path)
+                self.log_line(
+                    f"[QUALITY] {audit['status']} — {audit['checked']} on-board pins/pads checked; "
+                    f"{audit['off_board_skipped']} off-board components skipped; "
+                    f"{len(audit['errors'])} errors."
+                )
+                for issue in audit["errors"]:
+                    self.log_line("[QUALITY][ERROR] " + issue)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                self.log_line(f"[QUALITY][ERROR] Could not audit quick.json: {exc}")
         self.log_line(
             f"[QUICK FIT] PLACED — {result['placed']} components placed; "
             f"{result.get('excluded', 0)} off-board/excluded."
