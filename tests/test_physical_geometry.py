@@ -182,5 +182,34 @@ class PhysicalGeometryTests(unittest.TestCase):
             project_geometry_confidence({})
 
 
+    def test_wire_envelope_uses_explicit_radius(self):
+        from physical_geometry import (
+            physical_segment_within_cell_radius,
+            jumper_envelope_intersects_component,
+        )
+        segment = PhysicalSegment(
+            PhysicalPoint(Fraction(0), Fraction(0)),
+            PhysicalPoint(Fraction(0), Fraction(4)),
+        )
+        cell = PhysicalCell(1, 1, Fraction(1), Fraction(1),
+                            Fraction(2), Fraction(3))
+        self.assertFalse(physical_segment_within_cell_radius(segment, cell, Fraction(0)))
+        self.assertTrue(physical_segment_within_cell_radius(
+            segment, cell, Fraction(1)))
+        self.assertTrue(jumper_envelope_intersects_component(
+            segment, [cell], Fraction(1)))
+
+    def test_wire_envelope_rejects_negative_radius(self):
+        from physical_geometry import physical_segment_within_cell_radius
+        segment = PhysicalSegment(
+            PhysicalPoint(Fraction(0), Fraction(0)),
+            PhysicalPoint(Fraction(0), Fraction(4)),
+        )
+        cell = PhysicalCell(1, 1, Fraction(1), Fraction(1),
+                            Fraction(2), Fraction(3))
+        with self.assertRaisesRegex(ValueError, "radius_mm"):
+            physical_segment_within_cell_radius(segment, cell, Fraction(-1))
+
+
 if __name__ == "__main__":
     unittest.main()
