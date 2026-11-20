@@ -361,7 +361,12 @@ def route_copper(project: Any, *, vertical_only: bool = False) -> dict[str, Any]
                     if best_choice is None or choice < best_choice:
                         best_choice = choice
             if best_choice is None:
-                return {\n                    "status": "ROUTING_FAILED", "project": copy.deepcopy(project),\n                    "errors": [f"net {net}: no same-column jumper connects remaining copper islands"],\n                    "warnings": [], "cuts_added": 0, "wires_added": 0,\n                    "verification": None,\n                }
+                return {
+                    "status": "ROUTING_FAILED", "project": copy.deepcopy(project),
+                    "errors": [f"net {net}: no same-column jumper connects remaining copper islands"],
+                    "warnings": [], "cuts_added": 0, "wires_added": 0,
+                    "verification": None,
+                }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
             wires_added.append({
