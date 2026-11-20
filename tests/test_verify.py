@@ -35,17 +35,15 @@ def project():
 
 
 class VerifyTests(unittest.TestCase):
-    def test_legacy_moto_layout_rejects_agm_terminal_outside_board(self):
+    def test_moto_reference_layout_verifies_with_remote_component_policy(self):
         path = ROOT / "benchmarks" / "moto" / "moto14wires30cuts.json"
         data = validate_project(json.loads(path.read_text(encoding="utf-8")))
         report = verify_project(data)
-        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["status"], "PASS", report["errors"])
         self.assertEqual(report["counts"]["wires"], 14)
-        self.assertTrue(
-            any("AGM -in pin 2" in error and "outside board" in error
-                for error in report["errors"]),
-            report["errors"],
-        )
+        self.assertEqual(report["counts"]["cuts"], 30)
+        self.assertEqual(report["counts"]["short_groups"], 0)
+        self.assertEqual(report["counts"]["open_nets"], 0)
 
     def test_continuous_strip_connects_same_net(self):
         report = verify_project(project())
@@ -114,13 +112,23 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any("short at copper group" in error for error in report["errors"]))
 
-    def test_offboard_assignments_are_not_physical_terminals(self):
+    def test_offboard_assigned_pin_requires_termination_pad(self):
         data = project()
         data["components"][1]["offBoard"] = True
         data["components"][1]["boardPos"] = None
         report = verify_project(data)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("B pin 1: missing off-board termination pad" in error
+                            for error in report["errors"]), report["errors"])
+
+    def test_offboard_assigned_pin_with_termination_pad_is_physical(self):
+        data = project()
+        data["components"][1]["offBoard"] = True
+        data["components"][1]["boardPos"] = None
+        data["components"][1]["leads"] = {"1": {"row": 1, "col": 0}}
+        report = verify_project(data)
         self.assertEqual(report["status"], "PASS", report["errors"])
-        self.assertEqual(report["counts"]["on_board_terminals"], 2)
+        self.assertEqual(report["counts"]["on_board_terminals"], 3)
 
 
     def test_real_editor_wire_export_preserves_ids_and_endpoints(self):
