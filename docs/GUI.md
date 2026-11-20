@@ -83,7 +83,7 @@ Packaging acceptance should include:
 5. verify project loading, saving and file-dialog behaviour;
 6. verify logs and error reporting are usable outside a development terminal.
 
-No Route-Mate standalone package has been built or tested yet.
+See [macOS standalone build and toolchain](STANDALONE_MACOS.md) for the v1.26 PyInstaller build procedure and the successful development-iMac runtime test. A clean-machine test and Windows package are still outstanding.
 
 ## Toolchain evidence
 
@@ -130,5 +130,5 @@ The next useful display benchmark is GUI-side: initial SVG scene load, zoom/pan 
 - [ ] Replace legacy endpoint-link preview with physical jumper-path display and copper-side between-hole cut artwork, only after the frozen router/verifier gates pass.
 - [ ] Display separate electrical and physical verification reports; never label electrical-only success as physically routed/buildable.
 - [ ] Selection and lock/edge-anchor overlays.
-- [ ] macOS standalone build and clean-machine test.
+- [x] macOS PyInstaller standalone bundle built and exercised on the development iMac (v1.26); clean-machine test still outstanding.
 - [ ] Windows standalone build and clean-machine test.
