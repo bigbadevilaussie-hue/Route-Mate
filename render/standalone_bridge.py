@@ -129,15 +129,13 @@ def add_top_side_cuts(svg: str, project: dict[str, Any]) -> str:
         else:
             continue
         y = HOLE_ORIGIN + row * HOLE_PITCH
-        # White backing keeps the mark visible over dark copper/wires.
+        # Match the copper-side cut symbol: a plain red X, no surrounding circle.
         marks.append(
             f'<g data-route-mate-cut="{index}" data-cut-row="{row}" '
             f'data-cut-col="{col}" data-cut-kind="{escape(str(kind))}">'
-            f'<circle cx="{x:g}" cy="{y:g}" r="10" fill="#fff" '
-            f'fill-opacity="0.93" stroke="#b91c1c" stroke-width="1.4"/>'
             f'<path d="M {x-5:g} {y-5:g} L {x+5:g} {y+5:g} '
             f'M {x+5:g} {y-5:g} L {x-5:g} {y+5:g}" '
-            f'stroke="#dc2626" stroke-width="2.8" stroke-linecap="round"/>'
+            f'stroke="#ef3030" stroke-width="2.5" stroke-linecap="round"/>'
             '</g>'
         )
     return re.sub(r'</svg\s*>', lambda m: ''.join(marks) + m.group(0), svg, count=1)
