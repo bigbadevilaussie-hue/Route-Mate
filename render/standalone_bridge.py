@@ -140,7 +140,7 @@ def add_top_side_cuts(svg: str, project: dict[str, Any]) -> str:
             f'stroke="#dc2626" stroke-width="2.8" stroke-linecap="round"/>'
             '</g>'
         )
-    return re.sub(r'</svg\\s*>', lambda m: ''.join(marks) + m.group(0), svg, count=1)
+    return re.sub(r'</svg\s*>', lambda m: ''.join(marks) + m.group(0), svg, count=1)
 
 
 def add_component_highlight(
