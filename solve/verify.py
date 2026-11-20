@@ -192,6 +192,15 @@ def verify_project(project: Any) -> dict[str, Any]:
                 errors.append(f"{label}: invalid footprint geometry: {exc}")
                 continue
             matches = [pin for pin in pins if str(pin.get("id")) == pid]
+            # Legacy WR exports number electrical pins 1/2 while some
+            # custom footprint definitions label them a/k or +/-.
+            # Use ordinal lookup only when no explicit pin ID matches.
+            if not matches and pid.isdecimal():
+                index = int(pid) - 1
+                defined_pins = definition.get("pins") or []
+                if 0 <= index < len(defined_pins):
+                    alias = str(defined_pins[index].get("id"))
+                    matches = [pin for pin in pins if str(pin.get("id")) == alias]
             if not matches:
                 errors.append(f"{label}: pin {pid!r} has no physical pads")
                 continue
