@@ -82,6 +82,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
     net_points: dict[str, list[tuple[int, int]]] = {}
     initial_pin_records: list[tuple[int, int, str, str]] = []
     centres: list[tuple[int, int]] = []
+    centre_row_sum = centre_col_sum = 0
     net_score = links_scored = 0
     errors = []
 
@@ -141,8 +142,11 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
             h, w = int(definition.get("height", 1)), int(definition.get("width", 1))
             if int(component.get("rotation", 0) or 0) % 360 in (90, 270):
                 h, w = w, h
-            centres.append((2 * int(pos.get("row", 0)) + h - 1,
-                            2 * int(pos.get("col", 0)) + w - 1))
+            centre = (2 * int(pos.get("row", 0)) + h - 1,
+                      2 * int(pos.get("col", 0)) + w - 1)
+            centres.append(centre)
+            centre_row_sum += centre[0]
+            centre_col_sum += centre[1]
             cid = str(component.get("id"))
             for pin in pins:
                 nid = pin_nets.get((cid, str(pin.get("id"))))
@@ -230,8 +234,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
                     centre_r2, centre_c2 = 2 * top + height - 1, 2 * left + width - 1
                     if centres:
                         n = len(centres)
-                        compact = (abs(centre_r2 * n - sum(p[0] for p in centres))
-                                   + abs(centre_c2 * n - sum(p[1] for p in centres)))
+                        compact = (abs(centre_r2 * n - centre_row_sum)
+                                   + abs(centre_c2 * n - centre_col_sum))
                     else:
                         compact = abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1))
                     score = (
@@ -262,6 +266,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
         for row, col, net, ref in found["pin_records"]:
             placed_holes.setdefault((row, col), []).append((net, ref))
         centres.append(found["centre"])
+        centre_row_sum += found["centre"][0]
+        centre_col_sum += found["centre"][1]
         net_score += found["net_score"]
         links_scored += found["links"]
         for pin in found["pins"]:
