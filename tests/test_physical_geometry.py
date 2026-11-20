@@ -17,6 +17,7 @@ from physical_geometry import (
     physical_segment_intersects_cell,
     PhysicalCell,
     PhysicalSegment,
+    jumper_endpoint_available,
 )
 
 
@@ -131,6 +132,18 @@ class PhysicalGeometryTests(unittest.TestCase):
                                   PhysicalPoint(Fraction(0), Fraction(4)))
         cell = PhysicalCell(1, 0, Fraction(0), Fraction(1), Fraction(2), Fraction(3))
         self.assertTrue(physical_segment_intersects_cell(segment, cell))
+
+
+    def test_endpoint_rejects_occupied_hole_unless_explicit_landing(self):
+        occupied = {(4, 12)}
+        self.assertFalse(jumper_endpoint_available(self.grid, (4, 12), occupied))
+        self.assertTrue(jumper_endpoint_available(
+            self.grid, (4, 12), occupied, landing_holes={(4, 12)}))
+        self.assertTrue(jumper_endpoint_available(self.grid, (4, 13), occupied))
+
+    def test_endpoint_rejects_hole_outside_board(self):
+        with self.assertRaisesRegex(ValueError, "not a board hole"):
+            jumper_endpoint_available(self.grid, (24, 12))
 
 
 if __name__ == "__main__":
