@@ -151,6 +151,27 @@ class RouteCopperTests(unittest.TestCase):
         self.assertEqual(wire["to"], {"row": 3, "col": 0})
         self.assertEqual(verify_project(result["project"])["status"], "PASS")
 
+    def test_vertical_only_routes_full_strips_without_diagonals(self):
+        data = make_project([(0, 1, "A"), (2, 6, "A")])
+        result = route_copper(data, vertical_only=True)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["wires_added"], 1)
+        wire = result["project"]["board"]["wires"][0]
+        self.assertEqual(wire["from"]["col"], wire["to"]["col"])
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+
+    def test_vertical_only_fails_cleanly_when_copper_columns_do_not_overlap(self):
+        data = make_project(
+            [(0, 0, "A"), (0, 1, "B"), (1, 6, "C"), (1, 7, "A")],
+            rows=2, cols=8,
+        )
+        original = copy.deepcopy(data)
+        result = route_copper(data, vertical_only=True)
+        self.assertEqual(result["status"], "ROUTING_FAILED")
+        self.assertIn("same-column", result["errors"][0])
+        self.assertEqual(result["project"], original)
+        self.assertEqual(data, original)
+
     def test_router_does_not_mutate_source_project(self):
         data = make_project([(0, 0, "A"), (1, 3, "A")])
         before = copy.deepcopy(data)
