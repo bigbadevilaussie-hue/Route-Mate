@@ -79,11 +79,16 @@ def audit_quick_pads(path: Path) -> dict[str, Any]:
             continue
         try:
             pins, _ = component_geometry(component, definition)
+            defined_pins = [p for p in definition.get("pins", []) if isinstance(p, dict)]
+            assigned = {pid for cid, pid in assignments if cid == str(component.get("id"))}
+            aliases = {str(i): str(p.get("id")) for i, p in enumerate(defined_pins, 1)}
+            assigned_physical = {pid if any(str(p.get("id")) == pid for p in defined_pins)
+                                 else aliases.get(pid, pid) for pid in assigned}
             for pin in pins:
                 checked += 1
                 pid = str(pin.get("id"))
-                if (str(component.get("id")), pid) not in assignments:
-                    errors.append(f"{label} pin {pid}: no electrical net assignment")
+                if pid not in assigned_physical:
+                    continue  # Unconnected physical pins are allowed.
                 row, col = int(pin["row"]), int(pin["col"])
                 if not (0 <= row < rows and 0 <= col < cols):
                     errors.append(f"{label} pin {pid}: pad outside board at ({row}, {col})")
