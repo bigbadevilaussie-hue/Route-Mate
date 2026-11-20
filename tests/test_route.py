@@ -140,6 +140,17 @@ class RouteCopperTests(unittest.TestCase):
             route_copper(data)["project"]["board"],
         )
 
+    def test_nearest_island_search_preserves_vertical_tie_break(self):
+        # Two full strips: all same-column jumpers have equal minimum
+        # Manhattan length, so the deterministic lowest column wins.
+        data = make_project([(0, 7, "A"), (3, 0, "A")], rows=4, cols=8)
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        wire = result["project"]["board"]["wires"][0]
+        self.assertEqual(wire["from"], {"row": 0, "col": 0})
+        self.assertEqual(wire["to"], {"row": 3, "col": 0})
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+
     def test_router_does_not_mutate_source_project(self):
         data = make_project([(0, 0, "A"), (1, 3, "A")])
         before = copy.deepcopy(data)
