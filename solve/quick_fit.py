@@ -271,6 +271,91 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
     return result, [], net_score, links_scored
 
 
+
+def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
+    """Allocate real board holes to external pins, without placing their bodies."""
+    components = project["components"]
+    used, net_holes, row_nets = set(), {}, {}
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        cid = str(component.get("id"))
+        if is_off_board_component(component):
+            for pid, point in (component.get("leads") or {}).items():
+                hole = (int(point["row"]), int(point["col"]))
+                if not (0 <= hole[0] < rows and 0 <= hole[1] < cols) or hole in used:
+                    raise ValueError(f"{component.get('label', cid)} lead {pid}: invalid or duplicate board hole")
+                used.add(hole)
+                net = pin_nets.get((cid, str(pid)))
+                if net:
+                    net_holes.setdefault(net, []).append(hole)
+                    row_nets.setdefault(hole[0], {})[hole[1]] = net
+            continue
+        if not isinstance(component.get("boardPos"), dict):
+            continue
+        definition = resolve_definition(component, definitions)
+        if definition is None:
+            continue
+        pins, body = component_geometry(component, definition)
+        used.update((int(p["row"]), int(p["col"])) for p in pins)
+        used.update((int(r), int(c)) for r, c in body)
+        for pin in pins:
+            net = pin_nets.get((cid, str(pin["id"])))
+            if net:
+                hole = (int(pin["row"]), int(pin["col"]))
+                net_holes.setdefault(net, []).append(hole)
+                row_nets.setdefault(hole[0], {})[hole[1]] = net
+
+    placed = 0
+    for component in components:
+        if not isinstance(component, dict) or not is_off_board_component(component):
+            continue
+        if component.get("boardExcluded") is True and component.get("offBoard") is not True:
+            continue
+        cid = str(component.get("id"))
+        definition = resolve_definition(component, definitions)
+        if definition is None:
+            raise ValueError(f"{component.get('label', cid)}: no pin definition")
+        leads = component.setdefault("leads", {})
+        if not isinstance(leads, dict):
+            raise ValueError(f"{component.get('label', cid)}: invalid leads")
+        pin_ids = list(dict.fromkeys(str(p["id"]) for p in definition.get("pins", [])))
+        for pid in pin_ids:
+            if pid in leads:
+                continue
+            net = pin_nets.get((cid, pid))
+            anchors = net_holes.get(net, []) if net else []
+            group = [(int(p["row"]), int(p["col"])) for p in leads.values()]
+            best = None
+            for row in range(rows):
+                for col in range(cols):
+                    if (row, col) in used:
+                        continue
+                    neighbors = row_nets.get(row, {})
+                    if net and any(neighbors.get(c) not in (None, net)
+                                   for c in (col - 1, col, col + 1)):
+                        continue
+                    if not net and any(c in neighbors for c in (col - 1, col, col + 1)):
+                        continue
+                    same_row = 0 if any(row == r for r, _ in anchors) else 1
+                    distance = min((abs(row-r)+abs(col-c) for r,c in anchors), default=0)
+                    group_distance = min((abs(row-r)+abs(col-c) for r,c in group), default=0)
+                    edge_distance = min(col, cols-1-col)
+                    score = (same_row, distance, group_distance, edge_distance, row, col)
+                    if best is None or score < best[0]:
+                        best = (score, row, col)
+            if best is None:
+                raise ValueError(f"{component.get('label', cid)} pin {pid}: no free termination hole")
+            _, row, col = best
+            leads[pid] = {"row": row, "col": col}
+            used.add((row, col))
+            placed += 1
+            if net:
+                net_holes.setdefault(net, []).append((row, col))
+                row_nets.setdefault(row, {})[col] = net
+    return placed
+
+
 def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
     """Place components with deterministic net-aware scoring; never mutate input."""
     source = copy.deepcopy(project) if isinstance(project, dict) else {}
@@ -375,6 +460,13 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
         if placed_project is None:
             last_errors = errors
             continue
+        try:
+            termination_pads = _allocate_offboard_pads(
+                placed_project, definitions, pin_nets, rows, cols
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            last_errors = [str(exc)]
+            continue
         placed = sum(1 for c in placed_project["components"]
                      if isinstance(c, dict) and not is_off_board_component(c)
                      and isinstance(c.get("boardPos"), dict))
@@ -393,6 +485,7 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
                 "board": {"rows": rows, "cols": cols},
                 "clearance_requested": requested, "clearance_used": used,
                 "net_distance_score": net_score, "net_links_scored": links,
+                "off_board_pads_allocated": termination_pads,
                 "search": "deterministic greedy net-aware placement",
             },
         }
