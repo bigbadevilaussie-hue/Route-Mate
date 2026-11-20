@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.30"
-CODE_VERSION = "1.30"
+GUI_VERSION = "1.31"
+CODE_VERSION = "1.31"
 
 from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
@@ -51,7 +51,24 @@ def audit_quick_pads(path: Path) -> dict[str, Any]:
         if not isinstance(component, dict):
             continue
         if is_off_board_component(component):
-            skipped += 1
+            label = str(component.get("label") or component.get("id"))
+            if component.get("boardExcluded") is True and component.get("offBoard") is not True:
+                skipped += 1
+                continue
+            leads = component.get("leads") or {}
+            definition = resolve_definition(component, definitions)
+            if not definition:
+                errors.append(f"{label}: missing off-board pin definition")
+                continue
+            for pid in dict.fromkeys(str(p["id"]) for p in definition.get("pins", [])):
+                point = leads.get(pid) if isinstance(leads, dict) else None
+                if point is None:
+                    errors.append(f"{label} pin {pid}: missing physical termination pad")
+                    continue
+                checked += 1
+                row, col = int(point["row"]), int(point["col"])
+                if not (0 <= row < rows and 0 <= col < cols):
+                    errors.append(f"{label} pin {pid}: pad outside board at ({row}, {col})")
             continue
         label = str(component.get("label") or component.get("id"))
         if not isinstance(component.get("boardPos"), dict):
@@ -603,6 +620,25 @@ class RouteMateWindow(QMainWindow):
                 f"[ROUTING] {routing.get('status', 'FAILED')} — placement retained; "
                 "no partial routing changes applied."
             )
+        # Jumper length is the minimum straight-line distance at 2.54 mm pitch.
+        wire_lengths = []
+        for wire in self.project.get("board", {}).get("wires", []):
+            try:
+                a, b = wire["from"], wire["to"]
+                dr = int(a["row"]) - int(b["row"])
+                dc = int(a["col"]) - int(b["col"])
+                wire_lengths.append((dr * dr + dc * dc) ** 0.5 * 2.54)
+            except (KeyError, TypeError, ValueError):
+                self.log_line("[DIAGNOSTICS][ERROR] Invalid jumper endpoints")
+        cuts_total = len(self.project.get("board", {}).get("cuts", []))
+        self.log_line(
+            f"[DIAGNOSTICS] {len(wire_lengths)} jumper wires; {cuts_total} cuts; "
+            f"total straight-line wire length {sum(wire_lengths):.1f} mm; "
+            f"longest {max(wire_lengths, default=0):.1f} mm."
+        )
+        self.log_line("[DIAGNOSTICS] Wire lengths are minimum straight-line estimates, not assembly allowances.")
+        for index, length in enumerate(wire_lengths, 1):
+            self.log_line(f"[DIAGNOSTICS] W{index:03d}: {length:.1f} mm")
         # Always export the exact project used for the rendered Quick Fit board.
         # The file is overwritten on each successful placement run.
         quick_path = (self.project_path.parent if self.project_path else REPO_ROOT) / "quick.json"
@@ -620,8 +656,8 @@ class RouteMateWindow(QMainWindow):
             try:
                 audit = audit_quick_pads(quick_path)
                 self.log_line(
-                    f"[QUALITY] {audit['status']} — {audit['checked']} on-board pins/pads checked; "
-                    f"{audit['off_board_skipped']} off-board components skipped; "
+                    f"[QUALITY] {audit['status']} — {audit['checked']} physical pins/pads checked; "
+                    f"{audit['off_board_skipped']} excluded components skipped; "
                     f"{len(audit['errors'])} errors."
                 )
                 for issue in audit["errors"]:
