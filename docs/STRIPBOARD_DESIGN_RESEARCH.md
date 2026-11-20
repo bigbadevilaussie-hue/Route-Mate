@@ -2,6 +2,10 @@
 
 > **Authority notice:** This is background research, not the normative solver specification. The physical rules are frozen in [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md). If any statement or earlier proposed step below conflicts with that specification, the specification wins. In particular, older suggestions to defer cut-access verification or to retain hole cuts in the initial model are superseded. Follow the specification's implementation gates; do not treat this document's former §10/§11 plan as current.
 
+## Karl solver research and architectural decision
+
+The [Solver Architecture Decision](SOLVER_ARCHITECTURE_DECISION.md) records which ideas from Karlo Funke's Stripboard Editor are candidates for adaptation: sequence-pair skeletons, exact decoding, weighted union-find, longest-path compaction, copper grouping, Prim-style jumper connection, cut repair, obstacle geometry, annealing and reproducible multi-seed search. Route-Mate must enforce hard constraints before ranking layouts; Karl's cost penalties are not automatically legality rules. Quick Solve and Hell Mode will share one engine and independent verifier. These are planned directions, not implemented capabilities; the locked physical specification takes precedence.
+
 ## Purpose
 
 This document records the stripboard construction findings that should guide Route-Mate's next routing stage. It distinguishes established construction principles and external software behaviour from Route-Mate's current implementation.
