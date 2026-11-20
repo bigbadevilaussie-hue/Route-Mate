@@ -96,6 +96,38 @@ def add_board_coordinate_labels(
     return re.sub(r'</svg\s*>', "".join(labels) + '</svg>', svg, count=1)
 
 
+
+def add_offboard_terminals(svg: str, project: dict[str, Any]) -> str:
+    """Draw selectable-style ring terminals at the allocated off-board holes."""
+    import re
+    from html import escape
+    from placement_policy import is_off_board_component
+
+    marks = []
+    for component in project.get("components", []):
+        if not isinstance(component, dict) or not is_off_board_component(component):
+            continue
+        if component.get("boardExcluded") is True and component.get("offBoard") is not True:
+            continue
+        label = str(component.get("label") or component.get("id"))
+        for pin, point in (component.get("leads") or {}).items():
+            row, col = int(point["row"]), int(point["col"])
+            x = HOLE_ORIGIN + col * HOLE_PITCH
+            y = HOLE_ORIGIN + row * HOLE_PITCH
+            name = escape(f"{label} {pin}")
+            marks.append(
+                f'<g data-route-mate-terminal="{escape(str(component.get("id")))}" '
+                f'data-pin="{escape(str(pin))}" data-row="{row}" data-col="{col}">'
+                f'<circle cx="{x:g}" cy="{y:g}" r="11" fill="#ffffff" '
+                f'fill-opacity="0.9" stroke="#dc5555" stroke-width="4"/>'
+                f'<circle cx="{x:g}" cy="{y:g}" r="4.5" fill="#b32828"/>'
+                f'<text x="{x:g}" y="{y-15:g}" text-anchor="middle" '
+                f'font-family="sans-serif" font-size="11" font-weight="600" '
+                f'fill="#222">{name}</text></g>'
+            )
+    return re.sub(r'</svg\s*>', lambda m: ''.join(marks) + m.group(0), svg, count=1)
+
+
 def add_top_side_cuts(svg: str, project: dict[str, Any]) -> str:
     """Mark routed copper cuts on the component-side preview at their exact locations.
 
@@ -243,7 +275,8 @@ def render_project(
 ) -> tuple[str, str, str]:
     """Render both production board sides and return top SVG, copper SVG and log."""
     cli = ensure_renderer()
-    project = _renderer_input(json.loads(project_path.read_text(encoding="utf-8")))
+    source_project = json.loads(project_path.read_text(encoding="utf-8"))
+    project = _renderer_input(source_project)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Never rewrite the caller's project file: the production renderer receives
@@ -267,6 +300,7 @@ def render_project(
     cols = int(project["board"]["cols"])
     top_svg = add_alternating_row_bands(top.read_text(encoding="utf-8"), rows)
     top_svg = add_top_side_cuts(top_svg, project)
+    top_svg = add_offboard_terminals(top_svg, source_project)
     top_svg = add_component_highlight(top_svg, project, highlight_component_id)
     top_svg = add_board_coordinate_labels(top_svg, rows, cols)
     copper_svg = add_board_coordinate_labels(
