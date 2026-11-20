@@ -146,5 +146,41 @@ class PhysicalGeometryTests(unittest.TestCase):
             jumper_endpoint_available(self.grid, (24, 12))
 
 
+    def test_project_geometry_confidence_separates_occupancy_from_dimensions(self):
+        from physical_geometry import project_geometry_confidence
+
+        project = {
+            "componentDefs": [
+                {"id": "body", "width": 4, "height": 3,
+                 "bodyCells": [{"row": 1, "col": 1}, {"row": 1, "col": 2}]},
+                {"id": "pins", "width": 1, "height": 2,
+                 "pins": [{"id": "1"}, {"id": "2"}]},
+            ],
+            "components": [
+                {"id": "U1", "defId": "body"},
+                {"id": "R1", "defId": "pins",
+                 "footprintOverride": {"bodyCells": [{"row": 1, "col": 0}]}},
+                {"id": "X1", "defId": "missing"},
+            ],
+        }
+        report = project_geometry_confidence(project)
+        self.assertEqual(report["status"], "INCOMPLETE_PHYSICAL_DIMENSIONS")
+        self.assertEqual(report["component_count"], 3)
+        self.assertEqual(report["grid_occupancy_count"], 2)
+        self.assertEqual(report["unresolved_definition_count"], 1)
+        self.assertEqual(report["measured_body_dimensions_count"], 0)
+        self.assertFalse(report["physical_clearance_verifiable"])
+        self.assertEqual(report["components"][1]["body_cell_count"], 1)
+        self.assertEqual(
+            report["components"][0]["measured_body_dimensions_mm"],
+            "not_provided",
+        )
+
+    def test_project_geometry_confidence_rejects_missing_arrays(self):
+        from physical_geometry import project_geometry_confidence
+        with self.assertRaisesRegex(ValueError, "components and componentDefs"):
+            project_geometry_confidence({})
+
+
 if __name__ == "__main__":
     unittest.main()
