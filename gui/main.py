@@ -644,6 +644,26 @@ class RouteMateWindow(QMainWindow):
         self.log_line("[DIAGNOSTICS] Wire lengths are minimum straight-line estimates, not assembly allowances.")
         for index, length in enumerate(wire_lengths, 1):
             self.log_line(f"[DIAGNOSTICS] W{index:03d}: {length:.1f} mm")
+        # Reuse the independent jumper audit rather than silently folding
+        # diagonal jumpers into the total wire count.
+        from solve.quality_audit import audit_project
+        jumper_report = audit_project(self.project)
+        jumper_audit = jumper_report["jumper_audit"]
+        diagonal_count = jumper_audit["diagonal_count"]
+        self.log_line(
+            f"[DIAGNOSTICS] Jumper orientation: {len(wire_lengths)} total; "
+            f"{diagonal_count} diagonal; "
+            f"{len(wire_lengths) - diagonal_count} non-diagonal."
+        )
+        for wire in jumper_audit["diagonals"]:
+            self.log_line(
+                f"[DIAGNOSTICS][DIAGONAL] {wire['id']}: "
+                f"({wire['from']['row']}, {wire['from']['col']}) -> "
+                f"({wire['to']['row']}, {wire['to']['col']}); "
+                f"{wire['length_hole_pitches'] * 2.54:.1f} mm."
+            )
+        for issue in jumper_report["errors"]:
+            self.log_line("[DIAGNOSTICS][ERROR] " + issue)
         # Always export the exact project used for the rendered Quick Fit board.
         # The file is overwritten on each successful placement run.
         quick_path = (self.project_path.parent if self.project_path else REPO_ROOT) / "quick.json"
