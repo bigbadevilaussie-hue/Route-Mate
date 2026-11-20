@@ -133,9 +133,9 @@ def add_top_side_cuts(svg: str, project: dict[str, Any]) -> str:
         marks.append(
             f'<g data-route-mate-cut="{index}" data-cut-row="{row}" '
             f'data-cut-col="{col}" data-cut-kind="{escape(str(kind))}">'
-            f'<path d="M {x-5:g} {y-5:g} L {x+5:g} {y+5:g} '
-            f'M {x+5:g} {y-5:g} L {x-5:g} {y+5:g}" '
-            f'stroke="#ef3030" stroke-width="2.5" stroke-linecap="round"/>'
+            f'<path d="M {x-7:g} {y-7:g} L {x+7:g} {y+7:g} '
+            f'M {x+7:g} {y-7:g} L {x-7:g} {y+7:g}" '
+            f'stroke="#ff2424" stroke-width="4" stroke-linecap="round"/>'
             '</g>'
         )
     return re.sub(r'</svg\s*>', lambda m: ''.join(marks) + m.group(0), svg, count=1)
