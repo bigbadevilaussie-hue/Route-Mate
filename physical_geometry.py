@@ -96,6 +96,62 @@ def physical_component_body(
     return cells
 
 
+def physical_segment_intersects_cell(segment: PhysicalSegment, cell: PhysicalCell) -> bool:
+    """Exact centreline intersection with a closed occupancy square.
+
+    No wire diameter, package overhang, or unmeasured clearance is added.
+    Boundary contact counts as intersection.
+    """
+    x1, y1 = segment.start.x_mm, segment.start.y_mm
+    dx = segment.end.x_mm - x1
+    dy = segment.end.y_mm - y1
+    t0, t1 = Fraction(0), Fraction(1)
+    for origin, delta, lower, upper in (
+        (x1, dx, cell.left_mm, cell.right_mm),
+        (y1, dy, cell.top_mm, cell.bottom_mm),
+    ):
+        if delta == 0:
+            if origin < lower or origin > upper:
+                return False
+            continue
+        enter, leave = (lower-origin)/delta, (upper-origin)/delta
+        if enter > leave:
+            enter, leave = leave, enter
+        t0, t1 = max(t0, enter), min(t1, leave)
+        if t0 > t1:
+            return False
+    return True
+
+
+def physical_segments_intersect(first: PhysicalSegment, second: PhysicalSegment) -> bool:
+    """Exact closed-segment test; crossing, touching and overlap all count."""
+    def cross(a: PhysicalPoint, b: PhysicalPoint, c: PhysicalPoint) -> Fraction:
+        return ((b.x_mm-a.x_mm)*(c.y_mm-a.y_mm)
+                - (b.y_mm-a.y_mm)*(c.x_mm-a.x_mm))
+
+    def on_segment(a: PhysicalPoint, b: PhysicalPoint, p: PhysicalPoint) -> bool:
+        return (min(a.x_mm,b.x_mm) <= p.x_mm <= max(a.x_mm,b.x_mm)
+                and min(a.y_mm,b.y_mm) <= p.y_mm <= max(a.y_mm,b.y_mm))
+
+    a, b, c, d = first.start, first.end, second.start, second.end
+    o1, o2, o3, o4 = cross(a,b,c), cross(a,b,d), cross(c,d,a), cross(c,d,b)
+    if o1 == 0 and on_segment(a,b,c): return True
+    if o2 == 0 and on_segment(a,b,d): return True
+    if o3 == 0 and on_segment(c,d,a): return True
+    if o4 == 0 and on_segment(c,d,b): return True
+    return ((o1 > 0) != (o2 > 0)) and ((o3 > 0) != (o4 > 0))
+
+
+def jumper_intersects_component(jumper: PhysicalSegment, component_cells: list[PhysicalCell]) -> bool:
+    """Check jumper centreline against saved component occupancy cells."""
+    return any(physical_segment_intersects_cell(jumper, cell) for cell in component_cells)
+
+
+def jumpers_intersect(first: PhysicalSegment, second: PhysicalSegment) -> bool:
+    """Check jumper centreline crossing or shared physical segment space."""
+    return physical_segments_intersect(first, second)
+
+
 __all__ = [
     "HOLE_PITCH_MM",
     "HALF_PITCH_MM",
@@ -107,4 +163,8 @@ __all__ = [
     "physical_between_cut_center",
     "physical_jumper_segment",
     "physical_component_body",
+    "physical_segment_intersects_cell",
+    "physical_segments_intersect",
+    "jumper_intersects_component",
+    "jumpers_intersect",
 ]
