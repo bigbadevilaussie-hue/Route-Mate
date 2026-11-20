@@ -5,6 +5,10 @@
 **Last verified branch HEAD before this handoff:** `8e7811f73d2be1ff3a7b1c2d213f6d32c2f0d04f`  
 **Physical model authority:** [PHYSICAL_MODEL_SPEC.md](PHYSICAL_MODEL_SPEC.md) — LOCKED. This handoff records implementation status; it does not amend the specification.
 
+## Later solver architecture decision (not Gate 1 authorisation)
+
+[Solver Architecture Decision](SOLVER_ARCHITECTURE_DECISION.md) establishes one shared solver engine with Quick Solve and Hell Mode as separate search strategies, plus shared hard constraints and independent electrical/physical verification. Karl's exact decoder, copper grouping and annealing are research candidates. **This does not authorise skipping Gate 1 or changing the locked physical specification.** This handoff's branch, test counts and status are historical snapshots; verify current repository state before acting.
+
 ## Start here — instructions for the next AI session
 
 1. Read [NICKS_RULES.md](../NICKS_RULES.md) and [ASSISTANT_RULES.md](../ASSISTANT_RULES.md).
