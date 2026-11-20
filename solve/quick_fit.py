@@ -109,9 +109,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
         if not isinstance(component.get("boardPos"), dict):
             errors.append(f"{label}: position-locked component has no board position")
             continue
-        if component.get("edge") or component.get("slide"):
-            errors.append(f"{label}: edge-anchor/sliding constraints are not yet supported")
-            continue
+        # A positioned locked part is immovable, regardless of its edge/slide
+        # metadata. Validate and reserve its physical footprint below.
         definition = resolve_definition(component, definitions)
         if definition is None:
             errors.append(f"{label}: no footprint definition")
@@ -308,8 +307,13 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
         except (TypeError, ValueError, KeyError) as exc:
             geometry_errors.append(f"{label}: {exc}")
             continue
-        if component.get("edge") or component.get("slide"):
-            geometry_errors.append(f"{label}: edge-anchor/sliding constraints are not yet supported")
+        # Edge/slide flags on a locked, positioned part describe its existing
+        # anchor. Quick Fit must keep it fixed and route other parts around it.
+        # Unsupported movement constraints remain errors for movable parts.
+        if (component.get("edge") or component.get("slide")) and not (
+            component.get("locked") is True and isinstance(component.get("boardPos"), dict)
+        ):
+            geometry_errors.append(f"{label}: edge-anchor/sliding constraints are not yet supported for movable parts")
             continue
         # Already-positioned locked parts are fixed obstacles, not candidates.
         if component.get("locked") is True and isinstance(component.get("boardPos"), dict):
