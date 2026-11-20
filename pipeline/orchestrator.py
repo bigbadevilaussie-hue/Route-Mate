@@ -68,6 +68,38 @@ class PipelineRun:
             raise ValueError("pipeline state root must be an object")
         return cls(PipelineContext.from_dict(data), path)
 
+    def handoff(self, project: Mapping[str, Any], consumer: str) -> dict[str, Any]:
+        """Return a validated, immutable-by-convention input package for the next module.
+
+        The canonical project remains owned by the caller. The handoff contains a
+        deep JSON copy plus all unresolved findings so downstream modules and the
+        GUI can see exactly which snapshot and outstanding issues they received.
+        """
+        from copy import deepcopy
+
+        if not isinstance(consumer, str) or not consumer.strip():
+            raise ValueError("consumer must be a non-empty module name")
+        snapshot = deepcopy(dict(project))
+        actual_hash = project_sha256(snapshot)
+        if actual_hash != self.context.project_sha256:
+            raise ValueError(
+                "stale pipeline handoff: project hash does not match the latest "
+                f"recorded output ({actual_hash} != {self.context.project_sha256})"
+            )
+        outstanding = [
+            item.to_dict() for item in self.context.findings
+            if item.status in {"open", "acknowledged"}
+        ]
+        return {
+            "run_id": self.context.run_id,
+            "from_stage": self.context.current_stage,
+            "to_module": consumer,
+            "project": snapshot,
+            "project_sha256": actual_hash,
+            "findings": outstanding,
+            "finding_ids": [item["finding_id"] for item in outstanding],
+        }
+
     def record_stage(
         self,
         result: StageResult,
@@ -75,7 +107,26 @@ class PipelineRun:
         *,
         save: bool = True,
     ) -> None:
-        """Record one adapter result, then persist the updated run by default."""
+        """Validate the input snapshot, record the result, and persist the run."""
+        if result.input_project_sha256 is not None:
+            if result.input_project_sha256 != self.context.project_sha256:
+                raise ValueError(
+                    f"{result.stage}: stale stage input; expected project hash "
+                    f"{self.context.project_sha256}, got {result.input_project_sha256}"
+                )
+        workflow_stage = {
+            "IN.project_import": "COLLECT",
+            "IN.collect": "COLLECT",
+            "PREPARE.electrical": "TEST",
+            "TEST.repository": "TEST",
+            "PREPARE.constraints": "TEST",
+            "SOLVE.quick_fit": "QUICKSOLVE",
+            "SOLVE.quick_place": "QUICKSOLVE",
+            "SOLVE.route": "SOLVE",
+            "VERIFY.independent": "SOLVE",
+        }.get(result.stage)
+        if workflow_stage:
+            result.extra.setdefault("workflow_stage", workflow_stage)
         self.context.record_stage(result, findings)
         if result.output_project_sha256 is not None:
             self.context.project_sha256 = result.output_project_sha256
