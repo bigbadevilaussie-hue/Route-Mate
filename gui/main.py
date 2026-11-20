@@ -200,6 +200,9 @@ class RouteMateWindow(QMainWindow):
         self.project_path: Path | None = None
         self.presolve_constraints: dict[str, dict[str, bool]] = {}
         self.pipeline_run = None
+        self._top_svg = None
+        self._copper_svg = None
+        self._board_side = "top"
 
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
@@ -210,6 +213,16 @@ class RouteMateWindow(QMainWindow):
         pipeline_action = QAction("Pipeline State", self)
         pipeline_action.triggered.connect(self.show_pipeline_state)
         toolbar.addAction(pipeline_action)
+        toolbar.addSeparator()
+        self.top_action = QAction("Component side", self)
+        self.top_action.setCheckable(True)
+        self.top_action.setChecked(True)
+        self.top_action.triggered.connect(lambda: self._switch_board_side("top"))
+        toolbar.addAction(self.top_action)
+        self.copper_action = QAction("Copper side (mirrored)", self)
+        self.copper_action.setCheckable(True)
+        self.copper_action.triggered.connect(lambda: self._switch_board_side("copper"))
+        toolbar.addAction(self.copper_action)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -309,15 +322,31 @@ class RouteMateWindow(QMainWindow):
         self, project: dict[str, Any], *, highlight_component_id: str | None = None
     ) -> tuple[str, str]:
         """Render the component side, optionally highlighting the part under review."""
-        from render import render_front
+        from render.standalone_bridge import render_project_data
 
-        # render_front is the public production-renderer API. It supplies the
-        # parity-tested artwork, row bands and optional review highlight.
-        top_svg = render_front(project, highlight_component_id=highlight_component_id)
-        return top_svg, "production standalone renderer"
+        # Both views come from the same production render pass and solved project.
+        top_svg, copper_svg, _renderer_log = render_project_data(
+            project, highlight_component_id=highlight_component_id
+        )
+        self._copper_svg = copper_svg
+        return top_svg, "production standalone renderer (both board sides)"
+
+    def _switch_board_side(self, side: str):
+        self._board_side = side
+        self.top_action.setChecked(side == "top")
+        self.copper_action.setChecked(side == "copper")
+        svg = self._copper_svg if side == "copper" else self._top_svg
+        if svg:
+            self.top_view.show_svg(svg)
+        self.statusBar().showMessage(
+            "Copper side — mirrored underside; red X marks physical cuts."
+            if side == "copper" else
+            "Component side — transparent top view; cuts aligned to board holes."
+        )
 
     def _show_board(self, top_svg: str):
-        self.top_view.show_svg(top_svg)
+        self._top_svg = top_svg
+        self._switch_board_side(self._board_side)
 
     def _run_tests(self):
         if getattr(sys, "frozen", False):
