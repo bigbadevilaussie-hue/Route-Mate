@@ -109,7 +109,7 @@ Quick Fit is an initial deterministic greedy net-aware component placer, not a c
 
 The locked physical construction rules and implementation sequence are defined only in [Physical Model Specification v1.0](docs/PHYSICAL_MODEL_SPEC.md). The [stripboard design research](docs/STRIPBOARD_DESIGN_RESEARCH.md) is background/reference material, not a competing specification. The current v1.21 Manhattan endpoint connections are legacy electrical links only, not physical wire paths.
 
-There is no packaged macOS or Windows desktop application yet. The GUI runs from the development environment; standalone packaging and clean-machine testing remain outstanding.
+A macOS PyInstaller standalone application has now been built and exercised on the development iMac with Route-Mate v1.26. See [macOS standalone build and toolchain](docs/STANDALONE_MACOS.md) for the exact environment, command, frozen-app test-runner behaviour, test evidence and remaining release checks. Clean-machine macOS testing, signing/notarisation and Windows packaging remain outstanding.
 
 A documented feature, target behaviour or architecture decision is not proof that the executable already implements it. The sections below distinguish current implementation from intended behaviour.
 
