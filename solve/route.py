@@ -355,6 +355,9 @@ def route_copper(project: Any, *, vertical_only: bool = False,
         net_order = sorted(net_roots, key=lambda net: (-len(net_roots[net]), net))
     else:
         net_order = sorted(net_roots)
+    # Unassigned copper strips can act as two-jumper vertical bridges.
+    # Reserve a bridge for one net only; never reuse it for another net.
+    reserved_bridges: set[tuple[int, int]] = set()
     for net in net_order:
         roots = net_roots[net]
         if len(roots) < 2:
@@ -374,6 +377,45 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     choice = (*candidate, root)
                     if best_choice is None or choice < best_choice:
                         best_choice = choice
+            if best_choice is None and vertical_only:
+                # Find an electrically unassigned copper island that overlaps
+                # both sides in different columns. Two vertical jumpers can
+                # use its horizontal copper as a bridge without diagonal wire.
+                bridge_choice = None
+                for bridge_root, bridge_rows in holes_by_root.items():
+                    if (bridge_root in reserved_bridges
+                            or nets_by_group.get(bridge_root)
+                            or bridge_root in roots):
+                        continue
+                    first = nearest_link(connected_rows, bridge_rows)
+                    if first is None:
+                        continue
+                    for target in sorted(remaining):
+                        second = nearest_link(bridge_rows, holes_by_root[target])
+                        if second is None:
+                            continue
+                        choice = (first[0] + second[0], first, second,
+                                  bridge_root, target)
+                        if bridge_choice is None or choice < bridge_choice:
+                            bridge_choice = choice
+                if bridge_choice is not None:
+                    _cost, first, second, bridge_root, target = bridge_choice
+                    for link in (first, second):
+                        _distance, _diagonal, start, end = link
+                        wire_id, serial = _new_wire_id(wires + wires_added, serial)
+                        wires_added.append({
+                            "id": wire_id,
+                            "from": {"row": start[0], "col": start[1]},
+                            "to": {"row": end[0], "col": end[1]},
+                        })
+                        groups.union(start, end)
+                    reserved_bridges.add(bridge_root)
+                    for merged_root in (bridge_root, target):
+                        for row, columns in holes_by_root[merged_root].items():
+                            connected_rows.setdefault(row, []).extend(columns)
+                            connected_rows[row].sort()
+                    remaining.remove(target)
+                    continue
             if best_choice is None:
                 # Diagnose the obstruction; another placement may still route.
                 connected_columns = sorted({
