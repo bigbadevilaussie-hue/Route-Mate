@@ -126,6 +126,20 @@ class RouteCopperTests(unittest.TestCase):
         wire = result["project"]["board"]["wires"][0]
         self.assertNotEqual(wire["from"], {"row": 0, "col": 7})
 
+    def test_three_separate_copper_islands_reuse_merged_endpoints(self):
+        data = make_project(
+            [(0, 0, "A"), (2, 7, "A"), (4, 3, "A")],
+            rows=5, cols=8,
+        )
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["wires_added"], 2)
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+        self.assertEqual(
+            result["project"]["board"],
+            route_copper(data)["project"]["board"],
+        )
+
     def test_router_does_not_mutate_source_project(self):
         data = make_project([(0, 0, "A"), (1, 3, "A")])
         before = copy.deepcopy(data)
