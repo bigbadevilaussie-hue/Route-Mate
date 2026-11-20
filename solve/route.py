@@ -196,11 +196,11 @@ def _new_wire_id(existing: list[dict], serial: int) -> tuple[str, int]:
     return f"RM-W{serial:03d}", serial + 1
 
 
-def route_copper(project: Any) -> dict[str, Any]:
+def route_copper(project: Any, *, vertical_only: bool = False) -> dict[str, Any]:
     """Add cuts and jumpers to a placed project, then run the independent verifier.
 
     Existing cuts and wires are preserved. The source project is never mutated.
-    Returns ROUTED only when solve.verify.verify_project reports PASS.
+    Returns ROUTED only when solve.verify.verify_project reports PASS.\n    vertical_only requires every new jumper to share a column; it is not\n    a substitute for physical clearance or accessibility verification.
     """
     if not isinstance(project, dict):
         return {
@@ -331,6 +331,8 @@ def route_copper(project: Any) -> dict[str, Any]:
                     for pos in (index - 1, index):
                         if 0 <= pos < len(right_cols):
                             rc = right_cols[pos]
+                            if vertical_only and lc != rc:
+                                continue
                             candidate = (
                                 row_cost + abs(lc - rc), int(lc != rc),
                                 (lr, lc), (rr, rc),
@@ -359,7 +361,7 @@ def route_copper(project: Any) -> dict[str, Any]:
                     if best_choice is None or choice < best_choice:
                         best_choice = choice
             if best_choice is None:
-                break
+                return {\n                    "status": "ROUTING_FAILED", "project": copy.deepcopy(project),\n                    "errors": [f"net {net}: no same-column jumper connects remaining copper islands"],\n                    "warnings": [], "cuts_added": 0, "wires_added": 0,\n                    "verification": None,\n                }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
             wires_added.append({
