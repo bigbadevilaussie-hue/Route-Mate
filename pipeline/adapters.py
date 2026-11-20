@@ -204,6 +204,57 @@ def electrical_sanity_stage_result(
     return result, findings
 
 
+
+def test_suite_stage_result(
+    project: Mapping[str, Any],
+    *,
+    returncode: int | None,
+    output: str = "",
+    skipped: bool = False,
+) -> tuple[StageResult, list[Finding]]:
+    """Record the GUI's repository-test run as the TEST workflow stage."""
+    canonical = _mapping(project, "project")
+    if skipped:
+        status, execution = "not_run", "SKIPPED"
+        errors: list[str] = []
+    elif type(returncode) is not int:
+        raise ValueError("returncode must be an integer unless tests were skipped")
+    elif returncode == 0:
+        status, execution = "completed", "PASS"
+        errors = []
+    else:
+        status, execution = "failed", "FAIL"
+        errors = ["Repository unittest suite failed; inspect captured test output."]
+    lines = output.splitlines() if isinstance(output, str) else None
+    if lines is None:
+        raise ValueError("output must be a string")
+    ran = next((line.strip() for line in reversed(lines) if line.strip().startswith("Ran ")), None)
+    summary_line = next((line.strip() for line in reversed(lines)
+                         if line.strip() in {"OK", "FAILED (failures=1)", "FAILED (errors=1)"}), None)
+    findings = _findings("TEST.repository", "tests.unittest", [
+        ("repository_tests_failed", "error", errors),
+    ])
+    result = StageResult(
+        stage="TEST.repository",
+        status=status,
+        module="tests.unittest",
+        input_project_sha256=project_sha256(canonical),
+        output_project_sha256=project_sha256(canonical),
+        metrics={"returncode": returncode, "tests_run": ran, "summary": summary_line},
+        finding_ids=[item.finding_id for item in findings],
+        report={
+            "status": execution,
+            "returncode": returncode,
+            "skipped": skipped,
+            "output_tail": "\\n".join(lines[-80:]),
+        },
+        summary=("Repository tests skipped in standalone build." if skipped else
+                 f"Repository tests {execution}."),
+        extra={"workflow_stage": "TEST"},
+    )
+    return result, findings
+
+
 def quick_fit_stage_result(
     project: Mapping[str, Any], output: Mapping[str, Any],
 ) -> tuple[StageResult, list[Finding]]:
@@ -304,6 +355,7 @@ def verification_stage_result(
 
 __all__ = [
     "collector_stage_result", "electrical_sanity_stage_result",
+    "test_suite_stage_result",
     "quick_fit_stage_result", "quick_place_stage_result",
     "route_stage_result", "verification_stage_result",
 ]
