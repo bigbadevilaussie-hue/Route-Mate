@@ -102,6 +102,13 @@ def _terminals(project: dict, rows: int, cols: int) -> list[tuple[int, int, str,
                 pins, _body = component_geometry(component, definition)
                 pin_cache[cid] = pins
             matches = [pin for pin in pin_cache[cid] if str(pin.get("id")) == pid]
+            if not matches and pid.isdecimal():
+                definition = resolve_definition(component, definitions)
+                defined_pins = definition.get("pins", []) if definition else []
+                index = int(pid) - 1
+                if 0 <= index < len(defined_pins):
+                    alias = str(defined_pins[index].get("id"))
+                    matches = [pin for pin in pin_cache[cid] if str(pin.get("id")) == alias]
             if not matches:
                 raise ValueError(f"{label}: pin {pid!r} has no physical pads")
             points = [(int(pin["row"]), int(pin["col"])) for pin in matches]
