@@ -196,12 +196,15 @@ def _new_wire_id(existing: list[dict], serial: int) -> tuple[str, int]:
     return f"RM-W{serial:03d}", serial + 1
 
 
-def route_copper(project: Any, *, vertical_only: bool = False) -> dict[str, Any]:
+def route_copper(project: Any, *, vertical_only: bool = False,
+                 route_order: str = "alphabetical") -> dict[str, Any]:
     """Add cuts and jumpers to a placed project, then run the independent verifier.
 
     Existing cuts and wires are preserved. The source project is never mutated.
     Returns ROUTED only when solve.verify.verify_project reports PASS.\n    vertical_only requires every new jumper to share a column; it is not\n    a substitute for physical clearance or accessibility verification.
     """
+    if route_order not in ("alphabetical", "constrained"):
+        raise ValueError("route_order must be alphabetical or constrained")
     if not isinstance(project, dict):
         return {
             "status": "INVALID_INPUT", "project": copy.deepcopy(project),
@@ -341,8 +344,19 @@ def route_copper(project: Any, *, vertical_only: bool = False) -> dict[str, Any]
                                 best = candidate
         return best
 
-    for net in sorted(terminals_by_net):
-        roots = sorted({groups.find(point) for point in terminals_by_net[net]})
+    # A low-cost alternative to genetic route-order search: tackle nets
+    # requiring the most distinct copper-island connections first.
+    # This changes wire insertion order, not the electrical netlist.
+    net_roots = {
+        net: sorted({groups.find(point) for point in points})
+        for net, points in terminals_by_net.items()
+    }
+    if route_order == "constrained":
+        net_order = sorted(net_roots, key=lambda net: (-len(net_roots[net]), net))
+    else:
+        net_order = sorted(net_roots)
+    for net in net_order:
+        roots = net_roots[net]
         if len(roots) < 2:
             continue
         # Keep one growing connected island; merging into a previously
