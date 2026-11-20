@@ -152,6 +152,23 @@ def jumpers_intersect(first: PhysicalSegment, second: PhysicalSegment) -> bool:
     return physical_segments_intersect(first, second)
 
 
+def jumper_endpoint_available(
+    grid: BoardGrid,
+    hole: tuple[int, int],
+    occupied_holes: set[tuple[int, int]] | frozenset[tuple[int, int]] = frozenset(),
+    landing_holes: set[tuple[int, int]] | frozenset[tuple[int, int]] = frozenset(),
+) -> bool:
+    """Return whether a jumper endpoint is valid and not already occupied.
+
+    A hole explicitly listed in landing_holes is permitted as an intentional
+    landing even if it is also listed as occupied. This function checks hole
+    identity/occupancy only; it does not claim physical access or solder
+    clearance, which require additional measured geometry.
+    """
+    grid.hole_center(*hole)  # Raises ValueError for an invalid board hole.
+    return hole in landing_holes or hole not in occupied_holes
+
+
 __all__ = [
     "HOLE_PITCH_MM",
     "HALF_PITCH_MM",
@@ -167,4 +184,5 @@ __all__ = [
     "physical_segments_intersect",
     "jumper_intersects_component",
     "jumpers_intersect",
+    "jumper_endpoint_available",
 ]
