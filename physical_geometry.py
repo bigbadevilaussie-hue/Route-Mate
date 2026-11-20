@@ -169,6 +169,72 @@ def jumper_endpoint_available(
     return hole in landing_holes or hole not in occupied_holes
 
 
+def project_geometry_confidence(project: dict[str, Any]) -> dict[str, Any]:
+    """Report what the saved project can and cannot support physically.
+
+    Grid occupancy is reported separately from measured package geometry.
+    This function deliberately does not infer millimetre body dimensions from
+    width/height, bodyCells, artwork, or pin spacing.
+    """
+    if not isinstance(project, dict):
+        raise ValueError("project must be an object")
+    components = project.get("components")
+    definitions = project.get("componentDefs")
+    if not isinstance(components, list) or not isinstance(definitions, list):
+        raise ValueError("project must contain components and componentDefs arrays")
+
+    by_id = {
+        str(item.get("id")): item
+        for item in definitions
+        if isinstance(item, dict) and item.get("id") is not None
+    }
+    rows: list[dict[str, Any]] = []
+    occupancy_count = 0
+    unresolved_count = 0
+    for component in components:
+        if not isinstance(component, dict):
+            raise ValueError("every component must be an object")
+        ref = str(component.get("ref") or component.get("reference")
+                  or component.get("label") or component.get("id") or "")
+        def_id = str(component.get("defId") or component.get("componentDefId") or "")
+        definition = by_id.get(def_id)
+        if definition is None:
+            rows.append({
+                "component": ref, "definition_id": def_id,
+                "grid_occupancy": "unresolved",
+                "measured_body_dimensions_mm": "not_provided",
+            })
+            unresolved_count += 1
+            continue
+
+        effective = dict(definition)
+        override = component.get("footprintOverride")
+        if isinstance(override, dict):
+            effective.update(override)
+        body_cells = effective.get("bodyCells")
+        has_occupancy = isinstance(body_cells, list) and len(body_cells) > 0
+        if has_occupancy:
+            occupancy_count += 1
+        rows.append({
+            "component": ref,
+            "definition_id": def_id,
+            "grid_occupancy": "saved_body_cells" if has_occupancy else "pins_only_or_empty",
+            "body_cell_count": len(body_cells) if isinstance(body_cells, list) else 0,
+            "measured_body_dimensions_mm": "not_provided",
+        })
+
+    total = len(components)
+    return {
+        "status": "INCOMPLETE_PHYSICAL_DIMENSIONS",
+        "component_count": total,
+        "grid_occupancy_count": occupancy_count,
+        "unresolved_definition_count": unresolved_count,
+        "measured_body_dimensions_count": 0,
+        "physical_clearance_verifiable": False,
+        "components": rows,
+    }
+
+
 __all__ = [
     "HOLE_PITCH_MM",
     "HALF_PITCH_MM",
@@ -185,4 +251,5 @@ __all__ = [
     "jumper_intersects_component",
     "jumpers_intersect",
     "jumper_endpoint_available",
+    "project_geometry_confidence",
 ]
