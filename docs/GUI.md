@@ -2,6 +2,10 @@
 
 > **Physical-routing authority:** [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md) is the sole source of truth for cuts, jumper geometry, physical accessibility and acceptance. GUI behaviour must not imply that the legacy v1.21 electrical-only route is physically buildable. Keep electrical and physical results distinct; a solution is accepted only when both pass.
 
+## Solver mode decision
+
+The GUI will expose Quick Solve and Hell Mode as **two modes of the same shared solver**, not separate engines. Both must use identical hard constraints and independent electrical/physical verification. Quick Solve failure means no verified candidate found within its budget, not proven impossibility. Hell Mode may refine a verified Quick Solve result. This is future behaviour, not a claim of current implementation. See [Solver Architecture Decision](SOLVER_ARCHITECTURE_DECISION.md); the locked [Physical Model Specification](PHYSICAL_MODEL_SPEC.md) takes precedence.
+
 ## Decision
 
 **Selected stack: PySide6 + Qt Widgets + QGraphicsView.**
