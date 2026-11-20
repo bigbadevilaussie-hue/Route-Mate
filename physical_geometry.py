@@ -142,6 +142,66 @@ def physical_segments_intersect(first: PhysicalSegment, second: PhysicalSegment)
     return ((o1 > 0) != (o2 > 0)) and ((o3 > 0) != (o4 > 0))
 
 
+def _point_segment_distance_squared(point: PhysicalPoint, segment: PhysicalSegment) -> Fraction:
+    dx = segment.end.x_mm - segment.start.x_mm
+    dy = segment.end.y_mm - segment.start.y_mm
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0:
+        return ((point.x_mm - segment.start.x_mm) ** 2
+                + (point.y_mm - segment.start.y_mm) ** 2)
+    projection = ((point.x_mm - segment.start.x_mm) * dx
+                 + (point.y_mm - segment.start.y_mm) * dy) / length_squared
+    projection = max(Fraction(0), min(Fraction(1), projection))
+    nearest_x = segment.start.x_mm + projection * dx
+    nearest_y = segment.start.y_mm + projection * dy
+    return (point.x_mm - nearest_x) ** 2 + (point.y_mm - nearest_y) ** 2
+
+
+def physical_segment_within_cell_radius(
+    segment: PhysicalSegment, cell: PhysicalCell, radius_mm: Fraction
+) -> bool:
+    """Test a round wire envelope against a closed occupancy square.
+
+    radius_mm is an explicit physical input; no wire diameter or clearance is
+    assumed. Exact squared-distance comparisons avoid floating-point error.
+    """
+    radius = Fraction(radius_mm)
+    if radius < 0:
+        raise ValueError("radius_mm must be non-negative")
+    if physical_segment_intersects_cell(segment, cell):
+        return True
+
+    def point_rectangle_distance_squared(point: PhysicalPoint) -> Fraction:
+        dx = max(cell.left_mm - point.x_mm, Fraction(0),
+                 point.x_mm - cell.right_mm)
+        dy = max(cell.top_mm - point.y_mm, Fraction(0),
+                 point.y_mm - cell.bottom_mm)
+        return dx * dx + dy * dy
+
+    if min(point_rectangle_distance_squared(segment.start),
+           point_rectangle_distance_squared(segment.end)) <= radius * radius:
+        return True
+
+    corners = (
+        PhysicalPoint(cell.left_mm, cell.top_mm),
+        PhysicalPoint(cell.left_mm, cell.bottom_mm),
+        PhysicalPoint(cell.right_mm, cell.top_mm),
+        PhysicalPoint(cell.right_mm, cell.bottom_mm),
+    )
+    return any(_point_segment_distance_squared(corner, segment) <= radius * radius
+               for corner in corners)
+
+
+def jumper_envelope_intersects_component(
+    jumper: PhysicalSegment,
+    component_cells: list[PhysicalCell],
+    radius_mm: Fraction,
+) -> bool:
+    """Check a round jumper wire envelope using an explicitly supplied radius."""
+    return any(physical_segment_within_cell_radius(jumper, cell, radius_mm)
+               for cell in component_cells)
+
+
 def jumper_intersects_component(jumper: PhysicalSegment, component_cells: list[PhysicalCell]) -> bool:
     """Check jumper centreline against saved component occupancy cells."""
     return any(physical_segment_intersects_cell(jumper, cell) for cell in component_cells)
@@ -247,6 +307,8 @@ __all__ = [
     "physical_jumper_segment",
     "physical_component_body",
     "physical_segment_intersects_cell",
+    "physical_segment_within_cell_radius",
+    "jumper_envelope_intersects_component",
     "physical_segments_intersect",
     "jumper_intersects_component",
     "jumpers_intersect",
