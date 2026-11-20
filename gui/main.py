@@ -451,26 +451,8 @@ class RouteMateWindow(QMainWindow):
             {"constraints": copy.deepcopy(self.presolve_constraints)},
         )
 
-        # Quick Fit follows the established prompt/remove/render flow.
-        # Do not pass unsupported edge/slide constraints to Quick Fit.
-        unsupported = [
-            component for component in placed
-            if not component.get("boardExcluded")
-            and not component.get("offBoard")
-            and (
-                self.presolve_constraints.get(str(component.get("id")), {}).get("edge")
-                or self.presolve_constraints.get(str(component.get("id")), {}).get("slide")
-            )
-        ]
-        if unsupported:
-            labels = ", ".join(str(c.get("label") or c.get("id")) for c in unsupported)
-            self.log_line(
-                "[QUICK FIT] Not started: Quick Fit does not yet implement "
-                f"hard edge anchors/sliding ({labels}). The latest board preview is retained."
-            )
-            self.statusBar().showMessage("Constraints collected; edge/slide solver support is pending.")
-            return
-
+        # Locked, positioned parts (including edge/slide-labelled anchors)
+        # are fixed obstacles; proceed directly to Quick Fit.
         self.log_line("[QUICK FIT] Running shared deterministic net-aware placement engine...")
         from pipeline import quick_fit_stage_result
         from solve import quick_fit
