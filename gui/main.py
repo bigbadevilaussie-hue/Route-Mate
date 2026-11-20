@@ -291,8 +291,8 @@ class RouteMateWindow(QMainWindow):
         self.copper_action.setCheckable(True)
         self.copper_action.triggered.connect(lambda: self._switch_board_side("copper"))
         toolbar.addAction(self.copper_action)
-        render_action = QAction("Render / Export SVG", self)
-        render_action.triggered.connect(self.export_board_svgs)
+        render_action = QAction("Render JSON", self)
+        render_action.triggered.connect(self.render_json)
         toolbar.addAction(render_action)
 
         self.log = QPlainTextEdit()
@@ -401,6 +401,45 @@ class RouteMateWindow(QMainWindow):
         )
         self._copper_svg = copper_svg
         return top_svg, "production standalone renderer (both board sides)"
+
+    def render_json(self):
+        """Open a board JSON and display its saved layout without running the pipeline."""
+        start_dir = self.project_path.parent if self.project_path else REPO_ROOT
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Render Route-Mate JSON", str(start_dir),
+            "Project JSON (*.json);;All files (*)",
+        )
+        if not filename:
+            return
+        path = Path(filename)
+        try:
+            project = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(project, dict):
+                raise ValueError("Project JSON root must be an object.")
+            board = project.get("board")
+            if not isinstance(board, dict) or not all(
+                isinstance(board.get(key), int) and board[key] > 0
+                for key in ("rows", "cols")
+            ):
+                raise ValueError("Project JSON needs positive board.rows and board.cols.")
+            if not isinstance(project.get("components"), list):
+                raise ValueError("Project JSON needs a components array.")
+            # Render into temporary values first; leave the existing view intact on failure.
+            from render.standalone_bridge import render_project_data
+            top_svg, copper_svg, _ = render_project_data(project)
+            self.project = project
+            self.project_path = path
+            self.pipeline_run = None
+            self.presolve_constraints = {}
+            self._top_svg = top_svg
+            self._copper_svg = copper_svg
+            self._show_board(top_svg if self._board_side == "top" else copper_svg)
+            self.log_line(f"[RENDER JSON] {path}")
+            self.log_line("[RENDER JSON] Displayed saved layout; no collector, tests or solver run.")
+            self.statusBar().showMessage(f"Rendered JSON: {path.name}")
+        except Exception as exc:
+            self.log_line(f"[RENDER JSON][ERROR] {type(exc).__name__}: {exc}")
+            QMessageBox.warning(self, "Could not render JSON", str(exc))
 
     def export_board_svgs(self):
         """Refresh the current board and save both production SVG views."""
