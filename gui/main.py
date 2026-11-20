@@ -225,7 +225,7 @@ class RouteMateWindow(QMainWindow):
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: collect → electrical sanity → render existing layout → tests → constraints → Quick Fit → copper route/verify → updated render.")
+        self.log_line("Workflow: COLLECT → TEST → QUICKSOLVE → SOLVE. Pipeline State shows stage reports, project hashes and findings handed forward.")
         self.log_line("Solver available: deterministic greedy Quick Fit plus first-pass strip copper routing. Hard edge anchors and sliding are not implemented.")
 
     def log_line(self, message: str):
@@ -270,6 +270,12 @@ class RouteMateWindow(QMainWindow):
                 lines.append(f"  {result.stage} — {result.status} — {result.module}")
                 lines.append(f"    input:  {(result.input_project_sha256 or 'n/a')[:16]}")
                 lines.append(f"    output: {(result.output_project_sha256 or 'n/a')[:16]}")
+                if result.options.get("from_stage"):
+                    lines.append(f"    received after: {result.options['from_stage']}")
+                if result.options.get("upstream_finding_ids"):
+                    lines.append(
+                        f"    received findings: {result.options['upstream_finding_ids']}"
+                    )
                 if result.metrics:
                     lines.append(f"    metrics: {result.metrics}")
                 if result.summary:
@@ -530,8 +536,11 @@ class RouteMateWindow(QMainWindow):
         if self.pipeline_run is None:
             return
         self.pipeline_run.record_stage(result, findings)
+        group = result.extra.get("workflow_stage", result.stage)
         self.log_line(
-            f"[PIPELINE] {result.stage}: {result.summary or result.status}; "
+            f"[PIPELINE][{group}] {result.stage}: {result.summary or result.status}; "
+            f"input={str(result.input_project_sha256 or 'n/a')[:12]} "
+            f"output={str(result.output_project_sha256 or 'n/a')[:12]}; "
             f"state saved to {self.pipeline_run.state_path.name}"
         )
 
