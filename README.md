@@ -56,6 +56,9 @@ We study useful solver algorithms, but Karl's original implementation, the modif
 
 ## Reference documentation
 
+**Start with the [documentation map](docs/README.md)** for authority, current design versus historical audits, and the [collector/PRE-SOLVE handoff](docs/PRE_SOLVE.md). PRE-SOLVE is preparation within the existing IN → PREPARE → SOLVE → DISPLAY pipeline, not a new top-level stage.
+
+
 - [Physical model and implementation gates](docs/PHYSICAL_MODEL_SPEC.md)
 - [Current implementation handoff](docs/GATE1_HANDOFF.md)
 - [CLI input contract](docs/CLI.md)
