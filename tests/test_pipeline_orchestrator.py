@@ -80,6 +80,56 @@ class PipelineRunTests(unittest.TestCase):
         self.assertEqual(len(loaded.context.findings), 1)
         self.assertEqual(loaded.context.findings[0].message, "Test warning")
 
+    def test_handoff_carries_current_project_and_open_findings(self):
+        from pipeline import make_finding_id
+
+        run = PipelineRun.create(self.project_path, self.project, run_id="test-run")
+        finding = Finding(
+            finding_id="COLLECT:warning:one",
+            code="collector_warning",
+            severity="warning",
+            status="open",
+            message="Footprint warning",
+            producer={"stage": "COLLECT", "module": "collect"},
+        )
+        result = StageResult(
+            stage="IN.project_import",
+            status="completed",
+            module="gui.project_import",
+            input_project_sha256=run.context.project_sha256,
+            output_project_sha256=run.context.project_sha256,
+            finding_ids=[finding.finding_id],
+        )
+        run.record_stage(result, [finding])
+
+        handoff = run.handoff(self.project, "prepare.sanity.electrical")
+
+        self.assertEqual(handoff["from_stage"], "IN.project_import")
+        self.assertEqual(handoff["to_module"], "prepare.sanity.electrical")
+        self.assertEqual(handoff["project"], self.project)
+        self.assertEqual(handoff["finding_ids"], [finding.finding_id])
+        self.assertEqual(handoff["findings"][0]["message"], "Footprint warning")
+
+    def test_handoff_rejects_project_not_matching_latest_stage_output(self):
+        run = PipelineRun.create(self.project_path, self.project, run_id="test-run")
+        changed = {**self.project, "components": [{"id": "R1"}]}
+        with self.assertRaisesRegex(ValueError, "stale pipeline handoff"):
+            run.handoff(changed, "solve.quick_fit")
+
+    def test_record_stage_rejects_stale_input_hash(self):
+        run = PipelineRun.create(self.project_path, self.project, run_id="test-run")
+        changed = {**self.project, "components": [{"id": "R1"}]}
+        result = StageResult(
+            stage="SOLVE.quick_fit",
+            status="completed",
+            module="solve.quick_fit",
+            input_project_sha256=project_sha256(changed),
+            output_project_sha256=project_sha256(changed),
+        )
+        with self.assertRaisesRegex(ValueError, "stale stage input"):
+            run.record_stage(result)
+        self.assertEqual(run.context.stages, {})
+
     def test_load_rejects_non_object_state(self):
         path = Path(self.temp.name) / "bad.json"
         path.write_text(json.dumps([]), encoding="utf-8")
