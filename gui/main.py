@@ -207,6 +207,9 @@ class RouteMateWindow(QMainWindow):
         load_action = QAction("Load JSON", self)
         load_action.triggered.connect(self.load_json)
         toolbar.addAction(load_action)
+        pipeline_action = QAction("Pipeline State", self)
+        pipeline_action.triggered.connect(self.show_pipeline_state)
+        toolbar.addAction(pipeline_action)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -228,6 +231,71 @@ class RouteMateWindow(QMainWindow):
     def log_line(self, message: str):
         self.log.appendPlainText(message)
 
+    def _log_handoff(self, handoff: dict[str, Any]):
+        self.log_line(
+            f"[HANDOFF] {handoff.get('from_stage') or 'project start'} -> "
+            f"{handoff['to_module']} | project={handoff['project_sha256'][:12]} | "
+            f"outstanding findings={len(handoff['findings'])}"
+        )
+        for finding in handoff["findings"]:
+            self.log_line(
+                f"[HANDOFF][{finding['severity'].upper()}] "
+                f"{finding['code']}: {finding['message']}"
+            )
+
+    def show_pipeline_state(self):
+        if self.pipeline_run is None:
+            QMessageBox.information(self, "Pipeline State", "Load a project to start a pipeline run.")
+            return
+        context = self.pipeline_run.context
+        lines = [
+            f"Run ID: {context.run_id}",
+            f"Project: {context.project_path}",
+            f"Current stage: {context.current_stage or 'not started'}",
+            f"Current project SHA-256: {context.project_sha256}",
+            "",
+            "WORKFLOW HANDOFFS",
+        ]
+        order = ("COLLECT", "TEST", "QUICKSOLVE", "SOLVE")
+        grouped = {name: [] for name in order}
+        for result in context.stages.values():
+            group = result.extra.get("workflow_stage", "OTHER")
+            grouped.setdefault(group, []).append(result)
+        for group in order:
+            lines.append(f"{group}:")
+            records = grouped.get(group, [])
+            if not records:
+                lines.append("  NOT RUN")
+            for result in records:
+                lines.append(f"  {result.stage} — {result.status} — {result.module}")
+                lines.append(f"    input:  {(result.input_project_sha256 or 'n/a')[:16]}")
+                lines.append(f"    output: {(result.output_project_sha256 or 'n/a')[:16]}")
+                if result.metrics:
+                    lines.append(f"    metrics: {result.metrics}")
+                if result.summary:
+                    lines.append(f"    result: {result.summary}")
+        lines.extend(["", f"FINDINGS ({len(context.findings)} total)"])
+        if not context.findings:
+            lines.append("  None")
+        for finding in context.findings:
+            lines.append(
+                f"  [{finding.severity.upper()} / {finding.status}] "
+                f"{finding.code}: {finding.message}"
+            )
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Pipeline State — Handoff Proof")
+        dialog.resize(900, 650)
+        layout = QVBoxLayout(dialog)
+        view = QPlainTextEdit(dialog)
+        view.setReadOnly(True)
+        view.setPlainText("\\n".join(lines))
+        layout.addWidget(view)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        dialog.exec()
+
     def fit_board(self):
         self.top_view.fit_board()
 
@@ -248,6 +316,18 @@ class RouteMateWindow(QMainWindow):
     def _run_tests(self):
         if getattr(sys, "frozen", False):
             self.log_line("[TEST] Skipped: running standalone application.")
+            if self.pipeline_run is not None and self.project is not None:
+                from pipeline import test_suite_stage_result
+                handoff = self.pipeline_run.handoff(self.project, "tests.unittest")
+                self._log_handoff(handoff)
+                stage_result, findings = test_suite_stage_result(
+                    handoff["project"], returncode=None, skipped=True
+                )
+                stage_result.options.update({
+                    "from_stage": handoff["from_stage"],
+                    "upstream_finding_ids": handoff["finding_ids"],
+                })
+                self._record_pipeline_result(stage_result, findings)
             return True
 
         self.log_line("[TEST] Running repository unittest suite...")
@@ -259,6 +339,18 @@ class RouteMateWindow(QMainWindow):
         for line in result.stdout.splitlines():
             self.log_line("[TEST] " + line)
         self.log_line(f"[TEST] Exit code: {result.returncode}")
+        if self.pipeline_run is not None and self.project is not None:
+            from pipeline import test_suite_stage_result
+            handoff = self.pipeline_run.handoff(self.project, "tests.unittest")
+            self._log_handoff(handoff)
+            stage_result, findings = test_suite_stage_result(
+                handoff["project"], returncode=result.returncode, output=result.stdout
+            )
+            stage_result.options.update({
+                "from_stage": handoff["from_stage"],
+                "upstream_finding_ids": handoff["finding_ids"],
+            })
+            self._record_pipeline_result(stage_result, findings)
         return result.returncode == 0
 
     def _ask_lock_settings(self, placed: list[dict[str, Any]]):
@@ -347,9 +439,15 @@ class RouteMateWindow(QMainWindow):
         self.log_line("[QUICK FIT] Running shared deterministic net-aware placement engine...")
         from pipeline import quick_fit_stage_result
         from solve import quick_fit
-        quick_fit_input = copy.deepcopy(self.project)
-        result = quick_fit(self.project)
+        quick_fit_handoff = self.pipeline_run.handoff(self.project, "solve.quick_fit")
+        self._log_handoff(quick_fit_handoff)
+        quick_fit_input = quick_fit_handoff["project"]
+        result = quick_fit(quick_fit_input)
         stage_result, findings = quick_fit_stage_result(quick_fit_input, result)
+        stage_result.options.update({
+            "from_stage": quick_fit_handoff["from_stage"],
+            "upstream_finding_ids": quick_fit_handoff["finding_ids"],
+        })
         self._record_pipeline_result(stage_result, findings)
         for error in result.get("errors", []):
             self.log_line("[QUICK FIT][ERROR] " + str(error))
@@ -371,15 +469,29 @@ class RouteMateWindow(QMainWindow):
         self.project = result["project"]
         from pipeline import route_stage_result, verification_stage_result
         from solve import route_copper
-        route_input = copy.deepcopy(self.project)
-        routing = route_copper(self.project)
+        route_handoff = self.pipeline_run.handoff(self.project, "solve.route")
+        self._log_handoff(route_handoff)
+        route_input = route_handoff["project"]
+        routing = route_copper(route_input)
         route_result, route_findings = route_stage_result(route_input, routing)
+        route_result.options.update({
+            "from_stage": route_handoff["from_stage"],
+            "upstream_finding_ids": route_handoff["finding_ids"],
+        })
         self._record_pipeline_result(route_result, route_findings)
         verification = routing.get("verification")
         if isinstance(verification, dict) and verification.get("status") in {"PASS", "FAIL"}:
-            verify_result, verify_findings = verification_stage_result(
-                routing.get("project", route_input), verification
+            verify_handoff = self.pipeline_run.handoff(
+                routing.get("project", route_input), "solve.verify"
             )
+            self._log_handoff(verify_handoff)
+            verify_result, verify_findings = verification_stage_result(
+                verify_handoff["project"], verification
+            )
+            verify_result.options.update({
+                "from_stage": verify_handoff["from_stage"],
+                "upstream_finding_ids": verify_handoff["finding_ids"],
+            })
             self._record_pipeline_result(verify_result, verify_findings)
         for error in routing.get("errors", []):
             self.log_line("[ROUTING][ERROR] " + str(error))
@@ -495,9 +607,16 @@ class RouteMateWindow(QMainWindow):
             )
 
             from prepare.sanity.electrical import run_electrical_sanity
-            sanity = run_electrical_sanity(project)
+            sanity_handoff = self.pipeline_run.handoff(project, "prepare.sanity.electrical")
+            self._log_handoff(sanity_handoff)
+            sanity_input = sanity_handoff["project"]
+            sanity = run_electrical_sanity(sanity_input)
             from pipeline import electrical_sanity_stage_result
-            sanity_result, sanity_findings = electrical_sanity_stage_result(project, sanity)
+            sanity_result, sanity_findings = electrical_sanity_stage_result(sanity_input, sanity)
+            sanity_result.options.update({
+                "from_stage": sanity_handoff["from_stage"],
+                "upstream_finding_ids": sanity_handoff["finding_ids"],
+            })
             self._record_pipeline_result(sanity_result, sanity_findings)
             self.log_line(f"[SANITY] Electrical integrity: {sanity['status']}")
             for error in sanity["errors"]:
