@@ -88,7 +88,7 @@ def _terminals(project: dict, rows: int, cols: int) -> list[tuple[int, int, str,
             leads = component.get("leads")
             lead = leads.get(pid) if isinstance(leads, dict) else None
             if lead is None:
-                continue
+                raise ValueError(f"{label} pin {pid}: missing off-board termination pad")
             points = [_coordinate(lead, f"{label} lead {pid}")]
         else:
             if not isinstance(component.get("boardPos"), dict):
