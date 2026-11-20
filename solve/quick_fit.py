@@ -431,6 +431,14 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
         if definition:
             pin_ids[cid] = {str(p.get("id")) for p in definition.get("pins", [])
                             if isinstance(p, dict)}
+    # WR electrical assignments may use ordinal 1/2 for named a/k or +/- pads.
+    # Normalise before placement and external termination-pad allocation.
+    pin_aliases = {}
+    for cid, component in component_by_id.items():
+        definition = resolve_definition(component, definitions)
+        if definition:
+            pins = [p for p in definition.get("pins", []) if isinstance(p, dict)]
+            pin_aliases[cid] = {str(i): str(p["id"]) for i, p in enumerate(pins, 1)}
     pin_nets, net_degrees = {}, {}
     for index, assignment in enumerate(assignments):
         if not isinstance(assignment, dict):
@@ -441,6 +449,8 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
         if cid not in component_by_id:
             return _failure("INCOMPLETE_GEOMETRY", source,
                             [f"netAssignments[{index}] references unknown component {cid!r}"])
+        if pid not in pin_ids.get(cid, set()):
+            pid = pin_aliases.get(cid, {}).get(pid, pid)
         if pid not in pin_ids.get(cid, set()):
             return _failure("INCOMPLETE_GEOMETRY", source,
                             [f"netAssignments[{index}] references missing pin {cid}.{pid}"])
