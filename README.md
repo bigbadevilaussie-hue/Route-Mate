@@ -50,6 +50,10 @@ Route-Mate's production board preview calls the standalone renderer from the Str
 
 We study useful solver algorithms, but Karl's original implementation, the modified fork and Route-Mate's own solver are distinct. No claim is made that Karl's solver enforces Route-Mate's hard physical constraints.
 
+## Solver architecture
+
+**One shared engine, two search modes:** Quick Solve finds a verified legal layout quickly; Hell Mode searches harder for a better verified layout, using Quick Solve's result as a starting point when available. Both use the same hard constraints and independent electrical/physical verifier. A Quick Solve failure is not proof of impossibility. Karl's solver algorithms are studied and adapted, not adopted as Route-Mate's legality rules. See [Solver Architecture Decision](docs/SOLVER_ARCHITECTURE_DECISION.md).
+
 ## Reference documentation
 
 - [Physical model and implementation gates](docs/PHYSICAL_MODEL_SPEC.md)
