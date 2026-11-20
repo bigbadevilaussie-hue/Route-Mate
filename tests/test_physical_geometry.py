@@ -12,6 +12,11 @@ from physical_geometry import (
     physical_component_body,
     physical_hole_center,
     physical_jumper_segment,
+    jumper_intersects_component,
+    jumpers_intersect,
+    physical_segment_intersects_cell,
+    PhysicalCell,
+    PhysicalSegment,
 )
 
 
@@ -87,6 +92,45 @@ class PhysicalGeometryTests(unittest.TestCase):
         }
         cells = physical_component_body(component, definition)
         self.assertEqual([(c.row, c.col) for c in cells], [(5, 9), (6, 11), (7, 13)])
+
+
+    def test_jumper_intersects_component_occupancy(self):
+        jumper = physical_jumper_segment(self.grid, (1, 9), (6, 9))
+        cell = PhysicalCell(3, 9,
+            9 * HOLE_PITCH_MM - HOLE_PITCH_MM / 2,
+            3 * HOLE_PITCH_MM - HOLE_PITCH_MM / 2,
+            9 * HOLE_PITCH_MM + HOLE_PITCH_MM / 2,
+            3 * HOLE_PITCH_MM + HOLE_PITCH_MM / 2)
+        self.assertTrue(physical_segment_intersects_cell(jumper, cell))
+        self.assertTrue(jumper_intersects_component(jumper, [cell]))
+
+    def test_jumper_clear_of_component_occupancy(self):
+        jumper = physical_jumper_segment(self.grid, (1, 9), (6, 9))
+        cell = PhysicalCell(3, 11,
+            11 * HOLE_PITCH_MM - HOLE_PITCH_MM / 2,
+            3 * HOLE_PITCH_MM - HOLE_PITCH_MM / 2,
+            11 * HOLE_PITCH_MM + HOLE_PITCH_MM / 2,
+            3 * HOLE_PITCH_MM + HOLE_PITCH_MM / 2)
+        self.assertFalse(jumper_intersects_component(jumper, [cell]))
+
+    def test_jumper_crossing_overlap_and_separation(self):
+        vertical = PhysicalSegment(PhysicalPoint(Fraction(0), Fraction(0)),
+                                   PhysicalPoint(Fraction(0), Fraction(10)))
+        crossing = PhysicalSegment(PhysicalPoint(Fraction(-2), Fraction(5)),
+                                   PhysicalPoint(Fraction(2), Fraction(5)))
+        overlap = PhysicalSegment(PhysicalPoint(Fraction(0), Fraction(4)),
+                                  PhysicalPoint(Fraction(0), Fraction(8)))
+        separate = PhysicalSegment(PhysicalPoint(Fraction(2), Fraction(0)),
+                                   PhysicalPoint(Fraction(2), Fraction(10)))
+        self.assertTrue(jumpers_intersect(vertical, crossing))
+        self.assertTrue(jumpers_intersect(vertical, overlap))
+        self.assertFalse(jumpers_intersect(vertical, separate))
+
+    def test_boundary_touch_is_component_intersection(self):
+        segment = PhysicalSegment(PhysicalPoint(Fraction(0), Fraction(0)),
+                                  PhysicalPoint(Fraction(0), Fraction(4)))
+        cell = PhysicalCell(1, 0, Fraction(0), Fraction(1), Fraction(2), Fraction(3))
+        self.assertTrue(physical_segment_intersects_cell(segment, cell))
 
 
 if __name__ == "__main__":
