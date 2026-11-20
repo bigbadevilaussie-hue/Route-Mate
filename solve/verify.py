@@ -169,6 +169,7 @@ def verify_project(project: Any) -> dict[str, Any]:
             leads = component.get("leads")
             lead = leads.get(pid) if isinstance(leads, dict) else None
             if lead is None:
+                errors.append(f"{label} pin {pid}: missing off-board termination pad")
                 continue
             try:
                 points = [_coord(lead, f"{label} lead {pid}")]
