@@ -1,5 +1,7 @@
 # Route-Mate CLI — agreed input contract
 
+> **Solver decision:** [Quick Solve and Hell Mode share one engine and verifier](SOLVER_ARCHITECTURE_DECISION.md). These are intended modes, not necessarily implemented CLI flags. The locked physical specification remains authoritative.
+
 This document locks the user-facing input decisions agreed during product design. It is a contract for implementation; it does not claim that every switch is implemented yet.
 
 ## Human workflow
