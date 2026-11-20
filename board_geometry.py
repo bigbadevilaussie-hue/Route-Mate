@@ -236,6 +236,17 @@ def component_geometry(
     max_col = max((p[1] for p in points), default=0)
     rotation = int(component.get("rotation", 0) or 0) % 360
 
+    # WR 2-pin connectors use a vertical zero-degree orientation even
+    # when their serialized definition is a horizontal 2x1 footprint.
+    if (str(component.get("defId") or component.get("componentDefId") or "").startswith("def-connector-")
+            and len(pins) == 2 and max_row == 0 and max_col == 1):
+        pins = [
+            {**pin, "offsetRow": int(pin.get("offsetCol", 0)), "offsetCol": 0}
+            for pin in pins
+        ]
+        body = [{"row": int(cell.get("col", 0)), "col": 0} for cell in body]
+        max_row, max_col = 1, 0
+
     # A solved export may carry an explicit flexible endpoint even when
     # its saved footprint definition omits the editor's "flexible" flag.
     # Honour that endpoint for two-pin parts without changing saved geometry.
