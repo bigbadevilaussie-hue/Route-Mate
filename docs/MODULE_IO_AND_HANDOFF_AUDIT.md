@@ -1,5 +1,7 @@
 # Route-Mate Module I/O and Pipeline Handoff Audit
 
+> **HISTORICAL AUDIT WITH APPENDED IMPLEMENTATION UPDATES:** Early gap statements describe the audited branch, not necessarily current `main`. The sidecar/handoff design in §5 remains the reference contract; see [Documentation map](README.md) and [PRE-SOLVE handoff](PRE_SOLVE.md). Check live code for implementation status.
+
 **Audit target:** `gate1-geometry-contract`  
 **Audit basis:** source inspection of every production Python module in the branch, plus the current README, CLI/GUI documentation, Gate 0 audit and locked Physical Model Specification.  
 **Purpose:** document what modules actually consume and return today, identify where findings are lost, and define a practical shared storage/handoff contract.  
