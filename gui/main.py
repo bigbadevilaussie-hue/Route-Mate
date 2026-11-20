@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.28"
-CODE_VERSION = "1.28"
+GUI_VERSION = "1.29"
+CODE_VERSION = "1.29"
 
 from PySide6.QtCore import Qt, QByteArray, QPoint
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
@@ -556,6 +556,17 @@ class RouteMateWindow(QMainWindow):
                 f"[ROUTING] {routing.get('status', 'FAILED')} — placement retained; "
                 "no partial routing changes applied."
             )
+        # Always export the exact project used for the rendered Quick Fit board.
+        # The file is overwritten on each successful placement run.
+        quick_path = (self.project_path.parent if self.project_path else REPO_ROOT) / "quick.json"
+        try:
+            temp_path = quick_path.with_name("quick.json.tmp")
+            temp_path.write_text(json.dumps(self.project, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            temp_path.replace(quick_path)
+            self.log_line(f"[QUICK FIT] Saved rendered board JSON: {quick_path}")
+        except OSError as exc:
+            self.log_line(f"[QUICK FIT][ERROR] Could not save quick.json: {exc}")
+            QMessageBox.warning(self, "Quick JSON export failed", str(exc))
         top_svg, renderer_log = self._render_component_side(self.project)
         self._show_board(top_svg)
         self.log_line(
