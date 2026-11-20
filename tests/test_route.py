@@ -172,6 +172,25 @@ class RouteCopperTests(unittest.TestCase):
         self.assertEqual(result["project"], original)
         self.assertEqual(data, original)
 
+    def test_constrained_route_order_prioritizes_more_islands(self):
+        data = make_project(
+            [(0, 0, "A"), (1, 0, "A"),
+             (2, 0, "B"), (3, 0, "B"), (4, 0, "B")],
+            rows=5, cols=5,
+        )
+        result = route_copper(data, route_order="constrained")
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["wires_added"], 3)
+        first = result["project"]["board"]["wires"][0]
+        self.assertEqual({first["from"]["row"], first["to"]["row"]},
+                         {2, 3})
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+        self.assertEqual(data["board"]["wires"], [])
+
+    def test_unknown_route_order_is_rejected(self):
+        with self.assertRaises(ValueError):
+            route_copper(make_project([(0, 0, "A")]), route_order="random")
+
     def test_router_does_not_mutate_source_project(self):
         data = make_project([(0, 0, "A"), (1, 3, "A")])
         before = copy.deepcopy(data)
