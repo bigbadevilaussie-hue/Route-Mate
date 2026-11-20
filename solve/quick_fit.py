@@ -121,9 +121,17 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
             cells.update((int(r), int(c)) for r, c in body)
             if not cells:
                 raise ValueError("footprint has no physical cells")
-            if any(not (0 <= r < rows and 0 <= c < cols) for r, c in cells):
+            # Edge-locked bodies may overhang; electrical pins must stay on board.
+            pin_cells = {(int(p["row"]), int(p["col"])) for p in pins}
+            if any(not (0 <= r < rows and 0 <= c < cols) for r, c in pin_cells):
+                errors.append(f"{label}: locked footprint has pins outside the board")
+                continue
+            if not component.get("edge") and any(
+                not (0 <= r < rows and 0 <= c < cols) for r, c in cells
+            ):
                 errors.append(f"{label}: locked footprint has pads/body outside the board")
                 continue
+            cells = {(r, c) for r, c in cells if 0 <= r < rows and 0 <= c < cols}
             if occupied.intersection(cells):
                 errors.append(f"{label}: locked footprint overlaps another locked footprint")
                 continue
