@@ -105,6 +105,27 @@ class RouteCopperTests(unittest.TestCase):
         self.assertTrue(any("shorts different nets" in error for error in result["errors"]))
         self.assertEqual(data["board"]["wires"][0]["id"], "manual-short")
 
+    def test_reuses_copper_holes_for_short_vertical_jumper(self):
+        data = make_project([(0, 0, "A"), (2, 7, "A")], rows=3, cols=8)
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(result["wires_added"], 1)
+        wire = result["project"]["board"]["wires"][0]
+        self.assertEqual(wire["from"]["col"], wire["to"]["col"])
+        self.assertEqual(abs(wire["from"]["row"] - wire["to"]["row"]), 2)
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+
+    def test_existing_cut_limits_reusable_copper(self):
+        data = make_project(
+            [(0, 0, "A"), (2, 7, "A"), (0, 7, "B")],
+            rows=3, cols=8,
+        )
+        result = route_copper(data)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+        wire = result["project"]["board"]["wires"][0]
+        self.assertNotEqual(wire["from"], {"row": 0, "col": 7})
+
     def test_router_does_not_mutate_source_project(self):
         data = make_project([(0, 0, "A"), (1, 3, "A")])
         before = copy.deepcopy(data)
