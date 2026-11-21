@@ -1,6 +1,6 @@
 # Route-Mate Module I/O and Pipeline Handoff Audit
 
-> **HISTORICAL AUDIT WITH APPENDED IMPLEMENTATION UPDATES:** Early gap statements describe the audited branch, not necessarily current `main`. The sidecar/handoff design in §5 remains the reference contract; see [Documentation map](README.md) and [PRE-SOLVE handoff](PRE_SOLVE.md). Check live code for implementation status.
+> **HISTORICAL AUDIT WITH APPENDED IMPLEMENTATION UPDATES:** Early gap statements describe the audited branch, not necessarily current `main`. The sidecar/handoff design in §5 remains the reference contract; see [Documentation map](../README.md) and [PRE-SOLVE handoff](MODULE_IO_AND_HANDOFF_AUDIT.md). Check live code for implementation status.
 
 **Audit target:** `gate1-geometry-contract`  
 **Audit basis:** source inspection of every production Python module in the branch, plus the current README, CLI/GUI documentation, Gate 0 audit and locked Physical Model Specification.  
@@ -518,7 +518,7 @@ The documented top-level pipeline is **IN → PREPARE → SOLVE → DISPLAY** ([
 
 - `collect.py` estimates board area from per-component bounding boxes, a one-hole gap and a fixed routing-area factor (currently 3.2). This is **advisory** and is not net-aware.
 - The project supplies component/pin/net information. Some body cells are pad-extents occupancy estimates, **not measured package outlines** ([Gate 1 handoff](GATE1_HANDOFF.md)).
-- `solve/quick_fit.py` already evaluates net proximity, occupancy, adjacency and locks. Do not duplicate that algorithm under a new name ([Solver Differentiation](SOLVER_DIFFERENTIATION.md)).
+- `solve/quick_fit.py` already evaluates net proximity, occupancy, adjacency and locks. Do not duplicate that algorithm under a new name ([Solver Differentiation](SOLVER_ARCHITECTURE_DECISION.md)).
 - Pipeline contracts, adapters and a Moto run-state sidecar exist. Do not infer that every proposed finding or hint is already emitted or consumed.
 
 ## Proposed geometry-driven pre-solve recon (NOT IMPLEMENTED)
