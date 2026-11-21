@@ -29,7 +29,9 @@ def sample_project():
 class QualityAuditTests(unittest.TestCase):
     def test_counts_match_expected(self):
         report = audit_project(sample_project(), expected_cuts=2, expected_wires=2)
-        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["physical_jumper_audit"]["status"], "FAIL")
+        self.assertIn("D1: not a straight vertical jumper", report["physical_jumper_audit"]["errors"])
         self.assertTrue(report["counts"]["cuts"]["matches"])
         self.assertTrue(report["counts"]["wires"]["matches"])
 
