@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent
 SIDECAR = ROOT / "benchmarks/moto/moto.routemate-state.json"
 
 
-def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0):
+def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0, quick_probe=False):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
     placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
@@ -82,7 +82,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
             "electrical_status": None, "physical_status": None,
             "cuts_added": 0, "wires_added": 0,
         }
-    routed = route_copper(placed, vertical_only=True, route_order=route_order)
+    routed = route_copper(placed, vertical_only=not quick_probe, route_order=route_order)
     failed_nets = []
     for error in routed.get("errors", []):
         if error.startswith("net ") and ": " in error:
@@ -125,16 +125,18 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
         audit = audit_project(routed["project"])
         report["physical_status"] = audit["physical_jumper_audit"]["status"]
         report["physical_errors"] = audit["physical_jumper_audit"]["errors"]
+    report["quick_probe"] = quick_probe
+    report["quick_constraints_verified"] = False if quick_probe else None
     return report
 
 
 
 def _run_variant(job):
-    variant, route_order, fresh_pads = job
+    variant, route_order, fresh_pads, quick_probe = job
     started = time.perf_counter()
     try:
         report = benchmark(route_order=route_order, fresh_pads=fresh_pads,
-                           placement_variant=variant)
+                           placement_variant=variant, quick_probe=quick_probe)
     except Exception as exc:
         report = {"routing_status": "EXCEPTION", "physical_status": None,
                   "errors": [f"{type(exc).__name__}: {exc}"]}
@@ -158,6 +160,10 @@ if __name__ == "__main__":
     parser.add_argument("--placement-attempts", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--fresh-pads", action="store_true")
+    parser.add_argument("--quick-probe", action="store_true",
+                        help="Unrestricted electrical routing; NOT physically certified")
+    parser.add_argument("--strip-first", action="store_true",
+                        help="Use placement variant 99 with --fresh-pads")
     parser.add_argument("--json", action="store_true",
                         help="Full diagnostic JSON, single attempt only")
     args = parser.parse_args()
@@ -170,9 +176,11 @@ if __name__ == "__main__":
     if args.json and args.placement_attempts != 1:
         parser.error("--json requires one attempt")
 
+    if args.strip_first and not args.fresh_pads:
+        parser.error("--strip-first requires --fresh-pads")
     started = time.perf_counter()
-    jobs = [(v, args.route_order, args.fresh_pads)
-            for v in range(args.placement_attempts)]
+    jobs = [(v, args.route_order, args.fresh_pads, args.quick_probe)
+            for v in ([99] if args.strip_first else range(args.placement_attempts))]
     attempts, successful = [], []
     if args.workers == 1 or len(jobs) == 1:
         for job in jobs:
