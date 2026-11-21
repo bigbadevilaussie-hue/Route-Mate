@@ -39,7 +39,12 @@ class IslandGraphTests(unittest.TestCase):
     def test_rejects_other_net_terminal_island(self, terminals):
         terminals.return_value = self.records + [(1, 1, "other", "C")]
         result = find_vertical_chain(self.project, "signal")
-        self.assertEqual(result["status"], "NO_CHAIN_WITHIN_BUDGET")
+        self.assertEqual(result["status"], "CHAIN_FOUND")
+        self.assertTrue(all(
+            not (wire["from"] == {"row": 1, "col": 1}
+                 or wire["to"] == {"row": 1, "col": 1})
+            for wire in result["chain"]
+        ))
 
 
 if __name__ == "__main__":
