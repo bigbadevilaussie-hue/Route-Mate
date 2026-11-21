@@ -38,6 +38,15 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
         "rows" in project["board"] and "cols" in project["board"]
     ):
         graph_result = route_with_island_graph(project)
+        if graph_result["status"] != "ROUTED":
+            alternate = route_with_island_graph(project, reverse_nets=True)
+            if alternate["status"] == "ROUTED":
+                graph_result = alternate
+            else:
+                graph_result = {**graph_result, "alternate_failure": {
+                    key: value for key, value in alternate.items()
+                    if key in ("status", "reason", "net_id", "chains", "reachable_islands")
+                }}
         if graph_result["status"] == "ROUTED":
             return {**graph_result, "transactional": {
                 "trials": 0, "extra_cuts": [], "status": "VERIFIED",
@@ -75,6 +84,8 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
                 # Try a coordinated bridge after the speculative cut.
                 if "rows" in trial["board"] and "cols" in trial["board"]:
                     graph_trial = route_with_island_graph(trial)
+                    if graph_trial["status"] != "ROUTED":
+                        graph_trial = route_with_island_graph(trial, reverse_nets=True)
                     if graph_trial["status"] == "ROUTED":
                         result = graph_trial
                     else:
@@ -97,7 +108,7 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
         "status": "NO_VERIFIED_ROUTE",
         "graph_failure": None if graph_result is None else {
             key: value for key, value in graph_result.items()
-            if key in ("status", "reason", "net_id", "chains", "verification")
+            if key in ("status", "reason", "net_id", "chains", "verification", "alternate_failure", "reachable_islands")
         },
         "scope": "bounded cut combinations; existing strict router performs jumper search",
     }}
