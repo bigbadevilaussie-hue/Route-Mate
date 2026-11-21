@@ -881,6 +881,25 @@ class RouteMateWindow(QMainWindow):
                                     "The project failed electrical sanity checks. See the log.")
                 return
 
+            # PRE-SOLVE is a read-only PREPARE report, persisted in the existing sidecar.
+            from pipeline import presolve_stage_result
+            presolve_handoff = self.pipeline_run.handoff(project, "prepare.presolve")
+            self._log_handoff(presolve_handoff)
+            presolve_result, presolve_findings = presolve_stage_result(presolve_handoff["project"])
+            presolve_result.options.update({
+                "from_stage": presolve_handoff["from_stage"],
+                "upstream_finding_ids": presolve_handoff["finding_ids"],
+            })
+            self._record_pipeline_result(presolve_result, presolve_findings)
+            candidate = presolve_result.report["board"]
+            self.log_line(
+                f"[PRE-SOLVE] {len(presolve_result.report['components'])} components; "
+                f"placement candidate={candidate['placement_candidate_rows']} x "
+                f"{candidate['placement_candidate_cols']} "
+                f"({candidate['placement_candidate_status']}); "
+                "physical fit NOT verified."
+            )
+
             from placement_policy import is_off_board_component
 
             # Preserve and display the positions already present in the imported project.
