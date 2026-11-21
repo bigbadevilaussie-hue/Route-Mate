@@ -507,6 +507,64 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "example_vertical_chain": chain,
                     "scope": "grid body-occupancy only; excludes other-net and reserved islands",
                 }
+                # Classify first-hop obstructions without relaxing routing.
+                # All candidates share a column; other-net copper is only
+                # inspected, never treated as available to this net.
+                source_holes = sorted({
+                    (row, col) for row, columns in connected_rows.items()
+                    for col in columns
+                })
+                source_set = set(source_holes)
+                blockers = []
+                seen_pairs = set()
+                counts = {
+                    "no_other_island_in_column": 0,
+                    "body_blocked": 0,
+                    "other_net_copper": 0,
+                    "reserved_bridge": 0,
+                    "same_net_target": 0,
+                    "unused_copper": 0,
+                }
+                for start in source_holes:
+                    other_holes = [
+                        (row, start[1]) for row in range(rows)
+                        if row != start[0] and (row, start[1]) not in source_set
+                    ]
+                    if not other_holes:
+                        counts["no_other_island_in_column"] += 1
+                    for end in other_holes:
+                        root = groups.find(end)
+                        # Ignore other holes belonging to the growing island.
+                        if root in roots and root not in remaining:
+                            continue
+                        key = (start, end)
+                        if key in seen_pairs:
+                            continue
+                        seen_pairs.add(key)
+                        if not legal_vertical(start, end):
+                            reason = "body_blocked"
+                        elif root in reserved_bridges:
+                            reason = "reserved_bridge"
+                        elif nets_by_group.get(root) and root not in remaining:
+                            reason = "other_net_copper"
+                        elif root in remaining:
+                            reason = "same_net_target"
+                        else:
+                            reason = "unused_copper"
+                        counts[reason] += 1
+                        if len(blockers) < 16:
+                            blockers.append({
+                                "from": {"row": start[0], "col": start[1]},
+                                "to": {"row": end[0], "col": end[1]},
+                                "reason": reason,
+                                "assigned_nets": sorted(nets_by_group.get(root, ())),
+                            })
+                obstruction = {
+                    "first_hop_counts": counts,
+                    "sample_candidates": blockers,
+                    "source_hole_count": len(source_holes),
+                    "scope": "diagnostic only; grid centreline and copper ownership",
+                }
                 # Diagnose the obstruction; another placement may still route.
                 connected_columns = sorted({
                     col for columns in connected_rows.values() for col in columns
@@ -533,6 +591,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "warnings": [], "cuts_added": 0, "wires_added": 0,
                     "verification": None,
                     "reachability": reachability,
+                    "obstruction": obstruction,
                 }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
