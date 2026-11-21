@@ -82,6 +82,44 @@ def _placement_candidate(records: list[dict[str, Any]], board: dict[str, Any]) -
     return {"status": "no_first_fit_witness", "rows": None, "cols": None}
 
 
+def _orientation_intelligence(pins: list[dict[str, Any]], body: list[tuple[int, int]],
+                              net_by_pin: dict[str, str]) -> dict[str, Any]:
+    """Evidence-based stripboard topology hints, never a routing certificate.
+
+    Copper runs along columns. A vertical top-side jumper cannot traverse a
+    body cell. Do not confuse body obstruction with underside copper isolation.
+    """
+    pin_cells = {(int(p["row"]), int(p["col"])) for p in pins}
+    body_cells = set(body)
+    columns: dict[int, set[int]] = defaultdict(set)
+    row_nets: dict[int, set[str]] = defaultdict(set)
+    for p in pins:
+        row, col = int(p["row"]), int(p["col"])
+        columns[col].add(row)
+        net = net_by_pin.get(str(p["id"]))
+        if net:
+            row_nets[row].add(net)
+    # A pair of populated pin columns with body occupancy between them.
+    pin_cols = sorted(columns)
+    dual_row = (len(pin_cols) == 2 and len(columns[pin_cols[0]]) >= 2
+                and len(columns[pin_cols[1]]) >= 2
+                and any(pin_cols[0] < c < pin_cols[1] for _, c in body_cells))
+    # Each strip carrying N distinct assigned nets needs at least N-1
+    # isolating boundaries, but their feasibility is not established here.
+    cut_lower_bound = sum(max(0, len(nets) - 1) for nets in row_nets.values())
+    # For vertical jumpers, a body cell in a column obstructs that lane.
+    obstructed_columns = sorted({c for _, c in body_cells})
+    return {
+        "topology": "dual_row_module" if dual_row else "other",
+        "pin_columns": pin_cols,
+        "pin_count": len(pins),
+        "body_cell_count": len(body_cells),
+        "vertical_jumper_obstructed_columns": obstructed_columns,
+        "strip_cut_lower_bound": cut_lower_bound,
+        "routing_feasibility": "unverified",
+    }
+
+
 def analyse_project(project: dict[str, Any]) -> dict[str, Any]:
     """Return uniform per-component records and a non-certifying board estimate."""
     board = project.get("board", {})
@@ -187,6 +225,7 @@ def analyse_project(project: dict[str, Any]) -> dict[str, Any]:
                     "pin_rows": [{"row": r, "pins": entries} for r, entries in sorted(rows.items())],
                     "different_net_pairs": conflicts,
                     "physical_clearance_verified": False,
+                    "routing_intelligence": _orientation_intelligence(pins, body, net_by_pin),
                 })
             if not off_board:
                 area = min(o["span_rows"] * o["span_cols"] for o in record["geometry"]["orientations"])
