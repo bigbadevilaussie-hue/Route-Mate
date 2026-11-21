@@ -56,7 +56,7 @@ We study useful solver algorithms, but Karl's original implementation, the modif
 
 ## Reference documentation
 
-**Start with the [documentation map](docs/README.md)** for authority, current design versus historical audits, and the [collector/PRE-SOLVE handoff](docs/PRE_SOLVE.md). PRE-SOLVE is preparation within the existing IN → PREPARE → SOLVE → DISPLAY pipeline, not a new top-level stage.
+**Documentation authority:** [locked physical model](docs/PHYSICAL_MODEL_SPEC.md) → [solver architecture](docs/SOLVER_ARCHITECTURE_DECISION.md) → [pipeline/PRE-SOLVE handoff](docs/MODULE_IO_AND_HANDOFF_AUDIT.md). Historical audits are snapshots, not current implementation proof.
 
 
 - [Physical model and implementation gates](docs/PHYSICAL_MODEL_SPEC.md)
