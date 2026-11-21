@@ -132,7 +132,7 @@ def audit_project(project: Any, expected_cuts: int | None = None,
         "errors": errors,
     }
     report["status"] = (
-        "FAIL" if errors or not all(v["matches"] for v in count_checks.values())
+        "FAIL" if errors or physical_errors or not all(v["matches"] for v in count_checks.values())
         else "PASS"
     )
     return report
