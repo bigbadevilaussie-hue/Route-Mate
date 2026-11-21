@@ -61,6 +61,7 @@ class TransactionalRouteTests(unittest.TestCase):
         self.assertEqual(result["transactional"]["graph_failure"]["net_id"], "signal")
         self.assertEqual(result["transactional"]["graph_failure"]["reason"],
                          "NO_CHAIN_WITHIN_BUDGET")
+        self.assertEqual(graph.call_count, 2)
 
     @patch("solve.transactional_route.verify_project")
     @patch("solve.transactional_route.route_with_island_graph")
@@ -70,13 +71,14 @@ class TransactionalRouteTests(unittest.TestCase):
         router.return_value = self.failure
         graph.side_effect = [
             {"status": "GRAPH_FAILED", "reason": "blocked"},
+            {"status": "GRAPH_FAILED", "reason": "blocked reverse"},
             {"status": "ROUTED", "project": project},
         ]
         verifier.return_value = {"status": "PASS"}
         result = route_transactionally(project)
         self.assertEqual(result["status"], "ROUTED")
         self.assertEqual(result["transactional"]["trials"], 1)
-        self.assertEqual(graph.call_count, 2)
+        self.assertEqual(graph.call_count, 3)
 
 
 if __name__ == "__main__":
