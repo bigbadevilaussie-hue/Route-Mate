@@ -65,6 +65,17 @@ class QuickFitPlacementTests(unittest.TestCase):
                 self._assert_physical_layout(first["project"])
                 self.assertGreater(first["report"]["net_links_scored"], 0)
 
+    def test_alternate_placement_strategy_is_deterministic_and_legal(self):
+        source = load_project("audio")
+        first = quick_fit(source, placement_variant=1)
+        second = quick_fit(source, placement_variant=1)
+        self.assertEqual(first["status"], "PLACED", first["errors"])
+        self.assertEqual(first["project"], second["project"])
+        self.assertEqual(first["report"]["placement_variant"], 1)
+        self._assert_physical_layout(first["project"])
+        self.assertEqual(quick_fit(source, placement_variant=2)["status"],
+                         "CONSTRAINT_CONFLICT")
+
     def test_q1_cannot_be_placed_through_resistor_body(self):
         project = {
             "board": {"rows": 5, "cols": 3},
