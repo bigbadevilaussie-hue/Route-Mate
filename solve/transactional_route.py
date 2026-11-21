@@ -31,6 +31,7 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
             "trials": 0, "extra_cuts": [], "status": "VERIFIED",
         }}
 
+    graph_result = None
     # Try coordinated copper-island chains before speculative cut reruns.
     # The graph solver works on a private copy and returns only verified boards.
     if isinstance(project, dict) and isinstance(project.get("board"), dict) and (
@@ -71,7 +72,15 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
             trial["board"].setdefault("cuts", []).extend(copy.deepcopy(proposed))
             result = route_copper(trial, vertical_only=True, route_order=route_order)
             if result["status"] != "ROUTED":
-                continue
+                # Try a coordinated bridge after the speculative cut.
+                if "rows" in trial["board"] and "cols" in trial["board"]:
+                    graph_trial = route_with_island_graph(trial)
+                    if graph_trial["status"] == "ROUTED":
+                        result = graph_trial
+                    else:
+                        continue
+                else:
+                    continue
             verification = verify_project(result["project"])
             if verification["status"] != "PASS":
                 continue
@@ -86,6 +95,10 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
         "max_trials": max_trials, "max_extra_cuts": max_extra_cuts,
         "max_seconds": max_seconds, "elapsed_seconds": round(time.monotonic() - started, 2),
         "status": "NO_VERIFIED_ROUTE",
+        "graph_failure": None if graph_result is None else {
+            key: value for key, value in graph_result.items()
+            if key in ("status", "reason", "net_id", "chains", "verification")
+        },
         "scope": "bounded cut combinations; existing strict router performs jumper search",
     }}
 
