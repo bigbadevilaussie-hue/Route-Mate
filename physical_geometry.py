@@ -62,6 +62,36 @@ def physical_between_cut_center(
     return to_physical(grid.between_cut_center(row, left_col))
 
 
+def cut_approach_occupancy_conflicts(
+    grid: BoardGrid,
+    row: int,
+    left_col: int,
+    component_cells: list[PhysicalCell],
+    tool_radius_mm: Fraction,
+) -> list[PhysicalCell]:
+    """Find occupancy squares intersecting a vertical cut-tool approach.
+
+    The approach is modelled as a closed circular horizontal footprint at
+    the between-hole gap, projected down from above the board. The radius
+    MUST be supplied explicitly; bodyCells remain occupancy proxies, not
+    measured package envelopes. An empty result is NOT physical PASS.
+    Boundary contact is an obstruction.
+    """
+    radius = Fraction(tool_radius_mm)
+    if radius < 0:
+        raise ValueError("tool_radius_mm must be non-negative")
+    centre = physical_between_cut_center(grid, row, left_col)
+    conflicts = []
+    for cell in component_cells:
+        dx = max(cell.left_mm - centre.x_mm, Fraction(0),
+                 centre.x_mm - cell.right_mm)
+        dy = max(cell.top_mm - centre.y_mm, Fraction(0),
+                 centre.y_mm - cell.bottom_mm)
+        if dx * dx + dy * dy <= radius * radius:
+            conflicts.append(cell)
+    return conflicts
+
+
 def physical_jumper_segment(
     grid: BoardGrid, start: tuple[int, int], end: tuple[int, int]
 ) -> PhysicalSegment:
@@ -304,6 +334,7 @@ __all__ = [
     "to_physical",
     "physical_hole_center",
     "physical_between_cut_center",
+    "cut_approach_occupancy_conflicts",
     "physical_jumper_segment",
     "physical_component_body",
     "physical_segment_intersects_cell",
