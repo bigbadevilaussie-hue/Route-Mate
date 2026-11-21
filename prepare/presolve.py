@@ -195,7 +195,8 @@ def analyse_project(project: dict[str, Any]) -> dict[str, Any]:
                 largest_cols = max(largest_cols, min(o["span_cols"] for o in record["geometry"]["orientations"]))
         records.append(record)
 
-    candidate = _placement_candidate(records, board)\n    rows = board.get("rows")
+    candidate = _placement_candidate(records, board)
+    rows = board.get("rows")
     cols = board.get("cols")
     locked_rows = bool(board.get("lockedRows", False))
     locked_cols = bool(board.get("lockedCols", False))
