@@ -546,6 +546,93 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                     remaining.remove(target)
                     continue
             if best_choice is None and quick_mode:
+                # Search a graph of unassigned copper islands, not just one
+                # relay strip. Each edge is a legal vertical jumper and each
+                # vertex is an existing continuous copper segment.
+                from collections import deque
+                free_roots = [
+                    root for root in holes_by_root
+                    if root not in reserved_bridges
+                    and not nets_by_group.get(root)
+                    and root not in roots
+                ]
+                source = ("source", net)
+                targets = set(remaining)
+                route_nodes = [source] + free_roots + sorted(targets)
+                route_rows = {source: connected_rows}
+                route_rows.update({root: holes_by_root[root]
+                                   for root in free_roots + sorted(targets)})
+                edge_cache = {}
+                existing_segments = checked_wires + [
+                    ((w["from"]["row"], w["from"]["col"]),
+                     (w["to"]["row"], w["to"]["col"]))
+                    for w in wires_added
+                ]
+
+                def vertical_edges(left, right, previous):
+                    key = (left, right)
+                    if key not in edge_cache:
+                        options = []
+                        for lr, left_cols in route_rows[left].items():
+                            for rr, right_cols in route_rows[right].items():
+                                if lr == rr:
+                                    continue
+                                for col in set(left_cols).intersection(right_cols):
+                                    a, b = (lr, col), (rr, col)
+                                    if quick_wire_error(a, b, bodies,
+                                                        existing_segments) is None:
+                                        options.append((abs(lr-rr), a, b))
+                        edge_cache[key] = sorted(options)
+                    for _cost, a, b in edge_cache[key]:
+                        if quick_wire_error(a, b, bodies,
+                                            existing_segments + previous) is None:
+                            yield (a, b)
+
+                # Paths are simple: an island is never used twice. Carry the
+                # actual links in each state so crossings and shared landing
+                # holes are checked against the whole proposed route.
+                frontier = deque([(source, [], frozenset([source]), [])])
+                found_route = None
+                # Bounded search: never silently accept an incomplete path.
+                expanded = 0
+                while frontier and expanded < 5000:
+                    node, links, visited, path = frontier.popleft()
+                    expanded += 1
+                    if node in targets:
+                        found_route = (node, links, path)
+                        break
+                    for nxt in route_nodes:
+                        if nxt in visited or nxt == source:
+                            continue
+                        if nxt in targets and node == source:
+                            continue  # direct jumper already checked
+                        if nxt in targets and node not in free_roots:
+                            continue
+                        for wire in vertical_edges(node, nxt, links):
+                            frontier.append((
+                                nxt, links + [wire], visited | {nxt},
+                                path + ([nxt] if nxt in free_roots else [])
+                            ))
+                            # Explore one valid wire per island pair initially.
+                            break
+                if found_route is not None:
+                    target, links, path = found_route
+                    for start, end in links:
+                        wire_id, serial = _new_wire_id(wires + wires_added, serial)
+                        wires_added.append({
+                            "id": wire_id,
+                            "from": {"row": start[0], "col": start[1]},
+                            "to": {"row": end[0], "col": end[1]},
+                        })
+                        groups.union(start, end)
+                    reserved_bridges.update(path)
+                    for merged_root in path + [target]:
+                        for row, columns in holes_by_root[merged_root].items():
+                            connected_rows.setdefault(row, []).extend(columns)
+                            connected_rows[row].sort()
+                    remaining.remove(target)
+                    continue
+            if best_choice is None and quick_mode:
                 # Avoid the vertical-only multi-cut diagnostic search in Quick Mode.
                 # Report the blocked state and candidate rejection reasons.
                 from collections import Counter
