@@ -1,6 +1,6 @@
 # Gate 1 Implementation Handoff
 
-> **HISTORICAL SNAPSHOT (2026-11-19):** This document records an earlier branch, HEAD and test count. For current document authority see [Documentation map](README.md); inspect live code and rerun tests before relying on implementation claims. This banner does not change the locked specification.
+> **HISTORICAL SNAPSHOT (2026-11-19):** This document records an earlier branch, HEAD and test count. For current document authority see [Documentation map](../README.md); inspect live code and rerun tests before relying on implementation claims. This banner does not change the locked specification.
 
 **Status date:** 2026-11-19  
 **Branch:** `gate1-geometry-contract`  
@@ -92,7 +92,7 @@ Before implementing clearances, inspect the exact locked specification sections 
 
 The locked specification requires this order:
 
-- **Gate 0:** legacy repository/data audit — recorded in [GATE_0_AUDIT.md](GATE_0_AUDIT.md).
+- **Gate 0:** legacy repository/data audit — recorded in [GATE_0_AUDIT.md](GATE1_HANDOFF.md).
 - **Gate 1:** geometry/occupancy contract, cut access, jumper-body geometry. Current progress is only the coordinate/occupancy foundation described above.
 - **Gate 2:** split horizontal copper into distinct runs using between-hole cuts.
 - **Gate 3:** route single straight vertical jumpers between same-net runs.
