@@ -17,13 +17,16 @@ from .route import _copper_groups, _routing_sets, _terminals
 from .verify import verify_project
 
 
-def find_vertical_chain(project, net_id, *, max_edges=None):
+def find_vertical_chain(project, net_id, *, max_edges=None, trace=None):
     """Return a shortest-hop island chain or a structured obstruction result.
 
     Existing copper and jumpers are represented exactly as supplied. Terminal
     islands owned by another net are forbidden as intermediate nodes. This
     does not synthesize new cuts or certify measured physical clearances.
     """
+    def emit(message):
+        if trace is not None:
+            trace(message)
     board = project["board"]
     rows, cols = int(board["rows"]), int(board["cols"])
     records = _terminals(project, rows, cols)
@@ -68,6 +71,8 @@ def find_vertical_chain(project, net_id, *, max_edges=None):
                 by_column[col].append((row, root))
     adjacency = defaultdict(list)
     seen = set()
+    examined = 0
+    blocked = 0
     for col, entries in by_column.items():
         for i, (row_a, root_a) in enumerate(entries):
             for row_b, root_b in entries[i + 1:]:
@@ -77,10 +82,14 @@ def find_vertical_chain(project, net_id, *, max_edges=None):
                 if key in seen:
                     continue
                 start, end = (row_a, col), (row_b, col)
+                examined += 1
                 segment = physical_jumper_segment(grid, start, end)
                 if jumper_intersects_component(segment, bodies):
+                    blocked += 1
+                    emit(f"[BLOCK] net={net_id} jumper={start}->{end} body collision")
                     continue
                 seen.add(key)
+                emit(f"[TRY] net={net_id} jumper={start}->{end} legal candidate")
                 adjacency[root_a].append((root_b, start, end))
                 adjacency[root_b].append((root_a, end, start))
     for edges in adjacency.values():
@@ -110,6 +119,7 @@ def find_vertical_chain(project, net_id, *, max_edges=None):
             previous[neighbor] = (root, start, end)
             queue.append(neighbor)
     if found is None:
+        emit(f"[FAIL] net={net_id} reachable={len(previous)} examined={examined} blocked={blocked}")
         return {
             "status": "NO_CHAIN_WITHIN_BUDGET", "net_id": net_id,
             "reachable_islands": len(previous), "max_edges": max_edges,
@@ -125,13 +135,14 @@ def find_vertical_chain(project, net_id, *, max_edges=None):
         })
         cursor = parent
     chain.reverse()
+    emit(f"[PATH] net={net_id} jumpers={len(chain)} examined={examined} blocked={blocked}")
     return {
         "status": "CHAIN_FOUND", "net_id": net_id,
         "chain": chain, "target_islands": len(targets),
         "scope": "read-only; grid body clearance, not full physical verification",
     }
 
-def route_with_island_graph(project, *, max_edges=None, max_chains=None, reverse_nets=False):
+def route_with_island_graph(project, *, max_edges=None, max_chains=None, reverse_nets=False, trace=None):
     """Attempt a complete route by repeatedly joining terminal islands.
 
     All changes are private until independent verification passes. This
@@ -164,9 +175,11 @@ def route_with_island_graph(project, *, max_edges=None, max_chains=None, reverse
     board.setdefault("wires", [])
     nets = sorted({net for _row, _col, net, _ref in records}, reverse=reverse_nets)
     chains = 0
-    for net in nets:
+    for index, net in enumerate(nets, 1):
+        if trace is not None:
+            trace(f"[NET] {index}/{len(nets)} net={net} reverse={reverse_nets}")
         while True:
-            step = find_vertical_chain(trial, net, max_edges=max_edges)
+            step = find_vertical_chain(trial, net, max_edges=max_edges, trace=trace)
             if step["status"] == "ALREADY_CONNECTED":
                 break
             if step["status"] != "CHAIN_FOUND":
@@ -177,6 +190,8 @@ def route_with_island_graph(project, *, max_edges=None, max_chains=None, reverse
                         "net_id": net, "chains": chains}
             board["wires"].extend(step["chain"])
             chains += 1
+            if trace is not None:
+                trace(f"[OK] net={net} installed={len(step['chain'])} total_chains={chains}")
     verification = verify_project(trial)
     if verification["status"] != "PASS":
         return {"status": "GRAPH_FAILED", "reason": "verification failed",
