@@ -73,8 +73,9 @@ class QuickFitPlacementTests(unittest.TestCase):
         self.assertEqual(first["project"], second["project"])
         self.assertEqual(first["report"]["placement_variant"], 1)
         self._assert_physical_layout(first["project"])
-        self.assertEqual(quick_fit(source, placement_variant=2)["status"],
-                         "CONSTRAINT_CONFLICT")
+        variant_two = quick_fit(source, placement_variant=2)
+        self.assertEqual(variant_two["status"], "PLACED", variant_two["errors"])
+        self._assert_physical_layout(variant_two["project"])
 
     def test_relocated_flexible_diode_keeps_relative_endpoint(self):
         source = {
