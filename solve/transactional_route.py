@@ -45,9 +45,9 @@ def route_transactionally(project, *, max_trials=None, max_extra_cuts=None,
     if isinstance(project, dict) and isinstance(project.get("board"), dict) and (
         "rows" in project["board"] and "cols" in project["board"]
     ):
-        graph_result = route_with_island_graph(project)
+        graph_result = route_with_island_graph(project, trace=log if verbose else None)
         if graph_result["status"] != "ROUTED":
-            alternate = route_with_island_graph(project, reverse_nets=True)
+            alternate = route_with_island_graph(project, reverse_nets=True, trace=log if verbose else None)
             if alternate["status"] == "ROUTED":
                 graph_result = alternate
             else:
@@ -96,9 +96,9 @@ def route_transactionally(project, *, max_trials=None, max_extra_cuts=None,
                 log("strict route failed; trying graph")
                 # Try a coordinated bridge after the speculative cut.
                 if "rows" in trial["board"] and "cols" in trial["board"]:
-                    graph_trial = route_with_island_graph(trial)
+                    graph_trial = route_with_island_graph(trial, trace=log if verbose else None)
                     if graph_trial["status"] != "ROUTED":
-                        graph_trial = route_with_island_graph(trial, reverse_nets=True)
+                        graph_trial = route_with_island_graph(trial, reverse_nets=True, trace=log if verbose else None)
                     if graph_trial["status"] == "ROUTED":
                         result = graph_trial
                     else:
@@ -116,6 +116,7 @@ def route_transactionally(project, *, max_trials=None, max_extra_cuts=None,
         if ((max_trials is not None and attempts >= max_trials) or
                 (max_seconds is not None and time.monotonic() - started >= max_seconds)):
             break
+    log(f"search exhausted after {attempts} trials")
     return {**baseline, "transactional": {
         "trials": attempts, "candidate_cuts": len(options),
         "max_trials": max_trials, "max_extra_cuts": max_extra_cuts,
