@@ -92,6 +92,39 @@ def cut_approach_occupancy_conflicts(
     return conflicts
 
 
+def assess_cut_access(
+    grid: BoardGrid,
+    row: int,
+    left_col: int,
+    component_cells: list[PhysicalCell],
+    *,
+    tool_radius_mm: Fraction | None = None,
+    measured_envelopes: bool = False,
+) -> dict[str, Any]:
+    """Conservative Gate 1 cut-access assessment, never an inferred PASS.
+
+    A collision with known occupancy is a hard obstruction. Otherwise, tool
+    size and measured component envelopes are both required for clearance.
+    The caller must not treat UNKNOWN as permission to cut.
+    """
+    # Validate the between-hole gap even when tool geometry is missing.
+    physical_between_cut_center(grid, row, left_col)
+    if tool_radius_mm is None:
+        return {"status": "UNKNOWN", "reason": "tool_radius_missing"}
+    conflicts = cut_approach_occupancy_conflicts(
+        grid, row, left_col, component_cells, tool_radius_mm
+    )
+    if conflicts:
+        return {
+            "status": "BLOCKED",
+            "reason": "component_occupancy_intersection",
+            "conflicting_cells": [(cell.row, cell.col) for cell in conflicts],
+        }
+    if not measured_envelopes:
+        return {"status": "UNKNOWN", "reason": "measured_envelopes_missing"}
+    return {"status": "CLEAR_WITH_SUPPLIED_GEOMETRY", "reason": None}
+
+
 def physical_jumper_segment(
     grid: BoardGrid, start: tuple[int, int], end: tuple[int, int]
 ) -> PhysicalSegment:
@@ -335,6 +368,7 @@ __all__ = [
     "physical_hole_center",
     "physical_between_cut_center",
     "cut_approach_occupancy_conflicts",
+    "assess_cut_access",
     "physical_jumper_segment",
     "physical_component_body",
     "physical_segment_intersects_cell",
