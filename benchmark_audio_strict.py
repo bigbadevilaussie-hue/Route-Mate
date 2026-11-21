@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent
 SIDECAR = ROOT / "benchmarks/audio/audio.routemate-state.json"
 
 
-def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0, transactional=False):
+def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0, transactional=False, verbose=False):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
     placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
@@ -83,7 +83,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
             "electrical_status": None, "physical_status": None,
             "cuts_added": 0, "wires_added": 0,
         }
-    routed = (route_transactionally(placed, route_order=route_order)
+    routed = (route_transactionally(placed, route_order=route_order, verbose=verbose)
               if transactional else route_copper(placed, vertical_only=True, route_order=route_order))
     failed_nets = []
     for error in routed.get("errors", []):
@@ -133,11 +133,11 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
 
 
 def _run_variant(job):
-    variant, route_order, fresh_pads, transactional = job
+    variant, route_order, fresh_pads, transactional, verbose = job
     started = time.perf_counter()
     try:
         report = benchmark(route_order=route_order, fresh_pads=fresh_pads,
-                           placement_variant=variant, transactional=transactional)
+                           placement_variant=variant, transactional=transactional, verbose=verbose)
     except Exception as exc:
         report = {"routing_status": "EXCEPTION", "physical_status": None,
                   "errors": [f"{type(exc).__name__}: {exc}"]}
@@ -161,6 +161,8 @@ if __name__ == "__main__":
     parser.add_argument("--placement-attempts", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--fresh-pads", action="store_true")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Print live routing progress to stderr")
     parser.add_argument("--transactional", action="store_true",
                         help="Try bounded speculative cuts with independent verification")
     parser.add_argument("--json", action="store_true",
@@ -176,7 +178,7 @@ if __name__ == "__main__":
         parser.error("--json requires one attempt")
 
     started = time.perf_counter()
-    jobs = [(v, args.route_order, args.fresh_pads, args.transactional)
+    jobs = [(v, args.route_order, args.fresh_pads, args.transactional, args.verbose)
             for v in range(args.placement_attempts)]
     attempts, successful = [], []
     if args.workers == 1 or len(jobs) == 1:
