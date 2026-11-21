@@ -35,6 +35,33 @@ class QualityAuditTests(unittest.TestCase):
         self.assertTrue(report["counts"]["cuts"]["matches"])
         self.assertTrue(report["counts"]["wires"]["matches"])
 
+    def test_body_collision_fails_top_level_audit(self):
+        data = sample_project()
+        data["board"]["wires"] = [data["board"]["wires"][0]]
+        data["componentDefs"] = [{
+            "id": "block", "pins": [],
+            "bodyCells": [{"row": 0, "col": 0}],
+        }]
+        data["components"] = [{
+            "id": "BLOCK", "label": "BLOCK", "defId": "block",
+            "boardPos": {"row": 2, "col": 1},
+        }]
+        report = audit_project(data, expected_cuts=2, expected_wires=1)
+        self.assertTrue(report["counts"]["cuts"]["matches"])
+        self.assertTrue(report["counts"]["wires"]["matches"])
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["physical_jumper_audit"]["status"], "FAIL")
+        self.assertTrue(any("crosses BLOCK body occupancy" in error
+                            for error in report["physical_jumper_audit"]["errors"]))
+
+    def test_clean_vertical_jumper_is_grid_clear_only(self):
+        data = sample_project()
+        data["board"]["wires"] = [data["board"]["wires"][0]]
+        report = audit_project(data, expected_cuts=2, expected_wires=1)
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["physical_jumper_audit"]["status"], "GRID_CLEARANCE_ONLY")
+        self.assertFalse(report["physical_jumper_audit"]["measured_envelope_verified"])
+
     def test_count_mismatch_fails(self):
         report = audit_project(sample_project(), expected_cuts=3, expected_wires=2)
         self.assertEqual(report["status"], "FAIL")
