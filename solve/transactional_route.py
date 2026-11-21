@@ -10,6 +10,7 @@ import time
 from itertools import combinations
 
 from .route import route_copper
+from .island_graph import route_with_island_graph
 from .verify import verify_project
 
 
@@ -29,6 +30,18 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
         return {**baseline, "transactional": {
             "trials": 0, "extra_cuts": [], "status": "VERIFIED",
         }}
+
+    # Try coordinated copper-island chains before speculative cut reruns.
+    # The graph solver works on a private copy and returns only verified boards.
+    if isinstance(project, dict) and isinstance(project.get("board"), dict) and (
+        "rows" in project["board"] and "cols" in project["board"]
+    ):
+        graph_result = route_with_island_graph(project)
+        if graph_result["status"] == "ROUTED":
+            return {**graph_result, "transactional": {
+                "trials": 0, "extra_cuts": [], "status": "VERIFIED",
+                "strategy": "island_graph",
+            }}
 
     diagnostic = baseline.get("cut_feasibility") or {}
     bidirectional = baseline.get("bidirectional_cut_feasibility") or {}
