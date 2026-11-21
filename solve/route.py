@@ -507,6 +507,54 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "example_vertical_chain": chain,
                     "scope": "grid body-occupancy only; excludes other-net and reserved islands",
                 }
+                # Execute a discovered multi-island chain rather than reporting
+                # failure when the existing diagnostic search found a route.
+                # Only terminal-free islands may be claimed as intermediate
+                # bridges. Reject chains whose new vertical segments overlap
+                # one another; physical wire-to-wire clearance remains outside
+                # this router's existing verification scope.
+                if reached_target is not None:
+                    links = []
+                    cursor = reached_target
+                    intermediate_roots = []
+                    while cursor is not None:
+                        links.append(edge_to[cursor])
+                        if cursor not in remaining:
+                            intermediate_roots.append(cursor)
+                        cursor = predecessor[cursor]
+                    links.reverse()
+                    spans = []
+                    chain_clear = True
+                    for link in links:
+                        start, end = link[2], link[3]
+                        col = start[1]
+                        lo, hi = sorted((start[0], end[0]))
+                        if any(
+                            col == old_col and max(lo, old_lo) < min(hi, old_hi)
+                            for old_col, old_lo, old_hi in spans
+                        ):
+                            chain_clear = False
+                            break
+                        spans.append((col, lo, hi))
+                    if chain_clear:
+                        for link in links:
+                            start, end = link[2], link[3]
+                            wire_id, serial = _new_wire_id(
+                                wires + wires_added, serial
+                            )
+                            wires_added.append({
+                                "id": wire_id,
+                                "from": {"row": start[0], "col": start[1]},
+                                "to": {"row": end[0], "col": end[1]},
+                            })
+                            groups.union(start, end)
+                        reserved_bridges.update(intermediate_roots)
+                        for merged_root in intermediate_roots + [reached_target]:
+                            for row, columns in holes_by_root[merged_root].items():
+                                connected_rows.setdefault(row, []).extend(columns)
+                                connected_rows[row].sort()
+                        remaining.remove(reached_target)
+                        continue
                 # Classify first-hop obstructions without relaxing routing.
                 # All candidates share a column; other-net copper is only
                 # inspected, never treated as available to this net.
