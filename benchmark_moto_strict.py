@@ -6,6 +6,7 @@ This diagnostic does not modify the benchmark fixture or claim measured clearanc
 from __future__ import annotations
 
 import json
+import copy
 from pathlib import Path
 
 from solve.route import route_copper
@@ -19,7 +20,20 @@ SIDECAR = ROOT / "benchmarks/moto/moto.routemate-state.json"
 def benchmark(sidecar=SIDECAR):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
-    placed = stages["SOLVE.quick_fit"]["report"]["result"]["project"]
+    placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
+    # Reuse explicit pads from the saved reference board, not guessed holes.
+    reference_path = ROOT / "benchmarks/moto/moto14wires30cuts.json"
+    reference = json.loads(reference_path.read_text(encoding="utf-8"))
+    reference_by_id = {str(c.get("id")): c for c in reference["components"]
+                       if isinstance(c, dict)}
+    imported = []
+    for component in placed.get("components", []):
+        if not isinstance(component, dict) or not is_off_board_component(component):
+            continue
+        source = reference_by_id.get(str(component.get("id")), {})
+        if not isinstance(component.get("leads"), dict) and isinstance(source.get("leads"), dict):
+            component["leads"] = copy.deepcopy(source["leads"])
+            imported.append(str(component.get("label") or component.get("id")))
     missing_leads = []
     components = {str(c.get("id")): c for c in placed.get("components", [])
                   if isinstance(c, dict)}
@@ -37,6 +51,7 @@ def benchmark(sidecar=SIDECAR):
         return {
             "benchmark": "moto_saved_quick_fit_strict_vertical",
             "routing_status": "BLOCKED_MISSING_OFFBOARD_TERMINATIONS",
+            "reference_leads_imported_for": imported,
             "missing_termination_pads": missing_leads,
             "errors": ["Saved Quick Fit fixture has no board landing holes for assigned off-board leads."],
             "electrical_status": None, "physical_status": None,
@@ -45,6 +60,8 @@ def benchmark(sidecar=SIDECAR):
     routed = route_copper(placed, vertical_only=True)
     report = {
         "benchmark": "moto_saved_quick_fit_strict_vertical",
+        "termination_source": "moto14wires30cuts.json reference fixture",
+        "reference_leads_imported_for": imported,
         "routing_status": routed["status"],
         "cuts_added": routed["cuts_added"],
         "wires_added": routed["wires_added"],
