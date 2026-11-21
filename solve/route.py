@@ -565,6 +565,50 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "source_hole_count": len(source_holes),
                     "scope": "diagnostic only; grid centreline and copper ownership",
                 }
+                # Report the exact strip runs behind other-net first hops.
+                # A run with assigned terminals cannot be donated to this
+                # net without cuts isolating a terminal-free sub-run.
+                source_columns = sorted({col for _, col in source_holes})
+                strip_runs = []
+                for row in range(rows):
+                    run_start = 0
+                    for boundary_col in range(cols):
+                        if boundary_col != cols - 1 and (row, boundary_col) not in boundaries:
+                            continue
+                        run_end = boundary_col
+                        if run_start <= run_end and row not in connected_rows:
+                            overlaps = [col for col in source_columns
+                                        if run_start <= col <= run_end]
+                            if overlaps:
+                                assigned = sorted(
+                                    (col, sorted(nets))
+                                    for col, nets in by_row.get(row, {}).items()
+                                    if run_start <= col <= run_end
+                                )
+                                if assigned:
+                                    strip_runs.append({
+                                        "row": row,
+                                        "start_col": run_start,
+                                        "end_col": run_end,
+                                        "source_columns_in_run": overlaps,
+                                        "terminals": [
+                                            {"col": col, "nets": nets}
+                                            for col, nets in assigned
+                                        ],
+                                        "existing_left_cut": run_start > 0 and
+                                            (row, run_start - 1) in boundaries,
+                                        "existing_right_cut": run_end < cols - 1 and
+                                            (row, run_end) in boundaries,
+                                    })
+                        run_start = boundary_col + 1
+                cut_segmentation = {
+                    "status": "DIAGNOSTIC_ONLY",
+                    "source_columns": source_columns,
+                    "occupied_runs_crossing_source_columns": len(strip_runs),
+                    "sample_runs": strip_runs[:24],
+                    "truncated": len(strip_runs) > 24,
+                    "note": "Terminal-bearing runs need additional between-hole cuts to free copper; no legal alternative cut layout has been proven.",
+                }
                 # Diagnose the obstruction; another placement may still route.
                 connected_columns = sorted({
                     col for columns in connected_rows.values() for col in columns
@@ -592,6 +636,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "verification": None,
                     "reachability": reachability,
                     "obstruction": obstruction,
+                    "cut_segmentation": cut_segmentation,
                 }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
