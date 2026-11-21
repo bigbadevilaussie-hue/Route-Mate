@@ -207,3 +207,8 @@ The former step-by-step proposal and acceptance list in this document are supers
 The implementation order is fixed: audit legacy assumptions; define/test geometry and occupancy; model copper runs after between-hole cuts; prove one legal vertical jumper bridge; implement independent electrical and physical verification; run regression measurements; only then integrate placement and GUI behaviour.
 
 Do not copy the v1.21 Manhattan endpoint router forward as the physical routing foundation. Historical v1.21 and legacy benchmark counts are comparison data only, not acceptance targets.
+
+
+## Legacy v1.21 router baseline (historical; not physical approval)
+
+`solve.route.route_copper(project)` resolves assigned terminals and saved off-board leads, rejects different nets at the same hole, cuts between conflicting horizontal terminal groups, preserves manual cuts/wires, builds copper connectivity groups, connects split same-net groups with deterministic Manhattan minimum-spanning-tree **endpoint** wires (`RM-W###`), then calls the independent **electrical** verifier. `ROUTED` only means electrical PASS: wire bodies, crossings, component clearance, cut/solder access and construction quality are not verified. The legacy model accepts hole cuts; these are forbidden in the locked initial physical model. The router must be replaced, not extended. Regression command: `python3 -m unittest discover -s tests -p 'test_route.py' -v`. See the [locked physical gates](PHYSICAL_MODEL_SPEC.md).
