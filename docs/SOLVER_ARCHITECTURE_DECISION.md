@@ -105,3 +105,8 @@ score is **not** a proxy for routing quality.
 
 Karl receives full credit for original algorithmic ideas. Respect GPL-3.0
 for any adapted source code; attribution alone is insufficient.
+
+
+## Original Karl reference and skeleton status
+
+Original upstream only: https://github.com/KarloFunke/stripboard-editor at commit `21e2373f6e1da44ce017be234b2df04f42d3af30` (2026-11-08); **not** the user's tuned `bigbadevilaussie-hue/stripboard-optimiser` fork. Inspected upstream files: `src/frontend/components/stripboard/autoLayout5.ts` (blob `bc9fc8330e0ab43ca6366f65fdd92235fa6f1e94`), `src/frontend/components/stripboard/v5wasm/decode.c` (`5a30461f879953c71dfe055c086efb98dbabd45c`), `src/frontend/components/stripboard/layout2/boardPrice.ts` (`16d59dcaf5f1f447d548f6e96e8c0a6e8cdc364d`). `solve/skeleton.py` is an isolated two-permutation rectangle decoder with longest-path compaction, not a full Karl V5 port: no net-row equalities, body envelopes, edge slides, copper, jumper paths or physical verification. Initial skeleton tests were authored but not executed in that GitHub-only change; verify locally. GPL-3.0 compliance is required for adapted source, not just credit.
