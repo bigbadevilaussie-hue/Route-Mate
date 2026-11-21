@@ -8,6 +8,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from .quick_fit import is_off_board_component
+
 from .quick_fit import quick_fit
 from .route import route_copper
 
@@ -34,11 +36,53 @@ def solve_with_feedback(
         raise ValueError("quick_backtracks must be between 0 and 32")
 
     history: list[dict[str, Any]] = []
+    repairs = []
+    seen = set()
+    original_locked = {
+        str(c.get("id")): c.get("locked") is True
+        for c in project.get("components", [])
+        if isinstance(c, dict)
+    }
+
+    def placement_key(candidate):
+        return tuple(sorted(
+            (str(c.get("id")), repr(c.get("boardPos")), repr(c.get("rotation")))
+            for c in candidate.get("components", [])
+            if isinstance(c, dict) and not is_off_board_component(c)
+        ))
+
+    def relocation(candidate, target, variant):
+        trial = copy.deepcopy(candidate)
+        for c in trial.get("components", []):
+            if not isinstance(c, dict) or is_off_board_component(c):
+                continue
+            if str(c.get("id")) == target:
+                c.pop("boardPos", None)
+                c["locked"] = False
+            else:
+                c["locked"] = True
+        fit = quick_fit(trial, clearance=clearance, placement_variant=variant)
+        if fit.get("status") != "PLACED":
+            return None
+        result = fit["project"]
+        for c in result.get("components", []):
+            if isinstance(c, dict) and str(c.get("id")) in original_locked:
+                if original_locked[str(c.get("id"))]:
+                    c["locked"] = True
+                else:
+                    c.pop("locked", None)
+        return result
+
     best: dict[str, Any] | None = None
     best_rank: tuple[int, int, int] | None = None
 
     for variant in range(attempts):
-        fit = quick_fit(project, clearance=clearance, placement_variant=variant)
+        if repairs:
+            previous, target = repairs.pop(0)
+            repaired = relocation(previous, target, variant)
+            fit = {"status": "PLACED", "project": repaired} if repaired else {"status": "NO_FIT_FOUND", "errors": ["relocation failed"]}
+        else:
+            fit = quick_fit(project, clearance=clearance, placement_variant=variant)
         if fit["status"] != "PLACED":
             history.append({
                 "variant": variant, "placement": fit["status"],
@@ -48,6 +92,11 @@ def solve_with_feedback(
             continue
 
         candidate = copy.deepcopy(fit["project"])
+        key = placement_key(candidate)
+        if key in seen:
+            history.append({"variant": variant, "placement": "DUPLICATE", "routing": "NOT_ATTEMPTED"})
+            continue
+        seen.add(key)
         candidate.setdefault("board", {})["cuts"] = copy.deepcopy(
             project.get("board", {}).get("cuts", [])
         )
@@ -75,6 +124,15 @@ def solve_with_feedback(
                 "attempts_used": len(history), "history": history,
                 "warnings": routed.get("warnings", []),
             }
+
+        # Prioritize movable components attached to nets mentioned by router errors.
+        errors = routed.get("errors") or []
+        failed = {e[4:].split(": ", 1)[0] for e in errors if isinstance(e, str) and e.startswith("net ") and ": " in e}
+        relevant = {str(a.get("componentId")) for a in candidate.get("netAssignments", []) if isinstance(a, dict) and str(a.get("netId")) in failed}
+        movable = [str(c.get("id")) for c in candidate.get("components", []) if isinstance(c, dict) and not is_off_board_component(c) and not original_locked.get(str(c.get("id")), False)]
+        movable.sort(key=lambda cid: (cid not in relevant, cid))
+        for cid in movable[:4]:
+            repairs.append((candidate, cid))
 
         # Keep a compact failure summary, never a huge partial project dump.
         rank = (
