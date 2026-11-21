@@ -47,6 +47,38 @@ class PhysicalGeometryTests(unittest.TestCase):
             HOLE_PITCH_MM / 2,
         )
 
+    def test_cut_approach_blocks_occupied_gap_and_boundary_touch(self):
+        from physical_geometry import cut_approach_occupancy_conflicts
+        pitch = HOLE_PITCH_MM
+        # Cut between columns 3 and 4: x=3.5 pitches.
+        cell = PhysicalCell(2, 4, 3 * pitch, Fraction(3, 2) * pitch,
+                            4 * pitch, Fraction(5, 2) * pitch)
+        self.assertEqual(cut_approach_occupancy_conflicts(
+            self.grid, 2, 3, [cell], Fraction(0)), [cell])
+        self.assertEqual(cut_approach_occupancy_conflicts(
+            self.grid, 2, 3, [cell], Fraction(1, 2)), [cell])
+
+    def test_cut_approach_uses_explicit_radius_without_inventing_clearance(self):
+        from physical_geometry import cut_approach_occupancy_conflicts
+        pitch = HOLE_PITCH_MM
+        cell = PhysicalCell(2, 6, Fraction(11, 2) * pitch,
+                            Fraction(3, 2) * pitch,
+                            Fraction(13, 2) * pitch,
+                            Fraction(5, 2) * pitch)
+        self.assertEqual(cut_approach_occupancy_conflicts(
+            self.grid, 2, 3, [cell], Fraction(0)), [])
+        self.assertEqual(cut_approach_occupancy_conflicts(
+            self.grid, 2, 3, [cell], 2 * pitch), [cell])
+        with self.assertRaisesRegex(ValueError, "tool_radius_mm"):
+            cut_approach_occupancy_conflicts(
+                self.grid, 2, 3, [cell], Fraction(-1))
+
+    def test_cut_approach_rejects_invalid_gap(self):
+        from physical_geometry import cut_approach_occupancy_conflicts
+        with self.assertRaises(ValueError):
+            cut_approach_occupancy_conflicts(
+                self.grid, 2, 55, [], Fraction(0))
+
     def test_jumper_is_vertical_and_physical_length_matches_row_pitch(self):
         jumper = physical_jumper_segment(self.grid, (1, 9), (6, 9))
         self.assertEqual(jumper.start.x_mm, jumper.end.x_mm)
