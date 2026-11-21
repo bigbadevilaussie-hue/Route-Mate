@@ -6,21 +6,24 @@ must pass the independent electrical verifier.
 from __future__ import annotations
 
 import copy
+import time
 from itertools import combinations
 
 from .route import route_copper
 from .verify import verify_project
 
 
-def route_transactionally(project, *, max_trials=64, max_extra_cuts=2,
+def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
+                          max_seconds=30,
                           route_order="constrained"):
     """Try baseline, then bounded speculative cuts; commit only verified routes.
 
     Candidate generation uses the failed router's read-only cut diagnostics.
     This is a bounded search layer, not a complete connectivity-repair solver.
     """
-    if max_trials < 0 or max_extra_cuts < 0:
+    if max_trials < 0 or max_extra_cuts < 0 or max_seconds < 0:
         raise ValueError("search budgets must be nonnegative")
+    started = time.monotonic()
     baseline = route_copper(project, vertical_only=True, route_order=route_order)
     if baseline["status"] == "ROUTED":
         return {**baseline, "transactional": {
@@ -48,7 +51,7 @@ def route_transactionally(project, *, max_trials=64, max_extra_cuts=2,
     attempts = 0
     for count in range(1, min(max_extra_cuts, len(options)) + 1):
         for proposed in combinations(options, count):
-            if attempts >= max_trials:
+            if attempts >= max_trials or time.monotonic() - started >= max_seconds:
                 break
             attempts += 1
             trial = copy.deepcopy(project)
@@ -63,11 +66,12 @@ def route_transactionally(project, *, max_trials=64, max_extra_cuts=2,
                 "trials": attempts, "extra_cuts": list(proposed),
                 "status": "VERIFIED",
             }}
-        if attempts >= max_trials:
+        if attempts >= max_trials or time.monotonic() - started >= max_seconds:
             break
     return {**baseline, "transactional": {
         "trials": attempts, "candidate_cuts": len(options),
         "max_trials": max_trials, "max_extra_cuts": max_extra_cuts,
+        "max_seconds": max_seconds, "elapsed_seconds": round(time.monotonic() - started, 2),
         "status": "NO_VERIFIED_ROUTE",
         "scope": "bounded cut combinations; existing strict router performs jumper search",
     }}
