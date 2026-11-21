@@ -788,7 +788,7 @@ class RouteMateWindow(QMainWindow):
         route_handoff = self.pipeline_run.handoff(self.project, "solve.route")
         self._log_handoff(route_handoff)
         route_input = route_handoff["project"]
-        routing = route_copper(route_input)
+        routing = route_copper(route_input, vertical_only=True)
         route_result, route_findings = route_stage_result(route_input, routing)
         route_result.options.update({
             "from_stage": route_handoff["from_stage"],
