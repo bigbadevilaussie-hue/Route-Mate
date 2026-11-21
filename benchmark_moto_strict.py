@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import copy
+import argparse
 from pathlib import Path
 
 from solve.route import route_copper
@@ -17,7 +18,7 @@ ROOT = Path(__file__).resolve().parent
 SIDECAR = ROOT / "benchmarks/moto/moto.routemate-state.json"
 
 
-def benchmark(sidecar=SIDECAR):
+def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
     placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
@@ -55,6 +56,7 @@ def benchmark(sidecar=SIDECAR):
     if missing_leads:
         return {
             "benchmark": "moto_saved_quick_fit_strict_vertical",
+            "route_order": route_order,
             "routing_status": "BLOCKED_MISSING_OFFBOARD_TERMINATIONS",
             "reference_leads_imported_for": imported,
             "missing_termination_pads": missing_leads,
@@ -62,9 +64,10 @@ def benchmark(sidecar=SIDECAR):
             "electrical_status": None, "physical_status": None,
             "cuts_added": 0, "wires_added": 0,
         }
-    routed = route_copper(placed, vertical_only=True)
+    routed = route_copper(placed, vertical_only=True, route_order=route_order)
     report = {
         "benchmark": "moto_saved_quick_fit_strict_vertical",
+        "route_order": route_order,
         "termination_source": "moto14wires30cuts.json reference fixture",
         "reference_leads_imported_for": imported,
         "routing_status": routed["status"],
@@ -84,7 +87,11 @@ def benchmark(sidecar=SIDECAR):
 
 
 if __name__ == "__main__":
-    result = benchmark()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--route-order", choices=("alphabetical", "constrained"),
+                        default="alphabetical")
+    args = parser.parse_args()
+    result = benchmark(route_order=args.route_order)
     print(json.dumps(result, indent=2))
     raise SystemExit(0 if result["routing_status"] == "ROUTED"
                      and result["physical_status"] == "GRID_CLEARANCE_ONLY" else 1)
