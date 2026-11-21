@@ -13,12 +13,13 @@ from pathlib import Path
 from solve.route import route_copper, _terminals
 from solve.quality_audit import audit_project
 from placement_policy import is_off_board_component
+from solve.quick_fit import quick_fit
 
 ROOT = Path(__file__).resolve().parent
 SIDECAR = ROOT / "benchmarks/moto/moto.routemate-state.json"
 
 
-def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
+def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
     placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
@@ -37,9 +38,23 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
         if ("boardExcluded" not in component and source.get("boardExcluded") is True
                 and component.get("offBoard") is not True):
             component["boardExcluded"] = True
-        if not isinstance(component.get("leads"), dict) and isinstance(source.get("leads"), dict):
+        if not fresh_pads and not isinstance(component.get("leads"), dict) and isinstance(source.get("leads"), dict):
             component["leads"] = copy.deepcopy(source["leads"])
             imported.append(str(component.get("label") or component.get("id")))
+    if fresh_pads:
+        # Re-run Quick Fit on the saved placement to exercise current external
+        # pad allocation. Unlocked external leads are discarded and reallocated.
+        fit = quick_fit(placed)
+        if fit["status"] != "PLACED":
+            return {
+                "benchmark": "moto_fresh_offboard_pads_strict_vertical",
+                "route_order": route_order,
+                "routing_status": "BLOCKED_QUICK_FIT",
+                "errors": fit["errors"], "warnings": fit.get("warnings", []),
+                "electrical_status": None, "physical_status": None,
+                "cuts_added": 0, "wires_added": 0,
+            }
+        placed = fit["project"]
     missing_leads = []
     components = {str(c.get("id")): c for c in placed.get("components", [])
                   if isinstance(c, dict)}
@@ -55,7 +70,8 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
             missing_leads.append(f"{component.get('label') or component.get('id')} pin {pin}")
     if missing_leads:
         return {
-            "benchmark": "moto_saved_quick_fit_strict_vertical",
+            "benchmark": ("moto_fresh_offboard_pads_strict_vertical" if fresh_pads
+                          else "moto_saved_quick_fit_strict_vertical"),
             "route_order": route_order,
             "routing_status": "BLOCKED_MISSING_OFFBOARD_TERMINATIONS",
             "reference_leads_imported_for": imported,
@@ -83,7 +99,8 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
     report = {
         "benchmark": "moto_saved_quick_fit_strict_vertical",
         "route_order": route_order,
-        "termination_source": "moto14wires30cuts.json reference fixture",
+        "termination_source": ("current Quick Fit allocation" if fresh_pads
+                               else "moto14wires30cuts.json reference fixture"),
         "reference_leads_imported_for": imported,
         "routing_status": routed["status"],
         "failed_net_terminals": failed_net_terminals,
@@ -112,8 +129,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--route-order", choices=("alphabetical", "constrained"),
                         default="alphabetical")
+    parser.add_argument("--fresh-pads", action="store_true",
+                        help="Re-run Quick Fit to allocate movable off-board pads before routing")
     args = parser.parse_args()
-    result = benchmark(route_order=args.route_order)
+    result = benchmark(route_order=args.route_order, fresh_pads=args.fresh_pads)
     print(json.dumps(result, indent=2))
     raise SystemExit(0 if result["routing_status"] == "ROUTED"
                      and result["physical_status"] == "GRID_CLEARANCE_ONLY" else 1)
