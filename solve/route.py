@@ -15,6 +15,7 @@ from placement_policy import is_off_board_component
 from board_geometry import BUILTIN_DEFS, BoardGrid, component_geometry, resolve_definition
 from physical_geometry import physical_component_body, physical_jumper_segment, jumper_intersects_component
 from .verify import verify_project
+from .quick_rules import quick_wire_error, quick_audit
 
 
 class _UnionFind:
@@ -197,7 +198,7 @@ def _new_wire_id(existing: list[dict], serial: int) -> tuple[str, int]:
     return f"RM-W{serial:03d}", serial + 1
 
 
-def route_copper(project: Any, *, vertical_only: bool = False,
+def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool = False,
                  route_order: str = "alphabetical") -> dict[str, Any]:
     """Add cuts and jumpers to a placed project, then run the independent verifier.
 
@@ -351,6 +352,13 @@ def route_copper(project: Any, *, vertical_only: bool = False,
         for col in range(cols):
             holes_by_root[groups.find((row, col))][row].append(col)
 
+    def legal_quick(start, end):
+        existing = checked_wires + [
+            ((w["from"]["row"], w["from"]["col"]),
+             (w["to"]["row"], w["to"]["col"])) for w in wires_added
+        ]
+        return quick_wire_error(start, end, bodies, existing) is None
+
     def nearest_link(left_rows, right_rows):
         best = None
         for lr, left_cols in left_rows.items():
@@ -374,6 +382,8 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                         if 0 <= pos < len(right_cols):
                             rc = right_cols[pos]
                             if vertical_only and not legal_vertical((lr, lc), (rr, rc)):
+                                continue
+                            if quick_mode and not legal_quick((lr, lc), (rr, rc)):
                                 continue
                             candidate = (
                                 row_cost + abs(lc - rc), int(lc != rc),
@@ -1022,6 +1032,15 @@ def route_copper(project: Any, *, vertical_only: bool = False,
 
     board["cuts"] = all_cuts
     board["wires"] = wires + wires_added
+    if quick_mode:
+        quick = quick_audit(result)
+        if quick["status"] == "FAIL":
+            return {
+                "status": "ROUTING_FAILED", "project": copy.deepcopy(project),
+                "errors": quick["errors"], "warnings": [],
+                "cuts_added": len(new_cuts), "wires_added": len(wires_added),
+                "verification": None, "quick_audit": quick,
+            }
     verification = verify_project(result)
     if verification["status"] != "PASS":
         return {
