@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent
 SIDECAR = ROOT / "benchmarks/moto/moto.routemate-state.json"
 
 
-def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False):
+def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
     placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
@@ -44,7 +44,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False):
     if fresh_pads:
         # Re-run Quick Fit on the saved placement to exercise current external
         # pad allocation. Unlocked external leads are discarded and reallocated.
-        fit = quick_fit(placed)
+        fit = quick_fit(placed, placement_variant=placement_variant)
         if fit["status"] != "PLACED":
             return {
                 "benchmark": "moto_fresh_offboard_pads_strict_vertical",
@@ -99,6 +99,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False):
     report = {
         "benchmark": "moto_saved_quick_fit_strict_vertical",
         "route_order": route_order,
+        "placement_variant": placement_variant if fresh_pads else None,
         "termination_source": ("current Quick Fit allocation" if fresh_pads
                                else "moto14wires30cuts.json reference fixture"),
         "reference_leads_imported_for": imported,
@@ -129,10 +130,26 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--route-order", choices=("alphabetical", "constrained"),
                         default="alphabetical")
+    parser.add_argument("--placement-attempts", type=int, choices=(1, 2), default=1,
+                        help="With --fresh-pads, try one or two different component placements")
     parser.add_argument("--fresh-pads", action="store_true",
                         help="Re-run Quick Fit to allocate movable off-board pads before routing")
     args = parser.parse_args()
-    result = benchmark(route_order=args.route_order, fresh_pads=args.fresh_pads)
+    if args.placement_attempts > 1 and not args.fresh_pads:
+        parser.error("--placement-attempts 2 requires --fresh-pads")
+    attempts = []
+    for variant in range(args.placement_attempts):
+        result = benchmark(route_order=args.route_order, fresh_pads=args.fresh_pads,
+                           placement_variant=variant)
+        attempts.append({
+            "placement_variant": variant,
+            "routing_status": result["routing_status"],
+            "physical_status": result.get("physical_status"),
+            "errors": result.get("errors", []),
+        })
+        if result["routing_status"] == "ROUTED" and result.get("physical_status") == "GRID_CLEARANCE_ONLY":
+            break
+    result["placement_attempts"] = attempts
     print(json.dumps(result, indent=2))
     raise SystemExit(0 if result["routing_status"] == "ROUTED"
                      and result["physical_status"] == "GRID_CLEARANCE_ONLY" else 1)
