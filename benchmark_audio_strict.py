@@ -176,6 +176,8 @@ if __name__ == "__main__":
                         help="Limit speculative cut search elapsed seconds")
     parser.add_argument("--quick-probe", action="store_true",
                         help="Experimental unrestricted electrical routing; NOT Quick physical certification")
+    parser.add_argument("--corridors", action="store_true",
+                        help="Test copper-bus corridor placement (variant 100; requires --fresh-pads)")
     parser.add_argument("--strip-first", action="store_true",
                         help="Test experimental net-owned copper-row placement (variant 99)")
     parser.add_argument("--verbose", action="store_true",
@@ -194,12 +196,14 @@ if __name__ == "__main__":
     if args.json and args.placement_attempts != 1:
         parser.error("--json requires one attempt")
 
+    if args.corridors and (not args.fresh_pads or args.strip_first):
+        parser.error("--corridors requires --fresh-pads and excludes --strip-first")
     if args.quick_probe and args.transactional:
         parser.error("--quick-probe cannot use vertical-only transactional routing")
     started = time.perf_counter()
     jobs = [(v, args.route_order, args.fresh_pads, args.transactional, args.verbose,
              args.max_trials, args.max_seconds, args.quick_probe)
-            for v in ([99] if args.strip_first else range(args.placement_attempts))]
+            for v in ([100] if args.corridors else [99] if args.strip_first else range(args.placement_attempts))]
     attempts, successful = [], []
     if args.workers == 1 or len(jobs) == 1:
         for job in jobs:
