@@ -205,6 +205,35 @@ def electrical_sanity_stage_result(
 
 
 
+def presolve_stage_result(project: Mapping[str, Any]) -> tuple[StageResult, list[Finding]]:
+    """Analyse every component and package the report for the existing sidecar."""
+    from prepare.presolve import analyse_project
+
+    canonical = _mapping(project, "project")
+    report = analyse_project(canonical)
+    warnings = [
+        f"{item['component_id']}: {item['code']}"
+        for item in report["warnings"]
+    ]
+    findings = _findings("PREPARE.presolve", "prepare.presolve", [
+        ("presolve_warning", "warning", warnings),
+    ])
+    result = StageResult(
+        stage="PREPARE.presolve", status="completed", module="prepare.presolve",
+        input_project_sha256=project_sha256(canonical),
+        output_project_sha256=project_sha256(canonical),
+        metrics={
+            "components": len(report["components"]),
+            "unresolved_footprints": len(report["warnings"]),
+            "placement_candidate_status": report["board"]["placement_candidate_status"],
+        },
+        finding_ids=[item.finding_id for item in findings],
+        report=report,
+        summary=f"PRE-SOLVE analysed {len(report['components'])} components.",
+    )
+    return result, findings
+
+
 def test_suite_stage_result(
     project: Mapping[str, Any],
     *,
@@ -354,7 +383,7 @@ def verification_stage_result(
 
 
 __all__ = [
-    "collector_stage_result", "electrical_sanity_stage_result",
+    "collector_stage_result", "electrical_sanity_stage_result", "presolve_stage_result",
     "test_suite_stage_result",
     "quick_fit_stage_result", "quick_place_stage_result",
     "route_stage_result", "verification_stage_result",
