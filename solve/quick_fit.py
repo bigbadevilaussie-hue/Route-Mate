@@ -26,7 +26,15 @@ def _local_variant(component: dict, definition: dict, rotation: int):
     probe = dict(component)
     probe["boardPos"] = {"row": 0, "col": 0}
     probe["rotation"] = rotation
-    probe.pop("flexibleEndPos", None)
+    saved_end = component.get("flexibleEndPos")
+    if isinstance(saved_end, dict) and isinstance(component.get("boardPos"), dict):
+        origin = component["boardPos"]
+        probe["flexibleEndPos"] = {
+            "row": int(saved_end["row"]) - int(origin["row"]),
+            "col": int(saved_end["col"]) - int(origin["col"]),
+        }
+    else:
+        probe.pop("flexibleEndPos", None)
     pins, body = component_geometry(probe, definition)
     cells = {(int(p["row"]), int(p["col"])) for p in pins}
     cells.update((int(r), int(c)) for r, c in body)
@@ -291,9 +299,17 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                     f"with {clearance}-hole clearance"
                 )
             return None, errors, net_score, links_scored
+        original_pos = component.get("boardPos")
+        original_end = component.get("flexibleEndPos")
         component["boardPos"] = {"row": found["row"], "col": found["col"]}
         component["rotation"] = found["rotation"]
-        component.pop("flexibleEndPos", None)
+        if isinstance(original_pos, dict) and isinstance(original_end, dict):
+            component["flexibleEndPos"] = {
+                "row": found["row"] + int(original_end["row"]) - int(original_pos["row"]),
+                "col": found["col"] + int(original_end["col"]) - int(original_pos["col"]),
+            }
+        else:
+            component.pop("flexibleEndPos", None)
         occupied.update(found["cells"])
         blocked.update(_expanded(found["cells"], clearance))
         for row, col, net, ref in found["pin_records"]:
