@@ -14,15 +14,15 @@ from .island_graph import route_with_island_graph
 from .verify import verify_project
 
 
-def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
-                          max_seconds=30,
+def route_transactionally(project, *, max_trials=None, max_extra_cuts=None,
+                          max_seconds=None,
                           route_order="constrained"):
     """Try baseline, then bounded speculative cuts; commit only verified routes.
 
     Candidate generation uses the failed router's read-only cut diagnostics.
     This is a bounded search layer, not a complete connectivity-repair solver.
     """
-    if max_trials < 0 or max_extra_cuts < 0 or max_seconds < 0:
+    if any(value is not None and value < 0 for value in (max_trials, max_extra_cuts, max_seconds)):
         raise ValueError("search budgets must be nonnegative")
     started = time.monotonic()
     baseline = route_copper(project, vertical_only=True, route_order=route_order)
@@ -72,9 +72,10 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
     }
     options = [candidates[key] for key in sorted(candidates) if key not in existing]
     attempts = 0
-    for count in range(1, min(max_extra_cuts, len(options)) + 1):
+    for count in range(1, min(max_extra_cuts if max_extra_cuts is not None else len(options), len(options)) + 1):
         for proposed in combinations(options, count):
-            if attempts >= max_trials or time.monotonic() - started >= max_seconds:
+            if ((max_trials is not None and attempts >= max_trials) or
+                    (max_seconds is not None and time.monotonic() - started >= max_seconds)):
                 break
             attempts += 1
             trial = copy.deepcopy(project)
@@ -99,7 +100,8 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
                 "trials": attempts, "extra_cuts": list(proposed),
                 "status": "VERIFIED",
             }}
-        if attempts >= max_trials or time.monotonic() - started >= max_seconds:
+        if ((max_trials is not None and attempts >= max_trials) or
+                (max_seconds is not None and time.monotonic() - started >= max_seconds)):
             break
     return {**baseline, "transactional": {
         "trials": attempts, "candidate_cuts": len(options),
@@ -110,7 +112,7 @@ def route_transactionally(project, *, max_trials=3, max_extra_cuts=1,
             key: value for key, value in graph_result.items()
             if key in ("status", "reason", "net_id", "chains", "verification", "alternate_failure", "reachable_islands")
         },
-        "scope": "bounded cut combinations; existing strict router performs jumper search",
+        "scope": "exhaustive diagnostic cut combinations when budgets are unset; not a complete board solver",
     }}
 
 
