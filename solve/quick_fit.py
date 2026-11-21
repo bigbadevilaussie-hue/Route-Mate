@@ -188,7 +188,18 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
         )
         return None, errors, net_score, links_scored
 
-    # Experimental strip-first variant: reserve one copper row per net where possible.\n    strip_first = placement_variant == 99\n    net_rows = {}\n    row_owners = {}\n    for net, points in net_points.items():\n        for row, _ in points:\n            if row not in row_owners or row_owners[row] == net:\n                net_rows.setdefault(net, row)\n                row_owners[row] = net\n                break\n\n    ordered = sorted(pending, key=lambda x: (
+    # Experimental strip-first variant: reserve one copper row per net where possible.
+    strip_first = placement_variant == 99
+    net_rows = {}
+    row_owners = {}
+    for net, points in net_points.items():
+        for row, _ in points:
+            if row not in row_owners or row_owners[row] == net:
+                net_rows.setdefault(net, row)
+                row_owners[row] = net
+                break
+
+    ordered = sorted(pending, key=lambda x: (
         -x["degree"], -x["area"], x["label"].casefold(), x["id"]
     ))
     if placement_variant:
