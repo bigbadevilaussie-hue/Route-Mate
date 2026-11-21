@@ -12,7 +12,8 @@ from collections import defaultdict
 from typing import Any
 
 from placement_policy import is_off_board_component
-from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from board_geometry import BUILTIN_DEFS, BoardGrid, component_geometry, resolve_definition
+from physical_geometry import physical_component_body, physical_jumper_segment, jumper_intersects_component
 from .verify import verify_project
 
 
@@ -305,6 +306,39 @@ def route_copper(project: Any, *, vertical_only: bool = False,
             "cuts_added": len(new_cuts), "wires_added": 0, "verification": None,
         }
 
+    # Physical grid occupancy is authoritative for jumper centreline screening.
+    # Measured wire/package clearance is a separate, unresolved requirement.
+    grid = BoardGrid(rows, cols)
+    bodies = []
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({str(d["id"]): d for d in result.get("componentDefs", [])
+                        if isinstance(d, dict) and d.get("id")})
+    for component in result.get("components", []):
+        if not isinstance(component, dict) or is_off_board_component(component):
+            continue
+        if not isinstance(component.get("boardPos"), dict):
+            continue
+        definition = resolve_definition(component, definitions)
+        if definition is None:
+            continue
+        bodies.extend(physical_component_body(component, definition))
+
+    def legal_vertical(start, end):
+        if start[1] != end[1] or start == end:
+            return False
+        segment = physical_jumper_segment(grid, start, end)
+        return not jumper_intersects_component(segment, bodies)
+
+    if vertical_only:
+        for index, (start, end) in enumerate(checked_wires):
+            if not legal_vertical(start, end):
+                return {
+                    "status": "ROUTING_FAILED", "project": copy.deepcopy(project),
+                    "errors": [f"existing wire[{index}] is not a clear vertical jumper"],
+                    "warnings": [], "cuts_added": 0, "wires_added": 0,
+                    "verification": None,
+                }
+
     # Dahl-inspired copper reuse, with indexed nearest-hole search.
     # Row-sorted copper islands avoid quadratic all-hole-pairs enumeration.
     # These links are still electrical candidates, not physical clearance PASS.
@@ -334,7 +368,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     for pos in (index - 1, index):
                         if 0 <= pos < len(right_cols):
                             rc = right_cols[pos]
-                            if vertical_only and lc != rc:
+                            if vertical_only and not legal_vertical((lr, lc), (rr, rc)):
                                 continue
                             candidate = (
                                 row_cost + abs(lc - rc), int(lc != rc),
@@ -429,7 +463,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                 shared_columns = sorted(set(connected_columns) & set(stranded_columns))
                 if vertical_only:
                     detail = (
-                        f"no same-column jumper connects remaining copper islands; "
+                        f"no body-clear same-column jumper connects remaining copper islands; "
                         f"connected columns={connected_columns}; "
                         f"remaining columns={stranded_columns}; "
                         f"shared columns={shared_columns}; "
@@ -468,8 +502,8 @@ def route_copper(project: Any, *, vertical_only: bool = False,
         }
 
     warnings = [
-        "Jumper wire paths, crossings, body clearance and soldering access are not yet modelled.",
-        "Cut access and component-body interference are not yet checked.",
+        "Measured wire envelopes, jumper crossings and soldering access are not yet verified.",
+        "Cut access and measured component-body overhang are not yet checked.",
     ]
     return {
         "status": "ROUTED", "project": result, "errors": [],
