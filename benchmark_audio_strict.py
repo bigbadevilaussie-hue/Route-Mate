@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent
 SIDECAR = ROOT / "benchmarks/audio/audio.routemate-state.json"
 
 
-def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0, transactional=False, verbose=False, max_trials=None, max_seconds=None):
+def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0, transactional=False, verbose=False, max_trials=None, max_seconds=None, quick_probe=False):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
     placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
@@ -85,7 +85,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
         }
     routed = (route_transactionally(placed, route_order=route_order, verbose=verbose,
                                      max_trials=max_trials, max_seconds=max_seconds)
-              if transactional else route_copper(placed, vertical_only=True, route_order=route_order))
+              if transactional else route_copper(placed, vertical_only=not quick_probe, route_order=route_order))
     failed_nets = []
     for error in routed.get("errors", []):
         if error.startswith("net ") and ": " in error:
@@ -104,6 +104,8 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
     report = {
         "benchmark": "audio_saved_quick_fit_strict_vertical",
         "route_order": route_order,
+        "quick_probe": quick_probe,
+        "quick_constraints_verified": False if quick_probe else None,
         "placement_variant": placement_variant if fresh_pads else None,
         "termination_source": ("current Quick Fit allocation" if fresh_pads
                                else "audio10wires38cuts.json reference fixture"),
@@ -134,12 +136,12 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
 
 
 def _run_variant(job):
-    variant, route_order, fresh_pads, transactional, verbose, max_trials, max_seconds = job
+    variant, route_order, fresh_pads, transactional, verbose, max_trials, max_seconds, quick_probe = job
     started = time.perf_counter()
     try:
         report = benchmark(route_order=route_order, fresh_pads=fresh_pads,
                            placement_variant=variant, transactional=transactional, verbose=verbose,
-                           max_trials=max_trials, max_seconds=max_seconds)
+                           max_trials=max_trials, max_seconds=max_seconds, quick_probe=quick_probe)
     except Exception as exc:
         report = {"routing_status": "EXCEPTION", "physical_status": None,
                   "errors": [f"{type(exc).__name__}: {exc}"]}
@@ -167,6 +169,8 @@ if __name__ == "__main__":
                         help="Limit speculative cut combinations")
     parser.add_argument("--max-seconds", type=float, default=None,
                         help="Limit speculative cut search elapsed seconds")
+    parser.add_argument("--quick-probe", action="store_true",
+                        help="Experimental unrestricted electrical routing; NOT Quick physical certification")
     parser.add_argument("--strip-first", action="store_true",
                         help="Test experimental net-owned copper-row placement (variant 99)")
     parser.add_argument("--verbose", action="store_true",
@@ -185,10 +189,12 @@ if __name__ == "__main__":
     if args.json and args.placement_attempts != 1:
         parser.error("--json requires one attempt")
 
+    if args.quick_probe and args.transactional:
+        parser.error("--quick-probe cannot use vertical-only transactional routing")
     started = time.perf_counter()
     jobs = [(v, args.route_order, args.fresh_pads, args.transactional, args.verbose,
-             args.max_trials, args.max_seconds)
-            for v in range(args.placement_attempts)]
+             args.max_trials, args.max_seconds, args.quick_probe)
+            for v in ([99] if args.strip_first else range(args.placement_attempts))]
     attempts, successful = [], []
     if args.workers == 1 or len(jobs) == 1:
         for job in jobs:
@@ -196,7 +202,7 @@ if __name__ == "__main__":
             attempts.append((variant, report, elapsed))
             if not args.json:
                 print(_line(variant, report, elapsed, len(attempts), len(jobs)), flush=True)
-            if report["routing_status"] == "ROUTED" and report.get("physical_status") == "GRID_CLEARANCE_ONLY":
+            if not args.quick_probe and report["routing_status"] == "ROUTED" and report.get("physical_status") == "GRID_CLEARANCE_ONLY":
                 successful.append(variant)
                 break
     else:
