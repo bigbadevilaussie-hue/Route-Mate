@@ -7,6 +7,7 @@ from typing import Any
 from adjacency import adjacency_conflicts, candidate_conflicts, hole_index
 from placement_policy import is_off_board_component
 from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+from prepare.presolve import _orientation_intelligence
 
 _ROTATIONS = (0, 90, 180, 270)
 
@@ -202,6 +203,14 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
                 break
             if height > rows or width > cols:
                 continue
+            intelligence = _orientation_intelligence(
+                local_pins, sorted(shape - {(int(p["row"]), int(p["col"])) for p in local_pins}),
+                {pid: net for (cid, pid), net in pin_nets.items() if cid == item["id"]},
+            )
+            # Prefer fewer body-obstructed vertical jumper lanes and fewer
+            # mandatory strip isolations only after electrical net distance.
+            routing_cost = (len(intelligence["vertical_jumper_obstructed_columns"]),
+                            intelligence["strip_cut_lower_bound"])
             for top in range(rows - height + 1):
                 for left in range(cols - width + 1):
                     origin_r, origin_c = top - min_r, left - min_c
@@ -239,7 +248,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
                     else:
                         compact = abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1))
                     score = (
-                        candidate_net_score, compact,
+                        candidate_net_score, routing_cost, compact,
                         abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1)),
                         top, left, rotation_index,
                     )
