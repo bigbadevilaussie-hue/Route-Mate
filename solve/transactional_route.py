@@ -33,8 +33,8 @@ def route_transactionally(project, *, max_trials=None, max_extra_cuts=None,
     log("starting strict baseline")
     baseline = route_copper(project, vertical_only=True, route_order=route_order)
     if baseline["status"] == "ROUTED":
-        log(f"search ended after {attempts} trials without verified route")
-    return {**baseline, "transactional": {
+        log("baseline routed")
+        return {**baseline, "transactional": {
             "trials": 0, "extra_cuts": [], "status": "VERIFIED",
         }}
 
