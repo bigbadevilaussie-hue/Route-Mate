@@ -367,12 +367,16 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                 # Manhattan distance cannot be smaller than the row gap.
                 # Prune only strictly worse rows: equal-distance routes
                 # still need the vertical/coordinate tie-breaks.
-                if best is not None and row_cost > best[0]:
+                if not quick_mode and best is not None and row_cost > best[0]:
                     continue
                 for lc in left_cols:
                     if vertical_only:
                         index = bisect_left(right_cols, lc)
                         candidates = (index,) if index < len(right_cols) and right_cols[index] == lc else ()
+                    elif quick_mode:
+                        # Nearest columns may be obstructed: inspect every legal
+                        # landing hole before declaring an island unreachable.
+                        candidates = range(len(right_cols))
                     else:
                         index = bisect_left(right_cols, lc)
                         candidates = (index - 1, index)
@@ -385,10 +389,21 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                                 continue
                             if quick_mode and not legal_quick((lr, lc), (rr, rc)):
                                 continue
-                            candidate = (
-                                row_cost + abs(lc - rc), int(lc != rc),
-                                (lr, lc), (rr, rc),
-                            )
+                            if quick_mode:
+                                # Prefer vertical, discourage horizontal, and
+                                # strongly penalise diagonals. A later audit
+                                # still enforces the global 10% quota.
+                                kind_penalty = (0 if lc == rc else
+                                                30 if lr == rr else 100)
+                                candidate = (
+                                    kind_penalty + row_cost + abs(lc - rc),
+                                    int(lc != rc), (lr, lc), (rr, rc),
+                                )
+                            else:
+                                candidate = (
+                                    row_cost + abs(lc - rc), int(lc != rc),
+                                    (lr, lc), (rr, rc),
+                                )
                             if best is None or candidate < best:
                                 best = candidate
         return best
