@@ -10,7 +10,7 @@ import copy
 import argparse
 from pathlib import Path
 
-from solve.route import route_copper
+from solve.route import route_copper, _terminals
 from solve.quality_audit import audit_project
 from placement_policy import is_off_board_component
 
@@ -65,12 +65,28 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
             "cuts_added": 0, "wires_added": 0,
         }
     routed = route_copper(placed, vertical_only=True, route_order=route_order)
+    failed_nets = []
+    for error in routed.get("errors", []):
+        if error.startswith("net ") and ": " in error:
+            net_id = error[4:].split(": ", 1)[0]
+            if net_id not in failed_nets:
+                failed_nets.append(net_id)
+    failed_net_terminals = {}
+    if failed_nets:
+        board = placed["board"]
+        terminals = _terminals(placed, int(board["rows"]), int(board["cols"]))
+        for net_id in failed_nets:
+            failed_net_terminals[net_id] = [
+                {"row": row, "col": col, "terminal": ref}
+                for row, col, net, ref in terminals if net == net_id
+            ]
     report = {
         "benchmark": "moto_saved_quick_fit_strict_vertical",
         "route_order": route_order,
         "termination_source": "moto14wires30cuts.json reference fixture",
         "reference_leads_imported_for": imported,
         "routing_status": routed["status"],
+        "failed_net_terminals": failed_net_terminals,
         "cuts_added": routed["cuts_added"],
         "wires_added": routed["wires_added"],
         "errors": routed["errors"],
