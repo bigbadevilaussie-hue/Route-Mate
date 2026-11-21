@@ -812,6 +812,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     for col in columns
                 })
                 destination_candidates = []
+                destination_rejections = defaultdict(int)
                 for row in range(rows):
                     run_start = 0
                     for boundary_col in range(cols):
@@ -828,6 +829,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                                 ("suffix", terminals[-1], terminals[-1] + 1, run_end),
                             ):
                                 if not (run_start <= cut_col < run_end):
+                                    destination_rejections["cut_outside_segment"] += 1
                                     continue
                                 overlap = [
                                     col for col in target_columns
@@ -835,6 +837,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                                     and (row, col) not in isolated
                                 ]
                                 if not overlap:
+                                    destination_rejections["no_target_column_overlap"] += 1
                                     continue
                                 trial = _copper_groups(
                                     rows, cols, boundaries | {(row, cut_col)},
@@ -844,6 +847,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                                 for tr, tc, tnet, _ in records:
                                     owners[trial.find((tr, tc))].add(tnet)
                                 if any(len(nets) > 1 for nets in owners.values()):
+                                    destination_rejections["mixed_net_copper"] += 1
                                     continue
                                 old_to_new = defaultdict(set)
                                 for tr, tc, _tnet, _ in records:
@@ -851,12 +855,14 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                                         trial.find((tr, tc))
                                     )
                                 if any(len(parts) > 1 for parts in old_to_new.values()):
+                                    destination_rejections["splits_existing_terminal_group"] += 1
                                     continue
                                 free = [
                                     col for col in overlap
                                     if not owners[trial.find((row, col))]
                                 ]
                                 if not free:
+                                    destination_rejections["overlap_still_owned"] += 1
                                     continue
                                 destination_candidates.append({
                                     "cut": {"row": row, "col": cut_col, "kind": "between"},
@@ -937,6 +943,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "status": "CHAIN_FOUND" if bidirectional_examples else "NO_CHAIN_IN_SEARCH",
                     "source_candidates": len(cut_candidates),
                     "destination_candidates": len(destination_candidates),
+                    "destination_rejections": dict(sorted(destination_rejections.items())),
                     "destination_samples": destination_candidates[:8],
                     "pairs_checked": checked_bidirectional_pairs,
                     "pair_budget": 500,
