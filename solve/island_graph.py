@@ -131,7 +131,7 @@ def find_vertical_chain(project, net_id, *, max_edges=None):
         "scope": "read-only; grid body clearance, not full physical verification",
     }
 
-def route_with_island_graph(project, *, max_edges=None, max_chains=None):
+def route_with_island_graph(project, *, max_edges=None, max_chains=None, reverse_nets=False):
     """Attempt a complete route by repeatedly joining terminal islands.
 
     All changes are private until independent verification passes. This
@@ -162,7 +162,7 @@ def route_with_island_graph(project, *, max_edges=None, max_chains=None):
             boundaries.add((row, left))
     board.setdefault("cuts", []).extend(added_cuts)
     board.setdefault("wires", [])
-    nets = sorted({net for _row, _col, net, _ref in records})
+    nets = sorted({net for _row, _col, net, _ref in records}, reverse=reverse_nets)
     chains = 0
     for net in nets:
         while True:
@@ -184,7 +184,8 @@ def route_with_island_graph(project, *, max_edges=None, max_chains=None):
     return {"status": "ROUTED", "project": trial, "verification": verification,
             "cuts_added": len(added_cuts),
             "wires_added": len(board["wires"]) - len(project["board"].get("wires") or []),
-            "graph": {"chains": chains, "max_edges": max_edges}}
+            "graph": {"chains": chains, "max_edges": max_edges,
+                      "reverse_nets": reverse_nets}}
 
 
 __all__ = ["find_vertical_chain", "route_with_island_graph"]
