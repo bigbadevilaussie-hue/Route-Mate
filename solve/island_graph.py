@@ -17,7 +17,7 @@ from .route import _copper_groups, _routing_sets, _terminals
 from .verify import verify_project
 
 
-def find_vertical_chain(project, net_id, *, max_edges=4):
+def find_vertical_chain(project, net_id, *, max_edges=None):
     """Return a shortest-hop island chain or a structured obstruction result.
 
     Existing copper and jumpers are represented exactly as supplied. Terminal
@@ -76,11 +76,11 @@ def find_vertical_chain(project, net_id, *, max_edges=4):
                 key = (min(root_a, root_b), max(root_a, root_b), col)
                 if key in seen:
                     continue
-                seen.add(key)
                 start, end = (row_a, col), (row_b, col)
                 segment = physical_jumper_segment(grid, start, end)
                 if jumper_intersects_component(segment, bodies):
                     continue
+                seen.add(key)
                 adjacency[root_a].append((root_b, start, end))
                 adjacency[root_b].append((root_a, end, start))
     for edges in adjacency.values():
@@ -102,7 +102,7 @@ def find_vertical_chain(project, net_id, *, max_edges=4):
         while previous[cursor] is not None:
             depth += 1
             cursor = previous[cursor][0]
-        if depth >= max_edges:
+        if max_edges is not None and depth >= max_edges:
             continue
         for neighbor, start, end in adjacency[root]:
             if neighbor in previous:
@@ -131,7 +131,7 @@ def find_vertical_chain(project, net_id, *, max_edges=4):
         "scope": "read-only; grid body clearance, not full physical verification",
     }
 
-def route_with_island_graph(project, *, max_edges=3, max_chains=64):
+def route_with_island_graph(project, *, max_edges=None, max_chains=None):
     """Attempt a complete route by repeatedly joining terminal islands.
 
     All changes are private until independent verification passes. This
@@ -172,7 +172,7 @@ def route_with_island_graph(project, *, max_edges=3, max_chains=64):
             if step["status"] != "CHAIN_FOUND":
                 return {"status": "GRAPH_FAILED", "reason": step["status"],
                         "net_id": net, "chains": chains}
-            if chains >= max_chains:
+            if max_chains is not None and chains >= max_chains:
                 return {"status": "GRAPH_FAILED", "reason": "chain budget exceeded",
                         "net_id": net, "chains": chains}
             board["wires"].extend(step["chain"])
