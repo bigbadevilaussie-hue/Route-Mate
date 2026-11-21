@@ -8,11 +8,20 @@ Route-Mate uses Karl's Circuit Designer exports as input. The schematic editor s
 
 - Import and normalise project data; run electrical sanity checks.
 - Desktop GUI (PySide6), board dimensions and component-side preview.
-- Quick Fit: deterministic net-aware component placement, including fixed-position locks.
+- PRE-SOLVE: read-only footprint topology and orientation analysis, including dual-row detection, body-obstructed vertical jumper columns and lower-bound copper isolation cuts. These are hints, not routing certification.
+- Quick Fit: deterministic net-aware component placement, including fixed-position locks. Since v1.36 its scoring also considers PRE-SOLVE-derived jumper-lane obstruction and minimum strip-cut estimates after net distance.
 - First-pass copper routing: cuts and jumper connections, followed by independent **electrical connectivity** verification.
 - Benchmarks and automated tests.
 
 **Not finished:** hard edge-anchor/slide enforcement, physical jumper-path and component-body clearance verification, cut/solder access checks, complete build instructions and Hell Mode optimisation. An electrical PASS is **not** a physically buildable-board PASS. Do not treat the current Quick Fit/router as a final construction verifier.
+
+## Current development status (2026-11-21)
+
+- **Version:** `1.36` (`VERSION` file). PRE-SOLVE topology analysis was committed in `81d94cb`; its ESP32 regression test in `2a6b46e`; Quick Fit hint-based scoring in `84879d8`; version bump in `7113b7b`.
+- **Validation:** user-reported local iMac run: `python3 -m unittest discover -s tests -p "test_*.py" -v` — **213 tests, OK**, 7.545 seconds. This is not a CI verification or proof of physical buildability. The default `python3 -m unittest discover -v` found zero tests; explicitly specify `-s tests`.
+- **Moto ESP32:** the custom 6×9 footprint has 18 pins in two columns and 36 interior body cells. PRE-SOLVE detects its dual-row topology and reports four body-obstructed vertical jumper columns at 0°. This is generic footprint analysis, not a special-case rotation ban.
+- **Still missing:** Quick Fit hints are soft scoring only. The router does not yet guarantee whole-path top-side jumper/body clearance, alternative legal routing or independent physical PASS. Under-board copper and top-side jumper geometry must remain distinct. Unknown measured package envelopes and access dimensions cannot be inferred from logical body cells.
+- **Next engineering milestone:** inspect and complete the required physical-geometry/clearance prerequisites, enforce full-path jumper legality in routing, then independently verify and regression-test ESP32 and other footprints. Preserve the implementation gate order in the locked physical model; do not label electrical PASS as physical PASS.
 
 ## Run
 
