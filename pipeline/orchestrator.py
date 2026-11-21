@@ -118,6 +118,7 @@ class PipelineRun:
             "IN.project_import": "COLLECT",
             "IN.collect": "COLLECT",
             "PREPARE.electrical": "TEST",
+            "PREPARE.presolve": "TEST",
             "TEST.repository": "TEST",
             "PREPARE.constraints": "TEST",
             "SOLVE.quick_fit": "QUICKSOLVE",
