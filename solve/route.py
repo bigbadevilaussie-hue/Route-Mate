@@ -320,6 +320,43 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                 new_cuts.append(cut)
                 boundaries.add((row, left_col))
 
+    if quick_mode and _quick_attempt >= 1:
+        # Cut-aware relay generation. Isolate unused tails of occupied copper
+        # segments without ever separating existing terminals or wire landings.
+        # Each isolated tail becomes a distinct net-free bridge candidate.
+        protected = defaultdict(set)
+        for row, col, _net, _ref in records:
+            protected[row].add(col)
+        for start, end in checked_wires:
+            protected[start[0]].add(start[1])
+            protected[end[0]].add(end[1])
+        for row in range(rows):
+            # Work within existing copper segments, not across prior cuts.
+            stops = sorted(col for r, col in boundaries if r == row)
+            starts = [0] + [col + 1 for col in stops]
+            ends = stops + [cols - 1]
+            for lo, hi in zip(starts, ends):
+                used = sorted(c for c in protected[row] if lo <= c <= hi)
+                if not used:
+                    continue
+                # Keep >=4 usable landing holes per isolated tail.
+                proposed = []
+                if used[0] - lo >= 4:
+                    proposed.append(used[0] - 1)
+                if hi - used[-1] >= 4:
+                    proposed.append(used[-1])
+                for boundary in proposed:
+                    if (row, boundary) in boundaries:
+                        continue
+                    # Avoid cuts immediately at occupied/isolated holes.
+                    if ((row, boundary) in isolated
+                            or (row, boundary + 1) in isolated):
+                        continue
+                    boundaries.add((row, boundary))
+                    new_cuts.append({
+                        "row": row, "col": boundary, "kind": "between"
+                    })
+
     all_cuts = cuts + new_cuts
     groups = _copper_groups(rows, cols, boundaries, isolated, checked_wires)
 
