@@ -76,6 +76,29 @@ class QuickFitPlacementTests(unittest.TestCase):
         self.assertEqual(quick_fit(source, placement_variant=2)["status"],
                          "CONSTRAINT_CONFLICT")
 
+    def test_relocated_flexible_diode_keeps_relative_endpoint(self):
+        source = {
+            "board": {"rows": 8, "cols": 8},
+            "components": [{
+                "id": "D1", "label": "D1", "defId": "def-diode",
+                "boardPos": {"row": 20, "col": 20},
+                "flexibleEndPos": {"row": 20, "col": 17},
+                "rotation": 0,
+            }],
+            "netAssignments": [],
+        }
+        result = quick_fit(source, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        diode = result["project"]["components"][0]
+        self.assertFalse(is_off_board_component(diode))
+        start, end = diode["boardPos"], diode["flexibleEndPos"]
+        self.assertEqual((end["row"] - start["row"], end["col"] - start["col"]), (0, -3))
+        pins, body = component_geometry(diode, resolve_definition(diode, definitions_for_test(result["project"])))
+        self.assertEqual({(p["row"], p["col"]) for p in pins},
+                         {(start["row"], start["col"]), (end["row"], end["col"])})
+        self.assertTrue(all(0 <= p["row"] < 8 and 0 <= p["col"] < 8 for p in pins))
+        self.assertTrue(all(0 <= row < 8 and 0 <= col < 8 for row, col in body))
+
     def test_q1_cannot_be_placed_through_resistor_body(self):
         project = {
             "board": {"rows": 5, "cols": 3},
