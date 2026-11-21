@@ -362,10 +362,15 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                 if best is not None and row_cost > best[0]:
                     continue
                 for lc in left_cols:
-                    index = bisect_left(right_cols, lc)
+                    if vertical_only:
+                        index = bisect_left(right_cols, lc)
+                        candidates = (index,) if index < len(right_cols) and right_cols[index] == lc else ()
+                    else:
+                        index = bisect_left(right_cols, lc)
+                        candidates = (index - 1, index)
                     # Nearest columns on either side suffice for minimum
                     # Manhattan distance, including deterministic tie-breaks.
-                    for pos in (index - 1, index):
+                    for pos in candidates:
                         if 0 <= pos < len(right_cols):
                             rc = right_cols[pos]
                             if vertical_only and not legal_vertical((lr, lc), (rr, rc)):
