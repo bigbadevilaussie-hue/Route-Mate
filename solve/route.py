@@ -480,6 +480,44 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                             connected_rows[row].sort()
                     remaining.remove(target)
                     continue
+            if best_choice is None and quick_mode:
+                # Avoid the vertical-only multi-cut diagnostic search in Quick Mode.
+                # Report the blocked state and candidate rejection reasons.
+                from collections import Counter
+                reasons = Counter()
+                samples = []
+                for target in sorted(remaining):
+                    for lr, left_cols in connected_rows.items():
+                        for rr, right_cols in holes_by_root[target].items():
+                            for lc in left_cols:
+                                for rc in right_cols:
+                                    reason = quick_wire_error(
+                                        (lr, lc), (rr, rc), bodies,
+                                        checked_wires + [
+                                            ((w["from"]["row"], w["from"]["col"]),
+                                             (w["to"]["row"], w["to"]["col"]))
+                                            for w in wires_added
+                                        ],
+                                    )
+                                    reasons[reason or "LEGAL"] += 1
+                                    if reason and len(samples) < 4:
+                                        samples.append({
+                                            "from": [lr, lc], "to": [rr, rc],
+                                            "reason": reason,
+                                        })
+                return {
+                    "status": "ROUTING_FAILED", "project": copy.deepcopy(project),
+                    "errors": [f"net {net}: no legal direct Quick jumper; "
+                               f"rejections={dict(reasons)}; samples={samples}"],
+                    "warnings": [], "cuts_added": 0, "wires_added": 0,
+                    "verification": None,
+                    "quick_obstruction": {
+                        "net": net, "rejections": dict(reasons),
+                        "samples": samples,
+                        "partial_wires": len(wires_added),
+                        "remaining_islands": len(remaining),
+                    },
+                }
             if best_choice is None:
                 # Diagnostic only: breadth-first search over unassigned copper
                 # islands, using the same body-clear vertical-link predicate.
