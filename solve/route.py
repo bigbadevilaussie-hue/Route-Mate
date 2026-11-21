@@ -7,6 +7,7 @@ It does not yet model the physical path or crossing of jumper wire bodies.
 from __future__ import annotations
 
 import copy
+import hashlib
 from bisect import bisect_left
 from collections import defaultdict
 from typing import Any
@@ -199,12 +200,47 @@ def _new_wire_id(existing: list[dict], serial: int) -> tuple[str, int]:
 
 
 def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool = False,
-                 route_order: str = "alphabetical") -> dict[str, Any]:
+                 route_order: str = "alphabetical", quick_backtracks: int = 0,
+                 _quick_attempt: int = 0) -> dict[str, Any]:
     """Add cuts and jumpers to a placed project, then run the independent verifier.
 
     Existing cuts and wires are preserved. The source project is never mutated.
     Returns ROUTED only when solve.verify.verify_project reports PASS.\n    vertical_only requires every new jumper to share a column; it is not\n    a substitute for physical clearance or accessibility verification.
     """
+    if quick_backtracks < 0 or quick_backtracks > 32:
+        raise ValueError("quick_backtracks must be between 0 and 32")
+    if quick_backtracks and not quick_mode:
+        raise ValueError("quick_backtracks requires quick_mode")
+    if quick_backtracks:
+        # Each failed trial is discarded wholesale. Rebuild union-find, wires,
+        # reservations and cut state from the untouched input before trying
+        # another deterministic route ordering and endpoint preference.
+        attempts = []
+        for trial in range(quick_backtracks + 1):
+            outcome = route_copper(
+                project, vertical_only=vertical_only, quick_mode=True,
+                route_order=route_order, _quick_attempt=trial,
+            )
+            attempts.append({
+                "trial": trial, "status": outcome["status"],
+                "error": (outcome.get("errors") or [None])[0],
+            })
+            if outcome["status"] == "ROUTED":
+                outcome["quick_search"] = {
+                    "status": "FOUND", "trials": len(attempts),
+                    "backtracks": trial,
+                }
+                return outcome
+        outcome["quick_search"] = {
+            "status": "BUDGET_EXHAUSTED", "trials": len(attempts),
+            "backtracks": quick_backtracks,
+            "attempts": attempts,
+        }
+        outcome["errors"] = list(outcome.get("errors", [])) + [
+            f"Quick route search exhausted {len(attempts)} reversible trials; "
+            "this does not prove the board impossible."
+        ]
+        return outcome
     if route_order not in ("alphabetical", "constrained"):
         raise ValueError("route_order must be alphabetical or constrained")
     if not isinstance(project, dict):
@@ -404,6 +440,19 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                                     row_cost + abs(lc - rc), int(lc != rc),
                                     (lr, lc), (rr, rc),
                                 )
+                            if quick_mode and _quick_attempt:
+                                # Reversible trials also explore alternate legal
+                                # landing holes, not merely different net orders.
+                                digest = hashlib.blake2b(
+                                    repr((_quick_attempt, lr, lc, rr, rc)).encode(),
+                                    digest_size=4,
+                                ).digest()
+                                jitter = int.from_bytes(digest, "big") % (
+                                    12 + 8 * (_quick_attempt % 4)
+                                )
+                                candidate = (
+                                    candidate[0] + jitter, *candidate[1:]
+                                )
                             if best is None or candidate < best:
                                 best = candidate
         return best
@@ -445,6 +494,13 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
         net_order = sorted(net_roots, key=lambda net: (-len(net_roots[net]), net))
     else:
         net_order = sorted(net_roots)
+    if quick_mode and _quick_attempt:
+        # Alternate route orders: shift which net gets scarce copper first.
+        # This is bounded rollback/retry, not exhaustive DFS.
+        shift = (_quick_attempt * 7) % max(1, len(net_order))
+        net_order = net_order[shift:] + net_order[:shift]
+        if _quick_attempt % 2 == 0:
+            net_order.reverse()
     # Unassigned copper strips can act as two-jumper vertical bridges.
     # Reserve a bridge for one net only; never reuse it for another net.
     reserved_bridges: set[tuple[int, int]] = set()
