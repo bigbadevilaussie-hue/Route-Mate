@@ -12,6 +12,39 @@ class PlacementFeedbackTests(unittest.TestCase):
 
     @patch("solve.placement_feedback.route_copper")
     @patch("solve.placement_feedback.quick_fit")
+    def test_failed_net_triggers_relocation(self, fit, route):
+        source = copy.deepcopy(self.source)
+        source["components"] = [
+            {"id": "R1", "boardPos": {"row": 1, "col": 1}},
+            {"id": "R2", "boardPos": {"row": 2, "col": 2}},
+        ]
+        source["netAssignments"] = [
+            {"componentId": "R1", "pinId": "1", "netId": "A"}
+        ]
+        fit.side_effect = [
+            {"status": "PLACED", "project": copy.deepcopy(source)},
+            {"status": "PLACED", "project": {
+                **copy.deepcopy(source),
+                "components": [
+                    {"id": "R1", "boardPos": {"row": 1, "col": 3}},
+                    {"id": "R2", "boardPos": {"row": 2, "col": 2}, "locked": True},
+                ],
+            }},
+        ]
+        route.side_effect = [
+            {"status": "ROUTING_FAILED", "errors": ["net A: blocked"]},
+            {"status": "ROUTED", "project": copy.deepcopy(source),
+             "verification": {"status": "PASS"}},
+        ]
+        result = solve_with_feedback(source, attempts=2)
+        self.assertEqual(result["status"], "ROUTED")
+        self.assertEqual(fit.call_count, 2)
+        repair_input = fit.call_args_list[1].args[0]
+        self.assertNotIn("boardPos", repair_input["components"][0])
+        self.assertTrue(repair_input["components"][1]["locked"])
+
+    @patch("solve.placement_feedback.route_copper")
+    @patch("solve.placement_feedback.quick_fit")
     def test_retries_failed_route_then_accepts_verified_route(self, fit, route):
         fit.side_effect = [
             {"status": "PLACED", "project": copy.deepcopy(self.source)},
