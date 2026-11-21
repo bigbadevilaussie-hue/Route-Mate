@@ -4,7 +4,7 @@
 
 This document locks the user-facing input decisions agreed during product design. It is a contract for implementation; it does not claim that every switch is implemented yet.
 
-See [Documentation map](README.md) and [PRE-SOLVE intelligence handoff](PRE_SOLVE.md). PRE-SOLVE is analysis within PREPARE, not a fifth pipeline stage.
+See [Documentation map](../README.md) and [PRE-SOLVE intelligence handoff](MODULE_IO_AND_HANDOFF_AUDIT.md). PRE-SOLVE is analysis within PREPARE, not a fifth pipeline stage.
 
 ## Human workflow
 
