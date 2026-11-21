@@ -573,11 +573,13 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                 return {
                     "status": "ROUTING_FAILED", "project": copy.deepcopy(project),
                     "errors": [f"net {net}: no legal direct Quick jumper; "
-                               f"rejections={dict(reasons)}; samples={samples}"],
+                               f"rejections={dict(reasons)}; samples={samples}; "
+                               f"relay={relay_stats}"],
                     "warnings": [], "cuts_added": 0, "wires_added": 0,
                     "verification": None,
                     "quick_obstruction": {
                         "net": net, "rejections": dict(reasons),
+                        "relay": relay_stats,
                         "samples": samples,
                         "partial_wires": len(wires_added),
                         "remaining_islands": len(remaining),
