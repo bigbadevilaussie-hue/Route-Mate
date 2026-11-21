@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox, QHBoxLayout,
     QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QComboBox,
-    QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget,
+    QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget, QProgressBar,
 )
 
 
@@ -258,6 +258,87 @@ class BoardView(QGraphicsView):
         self.fit_board()
 
 
+class WorkflowChecklist(QWidget):
+    """Visual summary of recorded pipeline stages, not a physical sign-off."""
+
+    STAGES = (
+        ("COLLECT", "Project imported"),
+        ("SANITY", "Electrical sanity"),
+        ("PRE-SOLVE", "Footprint analysis"),
+        ("TEST", "Automated tests"),
+        ("CONSTRAINTS", "Placement decisions"),
+        ("QUICK FIT", "Component placement"),
+        ("ROUTING", "Copper routing"),
+        ("VERIFY", "Electrical verification"),
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("workflowChecklist")
+        self.setStyleSheet("""
+            QWidget#workflowChecklist { background: #f7f8fa; border-radius: 12px; }
+            QLabel#workflowTitle { color: #30343a; font-size: 17px; font-weight: 600; }
+            QLabel#workflowPercent { color: #30343a; font-size: 17px; }
+            QProgressBar { background: #e4e7ec; border: 0; border-radius: 5px; height: 10px; }
+            QProgressBar::chunk { background: #35b96c; border-radius: 5px; }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(12)
+        heading = QHBoxLayout()
+        title = QLabel("Workflow Progress")
+        title.setObjectName("workflowTitle")
+        self.percent = QLabel("0%")
+        self.percent.setObjectName("workflowPercent")
+        heading.addWidget(title)
+        heading.addStretch()
+        heading.addWidget(self.percent)
+        layout.addLayout(heading)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.setRange(0, len(self.STAGES))
+        layout.addWidget(self.bar)
+        self.rows = {}
+        for key, caption in self.STAGES:
+            row = QHBoxLayout()
+            mark = QLabel("○")
+            mark.setFixedWidth(28)
+            mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            mark.setStyleSheet("font-size: 23px; color: #b8bec7;")
+            label = QLabel(caption)
+            label.setStyleSheet("font-size: 13px; color: #444b55;")
+            row.addWidget(mark)
+            row.addWidget(label, 1)
+            layout.addLayout(row)
+            self.rows[key] = mark
+        note = QLabel("Pipeline milestones only — not physical build approval")
+        note.setWordWrap(True)
+        note.setStyleSheet("font-size: 10px; color: #697586;")
+        layout.addWidget(note)
+        self.reset()
+
+    def reset(self):
+        self.update_states({})
+
+    def update_states(self, states):
+        complete = 0
+        for key, _ in self.STAGES:
+            state = states.get(key, "pending")
+            mark = self.rows[key]
+            if state == "done":
+                mark.setText("✓")
+                mark.setStyleSheet("font-size: 19px; font-weight: bold; color: #2ebd64;")
+                complete += 1
+            elif state == "failed":
+                mark.setText("✕")
+                mark.setStyleSheet("font-size: 19px; font-weight: bold; color: #d64545;")
+            else:
+                mark.setText("○")
+                mark.setStyleSheet("font-size: 23px; color: #b8bec7;")
+        self.bar.setValue(complete)
+        self.percent.setText(f"{round(100 * complete / len(self.STAGES))}%")
+
+
 class RouteMateWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -301,7 +382,14 @@ class RouteMateWindow(QMainWindow):
         self.log.setPlaceholderText("Route-Mate running log")
         self.top_view = BoardView()
         split = QSplitter(Qt.Orientation.Horizontal)
-        split.addWidget(self.log)
+        self.checklist = WorkflowChecklist()
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setSpacing(8)
+        left_layout.addWidget(self.checklist)
+        left_layout.addWidget(self.log, 1)
+        split.addWidget(left_panel)
         split.addWidget(self.top_view)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -430,6 +518,7 @@ class RouteMateWindow(QMainWindow):
             self.project = project
             self.project_path = path
             self.pipeline_run = None
+            self.checklist.reset()
             self.presolve_constraints = {}
             self._top_svg = top_svg
             self._copper_svg = copper_svg
@@ -790,10 +879,53 @@ class RouteMateWindow(QMainWindow):
             else "Quick Fit complete; copper routing needs attention."
         )
 
+    def _refresh_checklist(self):
+        if self.pipeline_run is None:
+            self.checklist.reset()
+            return
+        mapping = {
+            'COLLECT': 'PREPARE.import',
+            'SANITY': 'PREPARE.sanity',
+            'PRE-SOLVE': 'PREPARE.presolve',
+            'TEST': 'TEST',
+            'CONSTRAINTS': 'PREPARE.constraints',
+            'QUICK FIT': 'SOLVE.quick_fit',
+            'ROUTING': 'SOLVE.route',
+            'VERIFY': 'SOLVE.verify',
+        }
+        states = {}
+        for result in self.pipeline_run.context.stages.values():
+            stage = result.stage.lower()
+            if 'presolve' in stage:
+                key = 'PRE-SOLVE'
+            elif 'constraints' in stage:
+                key = 'CONSTRAINTS'
+            elif 'sanity' in stage:
+                key = 'SANITY'
+            elif 'quick_fit' in stage:
+                key = 'QUICK FIT'
+            elif 'verify' in stage:
+                key = 'VERIFY'
+            elif 'route' in stage:
+                key = 'ROUTING'
+            elif 'test' in stage:
+                key = 'TEST'
+            elif 'import' in stage or 'collect' in stage:
+                key = 'COLLECT'
+            else:
+                continue
+            status = str(result.status).lower()
+            states[key] = ('failed' if status in ('fail', 'failed', 'error', 'skipped')
+                           or 'fail' in status else 'done' if status in
+                           ('pass', 'passed', 'completed', 'placed', 'routed', 'success')
+                           else 'pending')
+        self.checklist.update_states(states)
+
     def _record_pipeline_result(self, result, findings):
         if self.pipeline_run is None:
             return
         self.pipeline_run.record_stage(result, findings)
+        self._refresh_checklist()
         group = result.extra.get("workflow_stage", result.stage)
         self.log_line(
             f"[PIPELINE][{group}] {result.stage}: {result.summary or result.status}; "
@@ -853,6 +985,7 @@ class RouteMateWindow(QMainWindow):
             project["board"]["cols"] = dimensions["actualCols"]
             self.project_path = path
             from pipeline import PipelineRun, project_import_stage_result
+            self.checklist.reset()
             self.pipeline_run = PipelineRun.create(
                 path, source,
                 sources=[{"kind": "project_json", "path": str(path.resolve())}],
