@@ -83,7 +83,8 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
             "electrical_status": None, "physical_status": None,
             "cuts_added": 0, "wires_added": 0,
         }
-    routed = (route_transactionally(placed, route_order=route_order, verbose=verbose,\n                                     max_trials=max_trials, max_seconds=max_seconds)
+    routed = (route_transactionally(placed, route_order=route_order, verbose=verbose,
+                                     max_trials=max_trials, max_seconds=max_seconds)
               if transactional else route_copper(placed, vertical_only=True, route_order=route_order))
     failed_nets = []
     for error in routed.get("errors", []):
@@ -137,7 +138,8 @@ def _run_variant(job):
     started = time.perf_counter()
     try:
         report = benchmark(route_order=route_order, fresh_pads=fresh_pads,
-                           placement_variant=variant, transactional=transactional, verbose=verbose,\n                           max_trials=max_trials, max_seconds=max_seconds)
+                           placement_variant=variant, transactional=transactional, verbose=verbose,
+                           max_trials=max_trials, max_seconds=max_seconds)
     except Exception as exc:
         report = {"routing_status": "EXCEPTION", "physical_status": None,
                   "errors": [f"{type(exc).__name__}: {exc}"]}
@@ -161,7 +163,11 @@ if __name__ == "__main__":
     parser.add_argument("--placement-attempts", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--fresh-pads", action="store_true")
-    parser.add_argument("--max-trials", type=int, default=None,\n                        help="Limit speculative cut combinations")\n    parser.add_argument("--max-seconds", type=float, default=None,\n                        help="Limit speculative cut search elapsed seconds")\n    parser.add_argument("--strip-first", action="store_true",
+    parser.add_argument("--max-trials", type=int, default=None,
+                        help="Limit speculative cut combinations")
+    parser.add_argument("--max-seconds", type=float, default=None,
+                        help="Limit speculative cut search elapsed seconds")
+    parser.add_argument("--strip-first", action="store_true",
                         help="Test experimental net-owned copper-row placement (variant 99)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print live routing progress to stderr")
@@ -180,7 +186,8 @@ if __name__ == "__main__":
         parser.error("--json requires one attempt")
 
     started = time.perf_counter()
-    jobs = [(v, args.route_order, args.fresh_pads, args.transactional, args.verbose,\n             args.max_trials, args.max_seconds)
+    jobs = [(v, args.route_order, args.fresh_pads, args.transactional, args.verbose,
+             args.max_trials, args.max_seconds)
             for v in range(args.placement_attempts)]
     attempts, successful = [], []
     if args.workers == 1 or len(jobs) == 1:
