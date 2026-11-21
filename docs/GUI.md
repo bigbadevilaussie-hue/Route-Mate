@@ -2,7 +2,7 @@
 
 > **Physical-routing authority:** [Physical Model Specification v1.0](PHYSICAL_MODEL_SPEC.md) is the sole source of truth for cuts, jumper geometry, physical accessibility and acceptance. GUI behaviour must not imply that the legacy v1.21 electrical-only route is physically buildable. Keep electrical and physical results distinct; a solution is accepted only when both pass.
 
-See [Documentation map](README.md) and [PRE-SOLVE intelligence handoff](PRE_SOLVE.md) for the existing preparation terminology and sidecar boundary.
+See [Documentation map](../README.md) and [PRE-SOLVE intelligence handoff](MODULE_IO_AND_HANDOFF_AUDIT.md) for the existing preparation terminology and sidecar boundary.
 
 ## Solver mode decision
 
