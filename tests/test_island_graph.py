@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import patch
 
-from solve.island_graph import find_vertical_chain
+from solve.island_graph import find_vertical_chain, route_with_island_graph
 
 
 class IslandGraphTests(unittest.TestCase):
@@ -45,6 +45,27 @@ class IslandGraphTests(unittest.TestCase):
                  or wire["to"] == {"row": 1, "col": 1})
             for wire in result["chain"]
         ))
+
+    @patch("solve.island_graph.verify_project")
+    @patch("solve.island_graph._terminals")
+    def test_graph_router_commits_verified_multi_hop_chain(self, terminals, verifier):
+        terminals.return_value = self.records
+        verifier.return_value = {"status": "PASS"}
+        before = repr(self.project)
+        result = route_with_island_graph(self.project)
+        self.assertEqual(result["status"], "ROUTED")
+        self.assertEqual(result["wires_added"], 2)
+        self.assertEqual(repr(self.project), before)
+
+    @patch("solve.island_graph.verify_project")
+    @patch("solve.island_graph._terminals")
+    def test_graph_router_rejects_failed_verification(self, terminals, verifier):
+        terminals.return_value = self.records
+        verifier.return_value = {"status": "FAIL", "errors": ["short"]}
+        before = repr(self.project)
+        result = route_with_island_graph(self.project)
+        self.assertEqual(result["status"], "GRAPH_FAILED")
+        self.assertEqual(repr(self.project), before)
 
 
 if __name__ == "__main__":
