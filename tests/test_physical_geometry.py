@@ -79,6 +79,32 @@ class PhysicalGeometryTests(unittest.TestCase):
             cut_approach_occupancy_conflicts(
                 self.grid, 2, 55, [], Fraction(0))
 
+    def test_cut_access_fails_closed_without_tool_radius(self):
+        from physical_geometry import assess_cut_access
+        self.assertEqual(assess_cut_access(
+            self.grid, 2, 3, []),
+            {"status": "UNKNOWN", "reason": "tool_radius_missing"})
+
+    def test_cut_access_rejects_known_occupancy_collision(self):
+        from physical_geometry import assess_cut_access
+        pitch = HOLE_PITCH_MM
+        cell = PhysicalCell(2, 4, 3 * pitch, Fraction(3, 2) * pitch,
+                            4 * pitch, Fraction(5, 2) * pitch)
+        result = assess_cut_access(
+            self.grid, 2, 3, [cell], tool_radius_mm=Fraction(0))
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["conflicting_cells"], [(2, 4)])
+
+    def test_cut_access_requires_measured_envelopes_for_clearance(self):
+        from physical_geometry import assess_cut_access
+        self.assertEqual(assess_cut_access(
+            self.grid, 2, 3, [], tool_radius_mm=Fraction(1))["status"],
+            "UNKNOWN")
+        self.assertEqual(assess_cut_access(
+            self.grid, 2, 3, [], tool_radius_mm=Fraction(1),
+            measured_envelopes=True)["status"],
+            "CLEAR_WITH_SUPPLIED_GEOMETRY")
+
     def test_jumper_is_vertical_and_physical_length_matches_row_pitch(self):
         jumper = physical_jumper_segment(self.grid, (1, 9), (6, 9))
         self.assertEqual(jumper.start.x_mm, jumper.end.x_mm)
