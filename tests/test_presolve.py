@@ -58,7 +58,7 @@ class PresolveTests(unittest.TestCase):
         zero = next(o for o in result["components"][0]["geometry"]["orientations"] if o["rotation"] == 0)
         self.assertEqual(zero["different_net_pairs"][0]["possible_cut_gaps"], [0, 1, 2])
         self.assertFalse(zero["different_net_pairs"][0]["verified"])
-        self.assertEqual(result["board"]["recommendation_status"], "not_calculated_requires_routing_and_packing_model")
+        self.assertEqual(result["board"]["recommendation_status"], "requires_physical_routing_verification")
 
     def test_renaming_component_label_does_not_change_geometry_or_nets(self):
         project = fixture("moto")
