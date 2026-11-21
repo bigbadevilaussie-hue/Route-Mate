@@ -671,6 +671,90 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "truncated": len(cut_candidates) > 12,
                     "scope": "read-only, single between-hole cut; grid centreline only; no cut accessibility, measured clearance or full-board verification",
                 }
+                # Bounded two-cut feasibility. Recompute ownership after BOTH
+                # cuts, then search source -> freed strips -> target. This is
+                # deliberately diagnostic: no cuts or wires are installed.
+                from itertools import combinations
+                pair_results = []
+                checked_pairs = 0
+                max_pairs = 300
+                for first_cut, second_cut in combinations(cut_candidates, 2):
+                    if checked_pairs >= max_pairs:
+                        break
+                    checked_pairs += 1
+                    pair_cuts = [first_cut["cut"], second_cut["cut"]]
+                    trial_boundaries = boundaries | {
+                        (cut["row"], cut["col"]) for cut in pair_cuts
+                    }
+                    trial_groups = _copper_groups(
+                        rows, cols, trial_boundaries, isolated, checked_wires
+                    )
+                    owners = defaultdict(set)
+                    for tr, tc, tnet, _ in records:
+                        owners[trial_groups.find((tr, tc))].add(tnet)
+                    if any(len(nets) > 1 for nets in owners.values()):
+                        continue
+                    # A proposed cut may not sever copper joining existing
+                    # same-net terminals, even if it frees an empty prefix.
+                    baseline_to_trial = defaultdict(set)
+                    for tr, tc, _tnet, _ in records:
+                        baseline_to_trial[groups.find((tr, tc))].add(
+                            trial_groups.find((tr, tc))
+                        )
+                    if any(len(parts) > 1 for parts in baseline_to_trial.values()):
+                        continue
+                    freed = {}
+                    for candidate in (first_cut, second_cut):
+                        row = candidate["cut"]["row"]
+                        for col in candidate["free_columns"]:
+                            root = trial_groups.find((row, col))
+                            if not owners[root]:
+                                freed.setdefault(root, defaultdict(list))[row].append(col)
+                    freed_rows = [
+                        {row: sorted(set(cols)) for row, cols in island.items()}
+                        for _root, island in sorted(freed.items())
+                    ]
+                    for i, first_rows in enumerate(freed_rows):
+                        source_link = nearest_link(connected_rows, first_rows)
+                        if source_link is None:
+                            continue
+                        for j, second_rows in enumerate(freed_rows):
+                            if i == j:
+                                continue
+                            middle_link = nearest_link(first_rows, second_rows)
+                            if middle_link is None:
+                                continue
+                            for target in sorted(remaining):
+                                target_link = nearest_link(
+                                    second_rows, holes_by_root[target]
+                                )
+                                if target_link is None:
+                                    continue
+                                links = (source_link, middle_link, target_link)
+                                pair_results.append({
+                                    "cuts": pair_cuts,
+                                    "target_root": list(target),
+                                    "jumpers": [
+                                        {
+                                            "from": {"row": link[2][0], "col": link[2][1]},
+                                            "to": {"row": link[3][0], "col": link[3][1]},
+                                        } for link in links
+                                    ],
+                                })
+                                break
+                            if pair_results:
+                                break
+                        if pair_results:
+                            break
+                    if pair_results:
+                        break
+                multi_cut_feasibility = {
+                    "status": "CHAIN_FOUND" if pair_results else "NO_TWO_CUT_CHAIN_FOUND",
+                    "pairs_checked": checked_pairs,
+                    "pair_budget": max_pairs,
+                    "example_chains": pair_results[:3],
+                    "scope": "read-only, up to two prefix-isolating cuts and three grid-clear vertical jumpers; not exhaustive; no measured clearance or full-board verification",
+                }
                 # Diagnose the obstruction; another placement may still route.
                 connected_columns = sorted({
                     col for columns in connected_rows.values() for col in columns
@@ -700,6 +784,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "obstruction": obstruction,
                     "cut_segmentation": cut_segmentation,
                     "cut_feasibility": cut_feasibility,
+                    "multi_cut_feasibility": multi_cut_feasibility,
                 }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
