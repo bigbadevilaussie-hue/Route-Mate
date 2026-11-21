@@ -91,6 +91,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
         if not isinstance(component, dict):
             continue
         if is_off_board_component(component):
+            if component.get("locked") is not True:
+                continue  # Saved external pads are hints, not fixed placement constraints.
             try:
                 lead_records = _offboard_lead_records(component, pin_nets)
             except ValueError as exc:
@@ -296,6 +298,9 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
             continue
         cid = str(component.get("id"))
         if is_off_board_component(component):
+            if component.get("locked") is not True:
+                component["leads"] = {}  # Reallocate all unlocked external pads each solve.
+                continue
             for pid, point in (component.get("leads") or {}).items():
                 hole = (int(point["row"]), int(point["col"]))
                 if not (0 <= hole[0] < rows and 0 <= hole[1] < cols) or hole in used:
