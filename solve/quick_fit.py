@@ -189,7 +189,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
         return None, errors, net_score, links_scored
 
     ordered = sorted(pending, key=lambda x: (
-        -x["area"], -x["degree"], x["label"].casefold(), x["id"]
+        -x["degree"], -x["area"], x["label"].casefold(), x["id"]
     ))
     if placement_variant:
         # Alternative greedy order changes component positions, not router cuts.
@@ -261,6 +261,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                         continue
 
                     candidate_net_score = candidate_links = 0
+                    same_strip_links = 0
+                    shared_column_links = 0
                     for pin in pins:
                         nid = pin_nets.get((item["id"], pin["id"]))
                         prior = net_points.get(nid, []) if nid else []
@@ -269,6 +271,10 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                                            for r, c in prior)
                             candidate_net_score += distance
                             candidate_links += 1
+                            if any(pin["row"] == r for r, c in prior):
+                                same_strip_links += 1
+                            if any(pin["col"] == c for r, c in prior):
+                                shared_column_links += 1
                     centre_r2, centre_c2 = 2 * top + height - 1, 2 * left + width - 1
                     if centres:
                         n = len(centres)
@@ -276,9 +282,15 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                                    + abs(centre_c2 * n - centre_col_sum))
                     else:
                         compact = abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1))
+                    # Stripboard topology matters more than Euclidean closeness:
+                    # same-row pins may share copper; same-column pins admit a
+                    # direct vertical jumper (subject to subsequent clearance).
+                    # Keep clearance and different-net adjacency as hard checks.
+                    topology_score = (-same_strip_links, -shared_column_links,
+                                      candidate_net_score, routing_cost, compact)
                     score = (
-                        (routing_cost, candidate_net_score, compact) if placement_variant
-                        else (candidate_net_score, routing_cost, compact),
+                        (routing_cost, topology_score) if placement_variant == 1
+                        else topology_score,
                         abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1)),
                         (_variant_rank(placement_variant, item["id"], top, left, rotation)
                          if placement_variant >= 2 else top),
