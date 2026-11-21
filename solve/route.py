@@ -415,7 +415,33 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
         net: sorted({groups.find(point) for point in points})
         for net, points in terminals_by_net.items()
     }
-    if route_order == "constrained":
+    if route_order == "constrained" and quick_mode:
+        # Fail-first routing: scarce legal jumper opportunities must be used
+        # before flexible nets consume the same clearance corridors.
+        # Count distinct reachable island pairs before placing ANY new wire.
+        # Cap counts to bound preflight cost on dense boards.
+        def route_scarcity(net):
+            roots = net_roots[net]
+            if len(roots) < 2:
+                return (float("inf"), 0, net)
+            viable_pairs = 0
+            inspected = 0
+            for i, left in enumerate(roots):
+                for right in roots[i + 1:]:
+                    inspected += 1
+                    if nearest_link(holes_by_root[left],
+                                    holes_by_root[right]) is not None:
+                        viable_pairs += 1
+                    if inspected >= 24:
+                        break
+                if inspected >= 24:
+                    break
+            # Zero legal direct links go first: they need the scarce relay
+            # islands before easy nets use up available landing holes.
+            return (viable_pairs, -len(roots), net)
+
+        net_order = sorted(net_roots, key=route_scarcity)
+    elif route_order == "constrained":
         net_order = sorted(net_roots, key=lambda net: (-len(net_roots[net]), net))
     else:
         net_order = sorted(net_roots)
