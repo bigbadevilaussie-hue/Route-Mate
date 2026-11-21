@@ -306,7 +306,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                                       candidate_net_score, routing_cost, compact)
                     score = (
                         (routing_cost, topology_score) if placement_variant == 1
-                        else (topology_score, corridor_cost) if placement_variant == 100
+                        else (corridor_cost, topology_score) if placement_variant == 100
                         else topology_score,
                         abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1)),
                         (_variant_rank(placement_variant, item["id"], top, left, rotation)
