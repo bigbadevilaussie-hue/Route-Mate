@@ -15,6 +15,7 @@ from pathlib import Path
 from solve.route import route_copper, _terminals
 from solve.transactional_route import route_transactionally
 from solve.quality_audit import audit_project
+from solve.quick_rules import quick_audit
 from placement_policy import is_off_board_component
 from solve.quick_fit import quick_fit
 
@@ -129,8 +130,12 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
     }
     if routed["status"] == "ROUTED":
         audit = audit_project(routed["project"])
-        report["physical_status"] = audit["physical_jumper_audit"]["status"]
-        report["physical_errors"] = audit["physical_jumper_audit"]["errors"]
+        physical = quick_audit(routed["project"]) if quick_probe else audit["physical_jumper_audit"]
+        report["physical_status"] = physical["status"]
+        report["physical_errors"] = physical["errors"]
+        if quick_probe:
+            report["quick_diagonals"] = physical["diagonals"]
+            report["quick_constraints_verified"] = physical["status"] == "GRID_CLEARANCE_ONLY"
     return report
 
 
