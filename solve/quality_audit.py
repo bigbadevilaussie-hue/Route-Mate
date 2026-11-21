@@ -165,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         for wire in ja["lengths"]:
             flag = " DIAGONAL" if wire["diagonal"] else ""
             print(f"  {wire['id']}: {wire['length_hole_pitches']} pitches{flag}")
-        for error in report["errors"]:
+        for error in report["errors"] + report["physical_jumper_audit"]["errors"]:
             print(f"  ERROR: {error}")
     return 0 if report["status"] == "PASS" else 1
 
