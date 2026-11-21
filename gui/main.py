@@ -19,7 +19,7 @@ GUI_VERSION = "1.34"
 CODE_VERSION = "1.34"
 
 from PySide6.QtCore import Qt, QByteArray, QPoint
-from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter
+from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import (
@@ -353,7 +353,32 @@ class RouteMateWindow(QMainWindow):
         self._copper_svg = None
         self._board_side = "top"
 
+        logo_path = REPO_ROOT / "icon" / "RouteMate-original.png"
+        if logo_path.is_file():
+            self.setWindowIcon(QIcon(str(logo_path)))
         toolbar = QToolBar("Main")
+        toolbar.setObjectName("routeMateToolbar")
+        toolbar.setStyleSheet("""
+            QToolBar#routeMateToolbar { background: #17273b; border: none; padding: 9px; spacing: 8px; min-height: 54px; }
+            QToolBar#routeMateToolbar QToolButton { background: #2a405a; color: white; border: 1px solid #3e5976; border-radius: 9px; padding: 9px 14px; font-weight: 600; }
+            QToolBar#routeMateToolbar QToolButton:hover { background: #3a5b7c; }
+            QToolBar#routeMateToolbar QToolButton:checked { background: #23966c; border-color: #35c18b; }
+        """)
+        brand = QWidget()
+        brand_row = QHBoxLayout(brand)
+        brand_row.setContentsMargins(2, 0, 18, 0)
+        brand_row.setSpacing(10)
+        brand_logo = QLabel()
+        if logo_path.is_file():
+            logo = QPixmap(str(logo_path))
+            if not logo.isNull():
+                brand_logo.setPixmap(logo.scaled(44, 44, Qt.AspectRatioMode.KeepAspectRatio,
+                                                Qt.TransformationMode.SmoothTransformation))
+        brand_row.addWidget(brand_logo)
+        brand_title = QLabel("ROUTE-MATE")
+        brand_title.setStyleSheet("color: white; font-size: 16px; font-weight: 800;")
+        brand_row.addWidget(brand_title)
+        toolbar.addWidget(brand)
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
         load_action = QAction("Load JSON", self)
