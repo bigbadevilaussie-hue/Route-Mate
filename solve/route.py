@@ -198,7 +198,8 @@ def _new_wire_id(existing: list[dict], serial: int) -> tuple[str, int]:
 
 
 def route_copper(project: Any, *, vertical_only: bool = False,
-                 route_order: str = "alphabetical") -> dict[str, Any]:
+                 route_order: str = "alphabetical",
+                 _cut_retry: bool = True) -> dict[str, Any]:
     """Add cuts and jumpers to a placed project, then run the independent verifier.
 
     Existing cuts and wires are preserved. The source project is never mutated.
@@ -456,6 +457,47 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     remaining.remove(target)
                     continue
             if best_choice is None:
+                # Karl-style cut relocation: the first legal cut is not always
+                # the cut that leaves a usable vertical attachment column.
+                # Retry alternative positions BETWEEN the same adjacent,
+                # different-net terminals. Never move a manual cut, and never
+                # accept a candidate without the independent verifier.
+                if vertical_only and _cut_retry and new_cuts:
+                    attempts = 0
+                    for moved in new_cuts:
+                        row, old_col = moved["row"], moved["col"]
+                        positions = sorted(by_row[row])
+                        right = next((c for c in positions if c > old_col), None)
+                        if right is None:
+                            continue
+                        alternatives = list(range(old_col + 1, right))
+                        # Try the far edge first: it exposes the most copper
+                        # on the left without disconnecting either terminal.
+                        for col in reversed(alternatives):
+                            if attempts >= 32:
+                                break
+                            attempts += 1
+                            trial = copy.deepcopy(project)
+                            trial["board"]["cuts"] = (
+                                copy.deepcopy(cuts)
+                                + [copy.deepcopy(c) for c in new_cuts if c is not moved]
+                                + [{"row": row, "col": col, "kind": "between"}]
+                            )
+                            candidate = route_copper(
+                                trial, vertical_only=True,
+                                route_order=route_order, _cut_retry=False,
+                            )
+                            if candidate["status"] == "ROUTED":
+                                return candidate
+                        if attempts >= 32:
+                            break
+                if not _cut_retry:
+                    return {
+                        "status": "ROUTING_FAILED", "project": copy.deepcopy(project),
+                        "errors": [f"net {net}: no body-clear same-column jumper connects remaining copper islands"],
+                        "warnings": [], "cuts_added": 0, "wires_added": 0,
+                        "verification": None,
+                    }
                 # Diagnostic only: breadth-first search over unassigned copper
                 # islands, using the same body-clear vertical-link predicate.
                 # This does not reserve copper, add wires, or certify clearance.
