@@ -135,3 +135,10 @@ python3 -m unittest discover -s tests -v
 ```
 
 Expected at this handoff point: 7 focused tests and 153 total tests pass. A later branch may have more tests; trust actual output, not these historical counts.
+
+
+## Historical Gate 0 audit findings (v1.21)
+
+Legacy `solve/route.py` uses copper-group cuts and Manhattan-MST endpoint wires; `solve/verify.py` validates electrical connectivity, not physical wire paths, crossings, component-body clearance, landing access or cut-tool access. Quick Fit rejects different-net adjacency without evaluating an accessible isolating cut; Quick Place is first-fit. Shared logical footprint geometry is not a measured physical envelope. Legacy Moto 24×56 with 14 endpoint wires and 30 **hole cuts** is an import/regression fixture, **not** a valid between-hole-cut physical acceptance fixture. Preserve distinctions between explicit off-board saved leads, excluded components and the historical GPS exception; do not silently alter source semantics.
+
+Gate 0 follow-up coverage identified: off-board/board-excluded lead handling, flexible endpoints and rotations, `lockedRows`/`lockedCols` and edge/slide constraints, unknown-field and source round trips, electrical shorts/opens and duplicate assignments, and GUI/CLI/renderer result labels. Unresolved physical inputs must **not be guessed**: cut-tool clearance, measured body outlines/heights, wire thickness and end bends, landing-hole access, overlapping vertical wires, crossings and board-edge access. This historical summary does not amend the [locked physical model](PHYSICAL_MODEL_SPEC.md) or certify current implementation.
