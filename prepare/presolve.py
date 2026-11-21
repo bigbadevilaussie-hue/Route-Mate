@@ -15,6 +15,73 @@ SCHEMA = "route-mate-presolve"
 VERSION = 1
 
 
+def _pack_rectangles(rectangles: list[list[tuple[int, int]]], rows: int, cols: int) -> bool:
+    """Deterministic first-fit packing of conservative footprint rectangles.
+
+    This is a sufficient placement-only witness, NOT a physical routing proof.
+    """
+    occupied: set[tuple[int, int]] = set()
+    order = sorted(rectangles, key=lambda options: -min(r * c for r, c in options))
+    for options in order:
+        placed = False
+        for height, width in sorted(set(options), key=lambda pair: (pair[0] * pair[1], pair)):
+            if height > rows or width > cols:
+                continue
+            for top in range(rows - height + 1):
+                for left in range(cols - width + 1):
+                    cells = {(r, c) for r in range(top, top + height)
+                             for c in range(left, left + width)}
+                    if not occupied.intersection(cells):
+                        occupied.update(cells)
+                        placed = True
+                        break
+                if placed:
+                    break
+            if placed:
+                break
+        if not placed:
+            return False
+    return True
+
+
+def _placement_candidate(records: list[dict[str, Any]], board: dict[str, Any]) -> dict[str, Any]:
+    """Find a no-padding rectangle-packing witness when dimensions may change.
+
+    Existing locked axes are hard limits. No wire, cut or clearance allowances
+    are guessed. Failure to pack does not establish impossibility.
+    """
+    if any(not record["geometry"]["resolved"] and not record["off_board"] for record in records):
+        return {"status": "unknown_unresolved_footprints", "rows": None, "cols": None}
+    rectangles = [
+        [(o["span_rows"], o["span_cols"]) for o in record["geometry"]["orientations"]]
+        for record in records if not record["off_board"]
+    ]
+    if not rectangles:
+        return {"status": "no_on_board_components", "rows": None, "cols": None}
+    source_rows, source_cols = board.get("rows"), board.get("cols")
+    lock_rows, lock_cols = bool(board.get("lockedRows")), bool(board.get("lockedCols"))
+    if lock_rows and (type(source_rows) is not int or source_rows < 1):
+        return {"status": "invalid_locked_rows", "rows": None, "cols": None}
+    if lock_cols and (type(source_cols) is not int or source_cols < 1):
+        return {"status": "invalid_locked_cols", "rows": None, "cols": None}
+    # The sum of maximum dimensions provides a finite packing search ceiling,
+    # not a requested allowance or a recommended size.
+    max_rows = sum(max(r for r, _ in options) for options in rectangles)
+    max_cols = sum(max(c for _, c in options) for options in rectangles)
+    min_rows = max(min(r for r, _ in options) for options in rectangles)
+    min_cols = max(min(c for _, c in options) for options in rectangles)
+    row_choices = [source_rows] if lock_rows else range(min_rows, max_rows + 1)
+    col_choices = [source_cols] if lock_cols else range(min_cols, max_cols + 1)
+    candidates = sorted(
+        ((r, c) for r in row_choices for c in col_choices),
+        key=lambda pair: (pair[0] * pair[1], pair[0], pair[1]),
+    )
+    for rows, cols in candidates:
+        if _pack_rectangles(rectangles, rows, cols):
+            return {"status": "placement_only_candidate", "rows": rows, "cols": cols}
+    return {"status": "no_first_fit_witness", "rows": None, "cols": None}
+
+
 def analyse_project(project: dict[str, Any]) -> dict[str, Any]:
     """Return uniform per-component records and a non-certifying board estimate."""
     board = project.get("board", {})
@@ -128,7 +195,7 @@ def analyse_project(project: dict[str, Any]) -> dict[str, Any]:
                 largest_cols = max(largest_cols, min(o["span_cols"] for o in record["geometry"]["orientations"]))
         records.append(record)
 
-    rows = board.get("rows")
+    candidate = _placement_candidate(records, board)\n    rows = board.get("rows")
     cols = board.get("cols")
     locked_rows = bool(board.get("lockedRows", False))
     locked_cols = bool(board.get("lockedCols", False))
