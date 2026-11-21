@@ -88,6 +88,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
         "routing_status": routed["status"],
         "failed_net_terminals": failed_net_terminals,
         "reachability": routed.get("reachability"),
+        "obstruction": routed.get("obstruction"),
         "cuts_added": routed["cuts_added"],
         "wires_added": routed["wires_added"],
         "errors": routed["errors"],
