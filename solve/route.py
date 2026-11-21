@@ -456,6 +456,57 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     remaining.remove(target)
                     continue
             if best_choice is None:
+                # Diagnostic only: breadth-first search over unassigned copper
+                # islands, using the same body-clear vertical-link predicate.
+                # This does not reserve copper, add wires, or certify clearance.
+                from collections import deque
+                available = {
+                    root: island_rows
+                    for root, island_rows in holes_by_root.items()
+                    if root not in reserved_bridges
+                    and (root in remaining or not nets_by_group.get(root))
+                    and root not in roots[:1]
+                }
+                queue = deque([None])
+                predecessor = {None: None}
+                edge_to = {}
+                reached_target = None
+                while queue and reached_target is None:
+                    current = queue.popleft()
+                    source_rows = connected_rows if current is None else available[current]
+                    for candidate_root in sorted(available):
+                        if candidate_root in predecessor:
+                            continue
+                        link = nearest_link(source_rows, available[candidate_root])
+                        if link is None:
+                            continue
+                        predecessor[candidate_root] = current
+                        edge_to[candidate_root] = link
+                        if candidate_root in remaining:
+                            reached_target = candidate_root
+                            break
+                        queue.append(candidate_root)
+                chain = []
+                if reached_target is not None:
+                    cursor = reached_target
+                    while cursor is not None:
+                        link = edge_to[cursor]
+                        chain.append({
+                            "from": {"row": link[2][0], "col": link[2][1]},
+                            "to": {"row": link[3][0], "col": link[3][1]},
+                            "distance_hole_pitches": link[0],
+                        })
+                        cursor = predecessor[cursor]
+                    chain.reverse()
+                reachability = {
+                    "status": "CHAIN_FOUND" if chain else "NO_CHAIN_FOUND",
+                    "net_id": net,
+                    "candidate_islands": len(available),
+                    "reachable_islands": len(predecessor) - 1,
+                    "remaining_target_islands": len(remaining),
+                    "example_vertical_chain": chain,
+                    "scope": "grid body-occupancy only; excludes other-net and reserved islands",
+                }
                 # Diagnose the obstruction; another placement may still route.
                 connected_columns = sorted({
                     col for columns in connected_rows.values() for col in columns
@@ -481,6 +532,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "errors": [f"net {net}: {detail}"],
                     "warnings": [], "cuts_added": 0, "wires_added": 0,
                     "verification": None,
+                    "reachability": reachability,
                 }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
