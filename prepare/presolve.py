@@ -217,7 +217,10 @@ def analyse_project(project: dict[str, Any]) -> dict[str, Any]:
                 else "not_below_estimate" if existing_area is not None else "unknown"
             ),
             "recommended_rows": None, "recommended_cols": None,
-            "recommendation_status": "not_calculated_requires_routing_and_packing_model",
+            "placement_candidate_rows": candidate["rows"],
+            "placement_candidate_cols": candidate["cols"],
+            "placement_candidate_status": candidate["status"],
+            "recommendation_status": "requires_physical_routing_verification",
             "physical_fit_verified": False,
         },
         "warnings": [{"component_id": cid, "code": "unresolved_footprint"} for cid in unresolved],
