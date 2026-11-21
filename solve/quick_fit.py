@@ -261,8 +261,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                     cells = {(origin_r + r, origin_c + c) for r, c in shape}
                     if blocked.intersection(cells):
                         continue
-                    if corridor_rows and any(r in corridor_rows for r, _ in cells):
-                        continue
+                    corridor_cost = sum(1 for r, _ in cells if r in corridor_rows)
                     pins = [{
                         "id": str(p.get("id", "")),
                         "row": origin_r + int(p["row"]),
@@ -307,6 +306,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                                       candidate_net_score, routing_cost, compact)
                     score = (
                         (routing_cost, topology_score) if placement_variant == 1
+                        else (topology_score, corridor_cost) if placement_variant == 100
                         else topology_score,
                         abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1)),
                         (_variant_rank(placement_variant, item["id"], top, left, rotation)
