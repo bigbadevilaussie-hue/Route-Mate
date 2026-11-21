@@ -755,6 +755,146 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "example_chains": pair_results[:3],
                     "scope": "read-only, up to two prefix-isolating cuts and three grid-clear vertical jumpers; not exhaustive; no measured clearance or full-board verification",
                 }
+                # Bidirectional diagnostic: find terminal-free prefixes OR
+                # suffixes overlapping the remaining net's columns. Test
+                # each proposed cut against actual copper ownership.
+                target_columns = sorted({
+                    col for root in remaining
+                    for columns in holes_by_root[root].values()
+                    for col in columns
+                })
+                destination_candidates = []
+                for row in range(rows):
+                    run_start = 0
+                    for boundary_col in range(cols):
+                        if boundary_col < cols - 1 and (row, boundary_col) not in boundaries:
+                            continue
+                        run_end = boundary_col
+                        terminals = sorted(
+                            col for col in by_row.get(row, {})
+                            if run_start <= col <= run_end
+                        )
+                        if terminals:
+                            for side, cut_col, free_start, free_end in (
+                                ("prefix", terminals[0] - 1, run_start, terminals[0] - 1),
+                                ("suffix", terminals[-1], terminals[-1] + 1, run_end),
+                            ):
+                                if not (run_start <= cut_col < run_end):
+                                    continue
+                                overlap = [
+                                    col for col in target_columns
+                                    if free_start <= col <= free_end
+                                    and (row, col) not in isolated
+                                ]
+                                if not overlap:
+                                    continue
+                                trial = _copper_groups(
+                                    rows, cols, boundaries | {(row, cut_col)},
+                                    isolated, checked_wires
+                                )
+                                owners = defaultdict(set)
+                                for tr, tc, tnet, _ in records:
+                                    owners[trial.find((tr, tc))].add(tnet)
+                                if any(len(nets) > 1 for nets in owners.values()):
+                                    continue
+                                old_to_new = defaultdict(set)
+                                for tr, tc, _tnet, _ in records:
+                                    old_to_new[groups.find((tr, tc))].add(
+                                        trial.find((tr, tc))
+                                    )
+                                if any(len(parts) > 1 for parts in old_to_new.values()):
+                                    continue
+                                free = [
+                                    col for col in overlap
+                                    if not owners[trial.find((row, col))]
+                                ]
+                                if not free:
+                                    continue
+                                destination_candidates.append({
+                                    "cut": {"row": row, "col": cut_col, "kind": "between"},
+                                    "side": side,
+                                    "free_columns": free,
+                                })
+                        run_start = boundary_col + 1
+                # Search across the two independently generated candidate
+                # regions. Each pair is recomputed with BOTH cuts installed.
+                bidirectional_examples = []
+                checked_bidirectional_pairs = 0
+                for source_candidate in cut_candidates:
+                    for dest_candidate in destination_candidates:
+                        if checked_bidirectional_pairs >= 500:
+                            break
+                        if source_candidate["cut"] == dest_candidate["cut"]:
+                            continue
+                        checked_bidirectional_pairs += 1
+                        pair = [source_candidate["cut"], dest_candidate["cut"]]
+                        trial = _copper_groups(
+                            rows, cols,
+                            boundaries | {(c["row"], c["col"]) for c in pair},
+                            isolated, checked_wires
+                        )
+                        owners = defaultdict(set)
+                        old_to_new = defaultdict(set)
+                        for tr, tc, tnet, _ in records:
+                            owners[trial.find((tr, tc))].add(tnet)
+                            old_to_new[groups.find((tr, tc))].add(
+                                trial.find((tr, tc))
+                            )
+                        if any(len(v) > 1 for v in owners.values()) or any(
+                            len(v) > 1 for v in old_to_new.values()
+                        ):
+                            continue
+                        bridge_roots = {}
+                        for candidate in (source_candidate, dest_candidate):
+                            row = candidate["cut"]["row"]
+                            for col in candidate["free_columns"]:
+                                root = trial.find((row, col))
+                                if not owners[root]:
+                                    bridge_roots.setdefault(root, defaultdict(list))[row].append(col)
+                        bridges = [
+                            {r: sorted(set(cs)) for r, cs in island.items()}
+                            for island in bridge_roots.values()
+                        ]
+                        for i, left in enumerate(bridges):
+                            first = nearest_link(connected_rows, left)
+                            if first is None:
+                                continue
+                            for j, right in enumerate(bridges):
+                                if i == j:
+                                    continue
+                                middle = nearest_link(left, right)
+                                if middle is None:
+                                    continue
+                                for target in sorted(remaining):
+                                    last = nearest_link(right, holes_by_root[target])
+                                    if last is not None:
+                                        bidirectional_examples.append({
+                                            "cuts": pair,
+                                            "jumpers": [
+                                                {"from": {"row": link[2][0], "col": link[2][1]},
+                                                 "to": {"row": link[3][0], "col": link[3][1]}}
+                                                for link in (first, middle, last)
+                                            ],
+                                        })
+                                        break
+                                if bidirectional_examples:
+                                    break
+                            if bidirectional_examples:
+                                break
+                        if bidirectional_examples:
+                            break
+                    if bidirectional_examples or checked_bidirectional_pairs >= 500:
+                        break
+                bidirectional_cut_feasibility = {
+                    "status": "CHAIN_FOUND" if bidirectional_examples else "NO_CHAIN_IN_SEARCH",
+                    "source_candidates": len(cut_candidates),
+                    "destination_candidates": len(destination_candidates),
+                    "destination_samples": destination_candidates[:8],
+                    "pairs_checked": checked_bidirectional_pairs,
+                    "pair_budget": 500,
+                    "example_chains": bidirectional_examples[:2],
+                    "scope": "read-only prefix/suffix two-cut search, grid-clear vertical jumpers only; incomplete and not physically verified",
+                }
                 # Diagnose the obstruction; another placement may still route.
                 connected_columns = sorted({
                     col for columns in connected_rows.values() for col in columns
@@ -785,6 +925,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "cut_segmentation": cut_segmentation,
                     "cut_feasibility": cut_feasibility,
                     "multi_cut_feasibility": multi_cut_feasibility,
+                    "bidirectional_cut_feasibility": bidirectional_cut_feasibility,
                 }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
