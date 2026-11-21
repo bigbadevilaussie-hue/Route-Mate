@@ -5,6 +5,7 @@ No cuts or jumpers are installed; this is a search primitive, not a router.
 """
 from __future__ import annotations
 
+import copy
 from collections import defaultdict, deque
 
 from board_geometry import BUILTIN_DEFS, BoardGrid, resolve_definition
@@ -13,6 +14,7 @@ from physical_geometry import (
 )
 from placement_policy import is_off_board_component
 from .route import _copper_groups, _routing_sets, _terminals
+from .verify import verify_project
 
 
 def find_vertical_chain(project, net_id, *, max_edges=4):
@@ -129,5 +131,60 @@ def find_vertical_chain(project, net_id, *, max_edges=4):
         "scope": "read-only; grid body clearance, not full physical verification",
     }
 
+def route_with_island_graph(project, *, max_edges=3, max_chains=64):
+    """Attempt a complete route by repeatedly joining terminal islands.
 
-__all__ = ["find_vertical_chain"]
+    All changes are private until independent verification passes. This
+    intentionally avoids modifying or replacing existing manual routing.
+    """
+    trial = copy.deepcopy(project)
+    board = trial.get("board")
+    if not isinstance(board, dict) or "rows" not in board or "cols" not in board:
+        return {"status": "GRAPH_FAILED", "reason": "missing board dimensions"}
+    rows, cols = int(board["rows"]), int(board["cols"])
+    records = _terminals(trial, rows, cols)
+    _cuts, _wires, boundaries, isolated, _checked = _routing_sets(board, rows, cols)
+    by_row = defaultdict(lambda: defaultdict(set))
+    for row, col, net, _ref in records:
+        by_row[row][col].add(net)
+    added_cuts = []
+    for row, positions in sorted(by_row.items()):
+        ordered = sorted(positions)
+        for left, right in zip(ordered, ordered[1:]):
+            if positions[left] == positions[right]:
+                continue
+            if any((row, c) in boundaries for c in range(left, right)):
+                continue
+            if any((row, c) in isolated for c in range(left, right + 1)):
+                continue
+            cut = {"row": row, "col": left, "kind": "between"}
+            added_cuts.append(cut)
+            boundaries.add((row, left))
+    board.setdefault("cuts", []).extend(added_cuts)
+    board.setdefault("wires", [])
+    nets = sorted({net for _row, _col, net, _ref in records})
+    chains = 0
+    for net in nets:
+        while chains < max_chains:
+            step = find_vertical_chain(trial, net, max_edges=max_edges)
+            if step["status"] == "ALREADY_CONNECTED":
+                break
+            if step["status"] != "CHAIN_FOUND":
+                return {"status": "GRAPH_FAILED", "reason": step["status"],
+                        "net_id": net, "chains": chains}
+            board["wires"].extend(step["chain"])
+            chains += 1
+        else:
+            return {"status": "GRAPH_FAILED", "reason": "chain budget exceeded",
+                    "net_id": net, "chains": chains}
+    verification = verify_project(trial)
+    if verification["status"] != "PASS":
+        return {"status": "GRAPH_FAILED", "reason": "verification failed",
+                "verification": verification, "chains": chains}
+    return {"status": "ROUTED", "project": trial, "verification": verification,
+            "cuts_added": len(added_cuts),
+            "wires_added": len(board["wires"]) - len(project["board"].get("wires") or []),
+            "graph": {"chains": chains, "max_edges": max_edges}}
+
+
+__all__ = ["find_vertical_chain", "route_with_island_graph"]
