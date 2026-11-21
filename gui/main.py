@@ -489,6 +489,20 @@ class RouteMateWindow(QMainWindow):
     def _show_board(self, top_svg: str):
         self._top_svg = top_svg
         self._switch_board_side(self._board_side)
+        if self.project is not None:
+            from solve.render_quality import score_render
+            try:
+                quality = score_render(self.project)
+                self.log_line(
+                    f"[QUALITY SCORE] {quality['score']:.1f}/100 PROVISIONAL | "
+                    f"placed {quality['placed']}/{quality['placeable']} | "
+                    f"cuts {quality['cuts']} | wires {quality['wires']} | "
+                    f"diagonal {quality['diagonals']} | "
+                    f"wire {quality['wire_length_mm']:.1f} mm | "
+                    "NOT physical sign-off"
+                )
+            except (ValueError, TypeError, KeyError) as exc:
+                self.log_line(f"[QUALITY SCORE] UNAVAILABLE: {exc}")
 
     def _run_tests(self):
         if getattr(sys, "frozen", False):
