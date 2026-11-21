@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import copy
 import argparse
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from solve.route import route_copper, _terminals
@@ -126,30 +128,83 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
     return report
 
 
+
+def _run_variant(job):
+    variant, route_order, fresh_pads = job
+    started = time.perf_counter()
+    try:
+        report = benchmark(route_order=route_order, fresh_pads=fresh_pads,
+                           placement_variant=variant)
+    except Exception as exc:
+        report = {"routing_status": "EXCEPTION", "physical_status": None,
+                  "errors": [f"{type(exc).__name__}: {exc}"]}
+    return variant, report, time.perf_counter() - started
+
+
+def _line(variant, report, elapsed, count, total):
+    reach = report.get("reachability") or {}
+    error = (report.get("errors") or [""])[0]
+    return (f"[{count:03d}/{total:03d}] variant={variant:03d} "
+            f"status={report['routing_status']} "
+            f"reach={reach.get('status', '-')} "
+            f"cuts={report.get('cuts_added', 0)} wires={report.get('wires_added', 0)} "
+            f"time={elapsed:.2f}s" + (f" error={error[:160]}" if error else ""))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--route-order", choices=("alphabetical", "constrained"),
                         default="alphabetical")
-    parser.add_argument("--placement-attempts", type=int, choices=(1, 2), default=1,
-                        help="With --fresh-pads, try one or two different component placements")
-    parser.add_argument("--fresh-pads", action="store_true",
-                        help="Re-run Quick Fit to allocate movable off-board pads before routing")
+    parser.add_argument("--placement-attempts", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--fresh-pads", action="store_true")
+    parser.add_argument("--json", action="store_true",
+                        help="Full diagnostic JSON, single attempt only")
     args = parser.parse_args()
+    if not 1 <= args.placement_attempts <= 100:
+        parser.error("--placement-attempts must be between 1 and 100")
+    if not 1 <= args.workers <= 32:
+        parser.error("--workers must be between 1 and 32")
     if args.placement_attempts > 1 and not args.fresh_pads:
-        parser.error("--placement-attempts 2 requires --fresh-pads")
-    attempts = []
-    for variant in range(args.placement_attempts):
-        result = benchmark(route_order=args.route_order, fresh_pads=args.fresh_pads,
-                           placement_variant=variant)
-        attempts.append({
-            "placement_variant": variant,
-            "routing_status": result["routing_status"],
-            "physical_status": result.get("physical_status"),
-            "errors": result.get("errors", []),
-        })
-        if result["routing_status"] == "ROUTED" and result.get("physical_status") == "GRID_CLEARANCE_ONLY":
-            break
-    result["placement_attempts"] = attempts
-    print(json.dumps(result, indent=2))
-    raise SystemExit(0 if result["routing_status"] == "ROUTED"
-                     and result["physical_status"] == "GRID_CLEARANCE_ONLY" else 1)
+        parser.error("multiple attempts require --fresh-pads")
+    if args.json and args.placement_attempts != 1:
+        parser.error("--json requires one attempt")
+
+    started = time.perf_counter()
+    jobs = [(v, args.route_order, args.fresh_pads)
+            for v in range(args.placement_attempts)]
+    attempts, successful = [], []
+    if args.workers == 1 or len(jobs) == 1:
+        for job in jobs:
+            variant, report, elapsed = _run_variant(job)
+            attempts.append((variant, report, elapsed))
+            if not args.json:
+                print(_line(variant, report, elapsed, len(attempts), len(jobs)), flush=True)
+            if report["routing_status"] == "ROUTED" and report.get("physical_status") == "GRID_CLEARANCE_ONLY":
+                successful.append(variant)
+                break
+    else:
+        with ProcessPoolExecutor(max_workers=args.workers) as pool:
+            futures = [pool.submit(_run_variant, job) for job in jobs]
+            for future in as_completed(futures):
+                variant, report, elapsed = future.result()
+                attempts.append((variant, report, elapsed))
+                print(_line(variant, report, elapsed, len(attempts), len(jobs)), flush=True)
+                if report["routing_status"] == "ROUTED" and report.get("physical_status") == "GRID_CLEARANCE_ONLY":
+                    successful.append(variant)
+                    for pending in futures:
+                        pending.cancel()
+                    break
+    if args.json:
+        result = attempts[0][1]
+        result["placement_attempts"] = [
+            {"placement_variant": v, "routing_status": r["routing_status"],
+             "physical_status": r.get("physical_status"), "errors": r.get("errors", [])}
+            for v, r, _ in attempts
+        ]
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"SUMMARY attempts={len(attempts)} successes={len(successful)} "
+              f"wall_time={time.perf_counter()-started:.2f}s "
+              f"workers={min(args.workers, len(jobs))}", flush=True)
+    raise SystemExit(0 if successful else 1)
