@@ -187,6 +187,54 @@ class RouteCopperTests(unittest.TestCase):
         self.assertEqual(verify_project(result["project"])["status"], "PASS")
         self.assertEqual(data["board"]["wires"], [])
 
+    def test_vertical_router_avoids_body_blocked_column(self):
+        data = make_project([(0, 0, "A"), (4, 7, "A")], rows=5, cols=8)
+        data["componentDefs"].append({
+            "id": "blocker", "pins": [],
+            "bodyCells": [{"row": 0, "col": 0}],
+        })
+        data["components"].append({
+            "id": "BLOCK", "label": "BLOCK", "defId": "blocker",
+            "boardPos": {"row": 2, "col": 0},
+        })
+        result = route_copper(data, vertical_only=True)
+        self.assertEqual(result["status"], "ROUTED", result["errors"])
+        wire = result["project"]["board"]["wires"][0]
+        self.assertNotEqual(wire["from"]["col"], 0)
+        self.assertEqual(wire["from"]["col"], wire["to"]["col"])
+
+    def test_vertical_router_rejects_all_blocked_columns_without_mutation(self):
+        data = make_project([(0, 0, "A"), (2, 3, "A")], rows=3, cols=4)
+        data["componentDefs"].append({
+            "id": "wall", "pins": [],
+            "bodyCells": [{"row": 0, "col": col} for col in range(4)],
+        })
+        data["components"].append({
+            "id": "WALL", "label": "WALL", "defId": "wall",
+            "boardPos": {"row": 1, "col": 0},
+        })
+        original = copy.deepcopy(data)
+        result = route_copper(data, vertical_only=True)
+        self.assertEqual(result["status"], "ROUTING_FAILED")
+        self.assertEqual(result["project"], original)
+        self.assertEqual(data, original)
+
+    def test_vertical_router_rejects_manual_body_crossing(self):
+        data = make_project([(0, 1, "A"), (2, 1, "A")], rows=3, cols=4,
+                            wires=[{"id": "manual", "from": {"row": 0, "col": 1},
+                                    "to": {"row": 2, "col": 1}}])
+        data["componentDefs"].append({
+            "id": "blocker", "pins": [],
+            "bodyCells": [{"row": 0, "col": 0}],
+        })
+        data["components"].append({
+            "id": "BLOCK", "defId": "blocker",
+            "boardPos": {"row": 1, "col": 1},
+        })
+        result = route_copper(data, vertical_only=True)
+        self.assertEqual(result["status"], "ROUTING_FAILED")
+        self.assertIn("existing wire", result["errors"][0])
+
     def test_unknown_route_order_is_rejected(self):
         with self.assertRaises(ValueError):
             route_copper(make_project([(0, 0, "A")]), route_order="random")
