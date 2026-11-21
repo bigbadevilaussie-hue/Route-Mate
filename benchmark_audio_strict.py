@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent
 SIDECAR = ROOT / "benchmarks/audio/audio.routemate-state.json"
 
 
-def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0, transactional=False, verbose=False, max_trials=None, max_seconds=None, quick_probe=False):
+def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, placement_variant=0, transactional=False, verbose=False, max_trials=None, max_seconds=None, quick_probe=False, quick_backtracks=0):
     state = json.loads(Path(sidecar).read_text(encoding="utf-8"))
     stages = state["pipeline"]["stages"]
     placed = copy.deepcopy(stages["SOLVE.quick_fit"]["report"]["result"]["project"])
@@ -86,7 +86,8 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
         }
     routed = (route_transactionally(placed, route_order=route_order, verbose=verbose,
                                      max_trials=max_trials, max_seconds=max_seconds)
-              if transactional else route_copper(placed, vertical_only=not quick_probe, quick_mode=quick_probe, route_order=route_order))
+              if transactional else route_copper(placed, vertical_only=not quick_probe, quick_mode=quick_probe, route_order=route_order,
+                                              quick_backtracks=quick_backtracks))
     failed_nets = []
     for error in routed.get("errors", []):
         if error.startswith("net ") and ": " in error:
@@ -112,6 +113,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
                                else "audio10wires38cuts.json reference fixture"),
         "reference_leads_imported_for": imported,
         "routing_status": routed["status"],
+        "quick_search": routed.get("quick_search"),
         "transactional": routed.get("transactional"),
         "failed_net_terminals": failed_net_terminals,
         "reachability": routed.get("reachability"),
@@ -141,12 +143,13 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
 
 
 def _run_variant(job):
-    variant, route_order, fresh_pads, transactional, verbose, max_trials, max_seconds, quick_probe = job
+    variant, route_order, fresh_pads, transactional, verbose, max_trials, max_seconds, quick_probe, quick_backtracks = job
     started = time.perf_counter()
     try:
         report = benchmark(route_order=route_order, fresh_pads=fresh_pads,
                            placement_variant=variant, transactional=transactional, verbose=verbose,
-                           max_trials=max_trials, max_seconds=max_seconds, quick_probe=quick_probe)
+                           max_trials=max_trials, max_seconds=max_seconds, quick_probe=quick_probe,
+                           quick_backtracks=quick_backtracks)
     except Exception as exc:
         report = {"routing_status": "EXCEPTION", "physical_status": None,
                   "errors": [f"{type(exc).__name__}: {exc}"]}
@@ -176,6 +179,8 @@ if __name__ == "__main__":
                         help="Limit speculative cut search elapsed seconds")
     parser.add_argument("--quick-probe", action="store_true",
                         help="Experimental unrestricted electrical routing; NOT Quick physical certification")
+    parser.add_argument("--quick-backtracks", type=int, default=0,
+                        help="Number of reversible Quick routing retries (0-32)")
     parser.add_argument("--corridors", action="store_true",
                         help="Test copper-bus corridor placement (variant 100; requires --fresh-pads)")
     parser.add_argument("--strip-first", action="store_true",
@@ -198,11 +203,15 @@ if __name__ == "__main__":
 
     if args.corridors and (not args.fresh_pads or args.strip_first):
         parser.error("--corridors requires --fresh-pads and excludes --strip-first")
+    if not 0 <= args.quick_backtracks <= 32:
+        parser.error("--quick-backtracks must be 0..32")
+    if args.quick_backtracks and not args.quick_probe:
+        parser.error("--quick-backtracks requires --quick-probe")
     if args.quick_probe and args.transactional:
         parser.error("--quick-probe cannot use vertical-only transactional routing")
     started = time.perf_counter()
     jobs = [(v, args.route_order, args.fresh_pads, args.transactional, args.verbose,
-             args.max_trials, args.max_seconds, args.quick_probe)
+             args.max_trials, args.max_seconds, args.quick_probe, args.quick_backtracks)
             for v in ([100] if args.corridors else [99] if args.strip_first else range(args.placement_attempts))]
     attempts, successful = [], []
     if args.workers == 1 or len(jobs) == 1:
