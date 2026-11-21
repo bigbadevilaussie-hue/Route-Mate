@@ -813,6 +813,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                 })
                 destination_candidates = []
                 destination_rejections = defaultdict(int)
+                destination_split_samples = []
                 for row in range(rows):
                     run_start = 0
                     for boundary_col in range(cols):
@@ -854,8 +855,31 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                                     old_to_new[groups.find((tr, tc))].add(
                                         trial.find((tr, tc))
                                     )
-                                if any(len(parts) > 1 for parts in old_to_new.values()):
+                                split_roots = {
+                                    root for root, parts in old_to_new.items()
+                                    if len(parts) > 1
+                                }
+                                if split_roots:
                                     destination_rejections["splits_existing_terminal_group"] += 1
+                                    if len(destination_split_samples) < 8:
+                                        separated = defaultdict(lambda: defaultdict(list))
+                                        for tr, tc, tnet, terminal in records:
+                                            old_root = groups.find((tr, tc))
+                                            if old_root in split_roots:
+                                                new_root = trial.find((tr, tc))
+                                                separated[old_root][new_root].append({
+                                                    "row": tr, "col": tc,
+                                                    "net_id": tnet, "terminal": terminal,
+                                                })
+                                        destination_split_samples.append({
+                                            "cut": {"row": row, "col": cut_col, "kind": "between"},
+                                            "side": side,
+                                            "overlap_columns": overlap[:16],
+                                            "separated_groups": [
+                                                {"parts": list(parts.values())}
+                                                for parts in separated.values()
+                                            ][:4],
+                                        })
                                     continue
                                 free = [
                                     col for col in overlap
@@ -944,6 +968,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "source_candidates": len(cut_candidates),
                     "destination_candidates": len(destination_candidates),
                     "destination_rejections": dict(sorted(destination_rejections.items())),
+                    "destination_split_samples": destination_split_samples,
                     "destination_samples": destination_candidates[:8],
                     "pairs_checked": checked_bidirectional_pairs,
                     "pair_budget": 500,
