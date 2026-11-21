@@ -201,7 +201,7 @@ class QuickFitPlacementTests(unittest.TestCase):
 
     def test_unlocked_offboard_saved_leads_are_reallocated(self):
         project = {
-            "board": {"rows": 1, "cols": 2},
+            "board": {"rows": 1, "cols": 4},
             "componentDefs": [{"id": "pin", "width": 1, "height": 1,
                 "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}], "bodyCells": []}],
             "components": [
