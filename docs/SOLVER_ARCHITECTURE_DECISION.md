@@ -110,3 +110,33 @@ for any adapted source code; attribution alone is insufficient.
 ## Original Karl reference and skeleton status
 
 Original upstream only: https://github.com/KarloFunke/stripboard-editor at commit `21e2373f6e1da44ce017be234b2df04f42d3af30` (2026-11-08); **not** the user's tuned `bigbadevilaussie-hue/stripboard-optimiser` fork. Inspected upstream files: `src/frontend/components/stripboard/autoLayout5.ts` (blob `bc9fc8330e0ab43ca6366f65fdd92235fa6f1e94`), `src/frontend/components/stripboard/v5wasm/decode.c` (`5a30461f879953c71dfe055c086efb98dbabd45c`), `src/frontend/components/stripboard/layout2/boardPrice.ts` (`16d59dcaf5f1f447d548f6e96e8c0a6e8cdc364d`). `solve/skeleton.py` is an isolated two-permutation rectangle decoder with longest-path compaction, not a full Karl V5 port: no net-row equalities, body envelopes, edge slides, copper, jumper paths or physical verification. Initial skeleton tests were authored but not executed in that GitHub-only change; verify locally. GPL-3.0 compliance is required for adapted source, not just credit.
+
+
+## Implementation progress — 2026-11-21 (v1.36)
+
+This section records current partial implementation, not approval to bypass the locked
+[physical-model gates](PHYSICAL_MODEL_SPEC.md). The design-status header above
+continues to describe the **full shared verified engine**, which is not yet implemented.
+
+- PRE-SOLVE (`prepare/presolve.py`) derives generic per-orientation footprint
+  intelligence from actual pins, body occupancy and pin-net assignments:
+  dual-row topology, populated pin columns, obstructed vertical jumper lanes,
+  and a lower bound on strip isolation cuts. Feasibility remains **unverified**.
+- Quick Fit (`solve/quick_fit.py`) consumes that analysis for **soft candidate
+  scoring**, after net-distance cost; it does not impose an ESP32-specific
+  rotation rule or prove jumper clearance. Fixed/locked component handling
+  remains separate.
+- Moto's ESP32-S3 SuperMini is a 6×9 footprint with two nine-pin columns,
+  36 interior body cells and four obstructed vertical jumper columns in
+  orientation 0°. Rotated variants are evaluated rather than forbidden.
+- GitHub implementation commits: `81d94cb` (topology analysis), `2a6b46e`
+  (regression), `84879d8` (Quick Fit scoring), `7113b7b` (v1.36).
+- **Validation:** user-reported local `python3 -m unittest discover -s tests
+  -p "test_*.py" -v`: **213 tests passed** in 7.545 s. No physical
+  certification follows from this test count.
+- **Next:** establish and enforce the locked specification's physical
+  prerequisites, whole-path top-side vertical-jumper/body clearance,
+  alternative legal routes and independent electrical **and** physical
+  verification. Do not confuse logical `bodyCells` with measured package
+  envelopes, and do not extend the legacy Manhattan router as if its paths
+  were physically legal jumpers.
