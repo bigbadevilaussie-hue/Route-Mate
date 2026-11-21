@@ -481,6 +481,65 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                     remaining.remove(target)
                     continue
             if best_choice is None and quick_mode:
+                # Relay through an electrically unassigned copper island.
+                # Two vertical links plus its existing horizontal copper make
+                # the dogleg without a diagonal jumper.
+                relay = None
+                for bridge_root, bridge_rows in holes_by_root.items():
+                    if (bridge_root in reserved_bridges
+                            or nets_by_group.get(bridge_root)
+                            or bridge_root in roots):
+                        continue
+                    for source_row, source_cols in connected_rows.items():
+                        for bus_row, bus_cols in bridge_rows.items():
+                            if source_row == bus_row:
+                                continue
+                            shared_source = sorted(set(source_cols).intersection(bus_cols))
+                            for source_col in shared_source:
+                                a, b = (source_row, source_col), (bus_row, source_col)
+                                if not legal_quick(a, b):
+                                    continue
+                                for target in sorted(remaining):
+                                    for dest_row, dest_cols in holes_by_root[target].items():
+                                        if dest_row == bus_row:
+                                            continue
+                                        for dest_col in set(dest_cols).intersection(bus_cols):
+                                            c, d = (bus_row, dest_col), (dest_row, dest_col)
+                                            if c == b or d == a:
+                                                continue
+                                            if not legal_quick(c, d):
+                                                continue
+                                            # Check second leg against first.
+                                            if quick_wire_error(c, d, bodies,
+                                                                checked_wires + [
+                                                                    ((w["from"]["row"], w["from"]["col"]),
+                                                                     (w["to"]["row"], w["to"]["col"]))
+                                                                    for w in wires_added
+                                                                ] + [(a, b)]) is not None:
+                                                continue
+                                            score = (abs(source_row-bus_row) +
+                                                     abs(dest_row-bus_row), a, b, c, d)
+                                            if relay is None or score < relay[0]:
+                                                relay = (score, bridge_root, target,
+                                                         ((a, b), (c, d)))
+                if relay is not None:
+                    _, bridge_root, target, links = relay
+                    for start, end in links:
+                        wire_id, serial = _new_wire_id(wires + wires_added, serial)
+                        wires_added.append({
+                            "id": wire_id,
+                            "from": {"row": start[0], "col": start[1]},
+                            "to": {"row": end[0], "col": end[1]},
+                        })
+                        groups.union(start, end)
+                    reserved_bridges.add(bridge_root)
+                    for merged_root in (bridge_root, target):
+                        for row, columns in holes_by_root[merged_root].items():
+                            connected_rows.setdefault(row, []).extend(columns)
+                            connected_rows[row].sort()
+                    remaining.remove(target)
+                    continue
+            if best_choice is None and quick_mode:
                 # Avoid the vertical-only multi-cut diagnostic search in Quick Mode.
                 # Report the blocked state and candidate rejection reasons.
                 from collections import Counter
