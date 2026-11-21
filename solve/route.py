@@ -609,6 +609,68 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "truncated": len(strip_runs) > 24,
                     "note": "Terminal-bearing runs need additional between-hole cuts to free copper; no legal alternative cut layout has been proven.",
                 }
+                # Read-only single-cut feasibility: split a terminal-free
+                # left prefix off an occupied strip. Rebuild copper groups
+                # with the proposed between-hole cut to check ownership,
+                # including connectivity through existing jumpers.
+                cut_candidates = []
+                for run in strip_runs:
+                    row = run["row"]
+                    first_terminal = min(t["col"] for t in run["terminals"])
+                    cut_col = first_terminal - 1
+                    if not (run["start_col"] <= cut_col < run["end_col"]):
+                        continue
+                    if (row, cut_col) in boundaries:
+                        continue
+                    candidate_cols = [
+                        col for col in source_columns
+                        if run["start_col"] <= col <= cut_col
+                        and (row, col) not in isolated
+                    ]
+                    if not candidate_cols:
+                        continue
+                    trial_boundaries = boundaries | {(row, cut_col)}
+                    trial_groups = _copper_groups(
+                        rows, cols, trial_boundaries, isolated, checked_wires
+                    )
+                    trial_owners = defaultdict(set)
+                    for tr, tc, tnet, _ in records:
+                        trial_owners[trial_groups.find((tr, tc))].add(tnet)
+                    free_cols = [
+                        col for col in candidate_cols
+                        if not trial_owners[trial_groups.find((row, col))]
+                    ]
+                    if not free_cols:
+                        continue
+                    trial_rows = {row: free_cols}
+                    first_link = nearest_link(connected_rows, trial_rows)
+                    if first_link is None:
+                        continue
+                    second_links = [
+                        nearest_link(trial_rows, holes_by_root[target])
+                        for target in sorted(remaining)
+                    ]
+                    second_link = min((link for link in second_links if link is not None),
+                                      default=None)
+                    cut_candidates.append({
+                        "cut": {"row": row, "col": cut_col, "kind": "between"},
+                        "free_columns": free_cols,
+                        "first_jumper": {
+                            "from": {"row": first_link[2][0], "col": first_link[2][1]},
+                            "to": {"row": first_link[3][0], "col": first_link[3][1]},
+                        },
+                        "second_jumper_to_remaining_net": None if second_link is None else {
+                            "from": {"row": second_link[2][0], "col": second_link[2][1]},
+                            "to": {"row": second_link[3][0], "col": second_link[3][1]},
+                        },
+                    })
+                cut_feasibility = {
+                    "status": "CANDIDATES_FOUND" if cut_candidates else "NO_SINGLE_CUT_CANDIDATE",
+                    "candidate_count": len(cut_candidates),
+                    "sample_candidates": cut_candidates[:12],
+                    "truncated": len(cut_candidates) > 12,
+                    "scope": "read-only, single between-hole cut; grid centreline only; no cut accessibility, measured clearance or full-board verification",
+                }
                 # Diagnose the obstruction; another placement may still route.
                 connected_columns = sorted({
                     col for columns in connected_rows.values() for col in columns
@@ -637,6 +699,7 @@ def route_copper(project: Any, *, vertical_only: bool = False,
                     "reachability": reachability,
                     "obstruction": obstruction,
                     "cut_segmentation": cut_segmentation,
+                    "cut_feasibility": cut_feasibility,
                 }
             _distance, _diagonal, start, end, chosen = best_choice
             wire_id, serial = _new_wire_id(wires + wires_added, serial)
