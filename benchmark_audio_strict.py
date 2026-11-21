@@ -160,7 +160,9 @@ if __name__ == "__main__":
                         default="alphabetical")
     parser.add_argument("--placement-attempts", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--fresh-pads", action="store_true")\n    parser.add_argument("--strip-first", action="store_true",\n                        help="Test experimental net-owned copper-row placement (variant 99)")
+    parser.add_argument("--fresh-pads", action="store_true")
+    parser.add_argument("--strip-first", action="store_true",
+                        help="Test experimental net-owned copper-row placement (variant 99)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print live routing progress to stderr")
     parser.add_argument("--transactional", action="store_true",
