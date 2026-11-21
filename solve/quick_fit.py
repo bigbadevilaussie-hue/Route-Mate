@@ -189,7 +189,11 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
         return None, errors, net_score, links_scored
 
     # Experimental strip-first variant: reserve one copper row per net where possible.
-    strip_first = placement_variant == 99
+    strip_first = placement_variant in (99, 100)
+    # Variant 100 preserves periodic full-width copper bus rows for routing.
+    # Locked components remain authoritative; only movable parts avoid them.
+    corridor_rows = set(range(3, rows - 2, 6)) if placement_variant == 100 else set()
+    corridor_rows.difference_update(r for r, _ in occupied)
     net_rows = {}
     row_owners = {}
     for net, points in net_points.items():
@@ -256,6 +260,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                     origin_r, origin_c = top - min_r, left - min_c
                     cells = {(origin_r + r, origin_c + c) for r, c in shape}
                     if blocked.intersection(cells):
+                        continue
+                    if corridor_rows and any(r in corridor_rows for r, _ in cells):
                         continue
                     pins = [{
                         "id": str(p.get("id", "")),
