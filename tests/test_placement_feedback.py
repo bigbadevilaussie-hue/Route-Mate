@@ -46,9 +46,13 @@ class PlacementFeedbackTests(unittest.TestCase):
     @patch("solve.placement_feedback.route_copper")
     @patch("solve.placement_feedback.quick_fit")
     def test_retries_failed_route_then_accepts_verified_route(self, fit, route):
+        first = copy.deepcopy(self.source)
+        first["components"] = [{"id": "R1", "boardPos": {"row": 0, "col": 0}}]
+        second = copy.deepcopy(self.source)
+        second["components"] = [{"id": "R1", "boardPos": {"row": 0, "col": 2}}]
         fit.side_effect = [
-            {"status": "PLACED", "project": copy.deepcopy(self.source)},
-            {"status": "PLACED", "project": copy.deepcopy(self.source)},
+            {"status": "PLACED", "project": first},
+            {"status": "PLACED", "project": second},
         ]
         route.side_effect = [
             {"status": "ROUTING_FAILED", "errors": ["net A: blocked"], "cuts_added": 0, "wires_added": 0},
