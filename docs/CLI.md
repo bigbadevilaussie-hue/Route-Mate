@@ -134,3 +134,8 @@ The CLI should support machine-readable output as well as a concise human summar
 ## Not locked yet
 
 Do not invent final switch names for per-component lock files, check presets or solve profiles until their data model and user interaction are implemented. The option categories and behaviour above are the agreed contract; the illustrative command shape is not a promise of a finished executable.
+
+
+## Historical Quick Fit acceptance baseline
+
+Moto: 44 components, 32 placeable, 12 excluded, 123 assignments. Audio: 19 components, 14 placeable, 5 excluded, 85 assignments; both have locked 24×56 boards. Moto GPS is excluded by shared placement policy even without an explicit source off-board flag; do not rewrite the source JSON. Quick Fit should preserve IDs, pins and nets; place all allowed parts without overlap or board overflow; respect locks and report requested/used clearance; remain deterministic; and distinguish `PLACED`, `INCOMPLETE_GEOMETRY`, `CONSTRAINT_CONFLICT`, `NO_FIT_FOUND`. Greedy failure is not proof of impossibility. Regression commands: `python3 -m unittest discover -s tests -p 'test_quick_fit_geometry.py' -v` and `python3 -m unittest discover -s tests -p 'test_quick_fit.py' -v`. This historical acceptance is not physical clearance or routing verification.
