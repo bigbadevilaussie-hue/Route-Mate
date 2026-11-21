@@ -68,6 +68,34 @@ class PresolveTests(unittest.TestCase):
         self.assertEqual(a["components"], b["components"])
         self.assertNotEqual(a["source_project_sha256"], b["source_project_sha256"])
 
+    def test_unlocked_board_finds_no_padding_placement_candidate(self):
+        project = {
+            "board": {"rows": 10, "cols": 10, "lockedRows": False, "lockedCols": False},
+            "components": [{"id": "a", "defId": "tiny"}, {"id": "b", "defId": "tiny"}],
+            "componentDefs": [{"id": "tiny", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "nets": [], "netAssignments": [],
+        }
+        result = analyse_project(project)["board"]
+        self.assertEqual(result["placement_candidate_status"], "placement_only_candidate")
+        self.assertEqual(result["placement_candidate_rows"] * result["placement_candidate_cols"], 2)
+        self.assertIsNone(result["recommended_rows"])
+        self.assertFalse(result["physical_fit_verified"])
+
+    def test_one_locked_axis_is_preserved(self):
+        project = {
+            "board": {"rows": 1, "cols": 20, "lockedRows": True, "lockedCols": False},
+            "components": [{"id": "a", "defId": "tiny"}, {"id": "b", "defId": "tiny"}],
+            "componentDefs": [{"id": "tiny", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "nets": [], "netAssignments": [],
+        }
+        result = analyse_project(project)["board"]
+        self.assertEqual(result["placement_candidate_rows"], 1)
+        self.assertEqual(result["placement_candidate_cols"], 2)
+
     def test_missing_definition_is_reported_without_discarding_component(self):
         project = fixture("audio")
         project["components"][0]["defId"] = "does-not-exist"
