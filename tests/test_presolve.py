@@ -33,6 +33,21 @@ class PresolveTests(unittest.TestCase):
                 self.assertFalse(result["board"]["physical_fit_verified"])
                 self.assertEqual(len({tuple(sorted(r.keys())) for r in result["components"]}), 1)
 
+    def test_moto_esp32_dual_row_topology_and_rotation_hints(self):
+        report = analyse_project(fixture("moto"))
+        esp = next(c for c in report["components"] if c["definition_id"] ==
+                   "custom-8b627b44-80a5-45f9-8b8a-5217d839af73")
+        orientations = {o["rotation"]: o["routing_intelligence"]
+                        for o in esp["geometry"]["orientations"]}
+        self.assertEqual(set(orientations), {0, 90, 180, 270})
+        self.assertEqual(orientations[0]["topology"], "dual_row_module")
+        self.assertEqual(orientations[0]["pin_columns"], [0, 5])
+        self.assertEqual(orientations[0]["body_cell_count"], 36)
+        self.assertEqual(orientations[0]["vertical_jumper_obstructed_columns"], [1, 2, 3, 4])
+        self.assertEqual(orientations[90]["topology"], "other")
+        self.assertEqual(orientations[90]["vertical_jumper_obstructed_columns"], list(range(9)))
+        self.assertEqual(orientations[0]["routing_feasibility"], "unverified")
+
     def test_deterministic(self):
         project = fixture("audio")
         self.assertEqual(analyse_project(project), analyse_project(project))
