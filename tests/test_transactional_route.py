@@ -49,6 +49,35 @@ class TransactionalRouteTests(unittest.TestCase):
         self.assertEqual(result["transactional"]["trials"], 0)
         self.assertEqual(router.call_count, 1)
 
+    @patch("solve.transactional_route.route_with_island_graph")
+    @patch("solve.transactional_route.route_copper")
+    def test_reports_graph_failure_diagnostic(self, router, graph):
+        project = {"board": {"rows": 3, "cols": 4, "cuts": [], "wires": []}}
+        router.return_value = self.failure
+        graph.return_value = {"status": "GRAPH_FAILED",
+                              "reason": "NO_CHAIN_WITHIN_BUDGET",
+                              "net_id": "signal", "chains": 2}
+        result = route_transactionally(project, max_trials=0)
+        self.assertEqual(result["transactional"]["graph_failure"]["net_id"], "signal")
+        self.assertEqual(result["transactional"]["graph_failure"]["reason"],
+                         "NO_CHAIN_WITHIN_BUDGET")
+
+    @patch("solve.transactional_route.verify_project")
+    @patch("solve.transactional_route.route_with_island_graph")
+    @patch("solve.transactional_route.route_copper")
+    def test_graph_retries_after_candidate_cut(self, router, graph, verifier):
+        project = {"board": {"rows": 3, "cols": 4, "cuts": [], "wires": []}}
+        router.return_value = self.failure
+        graph.side_effect = [
+            {"status": "GRAPH_FAILED", "reason": "blocked"},
+            {"status": "ROUTED", "project": project},
+        ]
+        verifier.return_value = {"status": "PASS"}
+        result = route_transactionally(project)
+        self.assertEqual(result["status"], "ROUTED")
+        self.assertEqual(result["transactional"]["trials"], 1)
+        self.assertEqual(graph.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
