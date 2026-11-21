@@ -199,7 +199,7 @@ class QuickFitPlacementTests(unittest.TestCase):
         result = quick_fit(project, clearance=0)
         self.assertEqual(result["status"], "PLACED", result["errors"])
 
-    def test_offboard_saved_leads_are_fixed_hole_obstacles(self):
+    def test_unlocked_offboard_saved_leads_are_reallocated(self):
         project = {
             "board": {"rows": 1, "cols": 2},
             "componentDefs": [{"id": "pin", "width": 1, "height": 1,
@@ -207,6 +207,25 @@ class QuickFitPlacementTests(unittest.TestCase):
             "components": [
                 {"id": "EXT", "label": "EXT", "defId": "pin", "offBoard": True,
                  "boardPos": None, "leads": {"1": {"row": 0, "col": 0}}},
+                {"id": "A", "label": "A", "defId": "pin"},
+            ],
+            "netAssignments": [{"componentId": "EXT", "pinId": "1", "netId": "GND"},
+                               {"componentId": "A", "pinId": "1", "netId": "VCC"}],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        external = next(c for c in result["project"]["components"] if c["id"] == "EXT")
+        onboard = next(c for c in result["project"]["components"] if c["id"] == "A")
+        self.assertNotEqual(external["leads"]["1"], onboard["boardPos"])
+
+    def test_locked_offboard_saved_leads_remain_fixed(self):
+        project = {
+            "board": {"rows": 1, "cols": 2},
+            "componentDefs": [{"id": "pin", "width": 1, "height": 1,
+                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}], "bodyCells": []}],
+            "components": [
+                {"id": "EXT", "label": "EXT", "defId": "pin", "offBoard": True,
+                 "locked": True, "leads": {"1": {"row": 0, "col": 0}}},
                 {"id": "A", "label": "A", "defId": "pin"},
             ],
             "netAssignments": [{"componentId": "EXT", "pinId": "1", "netId": "GND"},
