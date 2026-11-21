@@ -26,7 +26,7 @@ class PresolvePipelineTests(unittest.TestCase):
                 run.record_stage(stage, findings)
                 loaded = PipelineRun.load(run.state_path)
                 self.assertEqual(loaded.context.project_sha256, stage.output_project_sha256)
-                self.assertIn("PREPARE.presolve", [s.stage for s in loaded.context.stages])
+                self.assertIn("PREPARE.presolve", loaded.context.stages)
                 handoff = loaded.handoff(project, "solve.quick_fit")
                 self.assertEqual(handoff["project"], project)
 
