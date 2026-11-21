@@ -165,18 +165,18 @@ def route_with_island_graph(project, *, max_edges=3, max_chains=64):
     nets = sorted({net for _row, _col, net, _ref in records})
     chains = 0
     for net in nets:
-        while chains < max_chains:
+        while True:
             step = find_vertical_chain(trial, net, max_edges=max_edges)
             if step["status"] == "ALREADY_CONNECTED":
                 break
             if step["status"] != "CHAIN_FOUND":
                 return {"status": "GRAPH_FAILED", "reason": step["status"],
                         "net_id": net, "chains": chains}
+            if chains >= max_chains:
+                return {"status": "GRAPH_FAILED", "reason": "chain budget exceeded",
+                        "net_id": net, "chains": chains}
             board["wires"].extend(step["chain"])
             chains += 1
-        else:
-            return {"status": "GRAPH_FAILED", "reason": "chain budget exceeded",
-                    "net_id": net, "chains": chains}
     verification = verify_project(trial)
     if verification["status"] != "PASS":
         return {"status": "GRAPH_FAILED", "reason": "verification failed",
