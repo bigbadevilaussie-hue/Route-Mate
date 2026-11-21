@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 from typing import Any
 
 from adjacency import adjacency_conflicts, candidate_conflicts, hole_index
@@ -72,6 +73,12 @@ def _offboard_lead_records(component: dict, pin_nets: dict) -> list[tuple[int, i
             raise ValueError(f"{label} lead {pin_id}: invalid saved lead coordinate")
         records.append((point["row"], point["col"], net, f"{label}.{pin_id}"))
     return records
+
+
+def _variant_rank(variant, *parts):
+    """Stable seeded tie-break; independent of Python's randomized hash."""
+    payload = "|".join(map(str, (variant, *parts))).encode("utf-8")
+    return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big")
 
 
 def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, placement_variant=0):
@@ -181,6 +188,13 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
         ordered = sorted(pending, key=lambda x: (
             -x["degree"], -x["area"], x["label"].casefold(), x["id"]
         ))
+    if placement_variant >= 2:
+        # Deterministic diversified greedy orders, not 98 repetitions of
+        # the two baseline variants. Preserve the baseline scoring for 0/1.
+        ordered = sorted(pending, key=lambda x: (
+            -(x["degree"] if placement_variant % 2 else x["area"]),
+            _variant_rank(placement_variant, "order", x["id"]),
+        ))
     for item in ordered:
         component = by_id[item["id"]]
         found = None
@@ -258,7 +272,9 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                         (routing_cost, candidate_net_score, compact) if placement_variant
                         else (candidate_net_score, routing_cost, compact),
                         abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1)),
-                        top, left, rotation_index,
+                        (_variant_rank(placement_variant, item["id"], top, left, rotation)
+                         if placement_variant >= 2 else top),
+                        left, rotation_index,
                     )
                     if found is None or score < found["score"]:
                         found = {
@@ -391,9 +407,9 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
     if not isinstance(board, dict) or not isinstance(components, list):
         return _failure("INCOMPLETE_GEOMETRY", source,
                         ["project needs a board object and components array"])
-    if type(placement_variant) is not int or placement_variant not in (0, 1):
+    if type(placement_variant) is not int or placement_variant < 0:
         return _failure("CONSTRAINT_CONFLICT", source,
-                        ["placement_variant must be 0 or 1"])
+                        ["placement_variant must be a non-negative integer"])
     if type(clearance) is not int or clearance < 0:
         return _failure("CONSTRAINT_CONFLICT", source,
                         ["clearance must be a non-negative integer"])
