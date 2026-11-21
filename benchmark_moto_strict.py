@@ -83,7 +83,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
             "electrical_status": None, "physical_status": None,
             "cuts_added": 0, "wires_added": 0,
         }
-    routed = route_copper(placed, vertical_only=not quick_probe, route_order=route_order)
+    routed = route_copper(placed, vertical_only=not quick_probe, quick_mode=quick_probe, route_order=route_order)
     failed_nets = []
     for error in routed.get("errors", []):
         if error.startswith("net ") and ": " in error:
