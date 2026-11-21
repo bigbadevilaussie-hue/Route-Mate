@@ -11,6 +11,9 @@ import math
 import sys
 from pathlib import Path
 from typing import Any
+from board_geometry import BUILTIN_DEFS, BoardGrid, resolve_definition
+from physical_geometry import physical_component_body, physical_jumper_segment, jumper_intersects_component
+from placement_policy import is_off_board_component
 
 
 def _point(value: Any, label: str, rows: int, cols: int) -> tuple[int, int]:
@@ -53,6 +56,22 @@ def audit_project(project: Any, expected_cuts: int | None = None,
             None if item["expected"] is None else item["actual"] - item["expected"]
         )
 
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                        if isinstance(d, dict) and d.get("id")})
+    bodies = []
+    for component in project.get("components", []):
+        if not isinstance(component, dict) or is_off_board_component(component):
+            continue
+        if not isinstance(component.get("boardPos"), dict):
+            continue
+        definition = resolve_definition(component, definitions)
+        if definition is not None:
+            cells = physical_component_body(component, definition)
+            if cells:
+                bodies.append((str(component.get("label") or component.get("id")), cells))
+    grid = BoardGrid(rows, cols)
+    physical_errors = []
     jumper_lengths = []
     diagonals = []
     errors = []
@@ -74,6 +93,13 @@ def audit_project(project: Any, expected_cuts: int | None = None,
                 "length_hole_pitches": round(length, 6),
                 "diagonal": dr != 0 and dc != 0,
             }
+            if start[1] != end[1] or start[0] == end[0]:
+                physical_errors.append(f"{wire_id}: not a straight vertical jumper")
+            else:
+                segment = physical_jumper_segment(grid, start, end)
+                for label, cells in bodies:
+                    if jumper_intersects_component(segment, cells):
+                        physical_errors.append(f"{wire_id}: crosses {label} body occupancy")
             jumper_lengths.append(record)
             if record["diagonal"]:
                 diagonals.append(record)
@@ -97,6 +123,11 @@ def audit_project(project: Any, expected_cuts: int | None = None,
             "shortest": min(lengths) if lengths else None,
             "longest": max(lengths) if lengths else None,
             "average": round(total_length / len(lengths), 6) if lengths else None,
+        },
+        "physical_jumper_audit": {
+            "status": "FAIL" if physical_errors else "GRID_CLEARANCE_ONLY",
+            "errors": physical_errors,
+            "measured_envelope_verified": False,
         },
         "errors": errors,
     }
