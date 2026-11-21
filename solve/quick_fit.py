@@ -74,7 +74,7 @@ def _offboard_lead_records(component: dict, pin_nets: dict) -> list[tuple[int, i
     return records
 
 
-def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
+def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, placement_variant=0):
     result = copy.deepcopy(project)
     components = result["components"]
     by_id = {str(c.get("id")): c for c in components if isinstance(c, dict)}
@@ -176,6 +176,11 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
     ordered = sorted(pending, key=lambda x: (
         -x["area"], -x["degree"], x["label"].casefold(), x["id"]
     ))
+    if placement_variant:
+        # Alternative greedy order changes component positions, not router cuts.
+        ordered = sorted(pending, key=lambda x: (
+            -x["degree"], -x["area"], x["label"].casefold(), x["id"]
+        ))
     for item in ordered:
         component = by_id[item["id"]]
         found = None
@@ -250,7 +255,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets):
                     else:
                         compact = abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1))
                     score = (
-                        candidate_net_score, routing_cost, compact,
+                        (routing_cost, candidate_net_score, compact) if placement_variant
+                        else (candidate_net_score, routing_cost, compact),
                         abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1)),
                         top, left, rotation_index,
                     )
@@ -376,7 +382,7 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
     return placed
 
 
-def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
+def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant: int = 0) -> dict[str, Any]:
     """Place components with deterministic net-aware scoring; never mutate input."""
     source = copy.deepcopy(project) if isinstance(project, dict) else {}
     if not isinstance(project, dict):
@@ -385,6 +391,9 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
     if not isinstance(board, dict) or not isinstance(components, list):
         return _failure("INCOMPLETE_GEOMETRY", source,
                         ["project needs a board object and components array"])
+    if type(placement_variant) is not int or placement_variant not in (0, 1):
+        return _failure("CONSTRAINT_CONFLICT", source,
+                        ["placement_variant must be 0 or 1"])
     if type(clearance) is not int or clearance < 0:
         return _failure("CONSTRAINT_CONFLICT", source,
                         ["clearance must be a non-negative integer"])
@@ -485,7 +494,7 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
     requested, last_errors = clearance, []
     for used in range(requested, -1, -1):
         placed_project, errors, net_score, links = _attempt(
-            source, rows, cols, used, definitions, pending, pin_nets
+            source, rows, cols, used, definitions, pending, pin_nets, placement_variant
         )
         if placed_project is None:
             last_errors = errors
@@ -517,6 +526,7 @@ def quick_fit(project: dict[str, Any], clearance: int = 1) -> dict[str, Any]:
                 "net_distance_score": net_score, "net_links_scored": links,
                 "off_board_pads_allocated": termination_pads,
                 "search": "deterministic greedy net-aware placement",
+                "placement_variant": placement_variant,
             },
         }
     result = _failure("NO_FIT_FOUND", source,
