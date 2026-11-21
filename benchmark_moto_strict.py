@@ -92,6 +92,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical"):
         "cut_segmentation": routed.get("cut_segmentation"),
         "cut_feasibility": routed.get("cut_feasibility"),
         "multi_cut_feasibility": routed.get("multi_cut_feasibility"),
+        "bidirectional_cut_feasibility": routed.get("bidirectional_cut_feasibility"),
         "cuts_added": routed["cuts_added"],
         "wires_added": routed["wires_added"],
         "errors": routed["errors"],
