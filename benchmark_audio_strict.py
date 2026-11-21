@@ -86,7 +86,7 @@ def benchmark(sidecar=SIDECAR, *, route_order="alphabetical", fresh_pads=False, 
         }
     routed = (route_transactionally(placed, route_order=route_order, verbose=verbose,
                                      max_trials=max_trials, max_seconds=max_seconds)
-              if transactional else route_copper(placed, vertical_only=not quick_probe, route_order=route_order))
+              if transactional else route_copper(placed, vertical_only=not quick_probe, quick_mode=quick_probe, route_order=route_order))
     failed_nets = []
     for error in routed.get("errors", []):
         if error.startswith("net ") and ": " in error:
