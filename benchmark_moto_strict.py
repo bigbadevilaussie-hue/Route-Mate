@@ -31,6 +31,11 @@ def benchmark(sidecar=SIDECAR):
         if not isinstance(component, dict) or not is_off_board_component(component):
             continue
         source = reference_by_id.get(str(component.get("id")), {})
+        # Quick Fit sidecars may omit source exclusion metadata. Restore only
+        # the explicit reference flag, without inventing GPS landing pads.
+        if ("boardExcluded" not in component and source.get("boardExcluded") is True
+                and component.get("offBoard") is not True):
+            component["boardExcluded"] = True
         if not isinstance(component.get("leads"), dict) and isinstance(source.get("leads"), dict):
             component["leads"] = copy.deepcopy(source["leads"])
             imported.append(str(component.get("label") or component.get("id")))
