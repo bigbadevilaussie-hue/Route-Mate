@@ -140,13 +140,13 @@ def analyse_project(project: dict[str, Any]) -> dict[str, Any]:
         "board": {
             "source_rows": rows, "source_cols": cols,
             "locked_rows": locked_rows, "locked_cols": locked_cols,
-            "occupied_footprint_area_lower_bound": placeable_area,
+            "sum_min_footprint_bounding_areas": placeable_area,
             "largest_component_min_rows": largest_rows,
             "largest_component_min_cols": largest_cols,
             "source_area": existing_area,
-            "source_area_vs_lower_bound": (
-                "below_bound" if existing_area is not None and existing_area < placeable_area
-                else "not_below_bound" if existing_area is not None else "unknown"
+            "source_area_vs_footprint_estimate": (
+                "below_estimate" if existing_area is not None and existing_area < placeable_area
+                else "not_below_estimate" if existing_area is not None else "unknown"
             ),
             "recommended_rows": None, "recommended_cols": None,
             "recommendation_status": "not_calculated_requires_routing_and_packing_model",
