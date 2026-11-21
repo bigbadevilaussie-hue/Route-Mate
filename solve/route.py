@@ -485,20 +485,24 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                 # Two vertical links plus its existing horizontal copper make
                 # the dogleg without a diagonal jumper.
                 relay = None
+                relay_stats = {"free_islands": 0, "shared_columns": 0, "first_leg_clear": 0, "second_leg_clear": 0, "two_leg_clear": 0}
                 for bridge_root, bridge_rows in holes_by_root.items():
                     if (bridge_root in reserved_bridges
                             or nets_by_group.get(bridge_root)
                             or bridge_root in roots):
                         continue
+                    relay_stats["free_islands"] += 1
                     for source_row, source_cols in connected_rows.items():
                         for bus_row, bus_cols in bridge_rows.items():
                             if source_row == bus_row:
                                 continue
                             shared_source = sorted(set(source_cols).intersection(bus_cols))
+                            relay_stats["shared_columns"] += len(shared_source)
                             for source_col in shared_source:
                                 a, b = (source_row, source_col), (bus_row, source_col)
                                 if not legal_quick(a, b):
                                     continue
+                                relay_stats["first_leg_clear"] += 1
                                 for target in sorted(remaining):
                                     for dest_row, dest_cols in holes_by_root[target].items():
                                         if dest_row == bus_row:
@@ -509,6 +513,7 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                                                 continue
                                             if not legal_quick(c, d):
                                                 continue
+                                            relay_stats["second_leg_clear"] += 1
                                             # Check second leg against first.
                                             if quick_wire_error(c, d, bodies,
                                                                 checked_wires + [
@@ -517,6 +522,7 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
                                                                     for w in wires_added
                                                                 ] + [(a, b)]) is not None:
                                                 continue
+                                            relay_stats["two_leg_clear"] += 1
                                             score = (abs(source_row-bus_row) +
                                                      abs(dest_row-bus_row), a, b, c, d)
                                             if relay is None or score < relay[0]:
