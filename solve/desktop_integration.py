@@ -228,6 +228,10 @@ def solve_for_display(
     history = []
     placements_fitted = 0
     last_detail = None
+    # Each edge position receives the ordinary Quick Solve placement budget.
+    # The search still stops on its first independently verified route.
+    total_variant_budget = total * attempts
+    variants_checked = 0
     for index, combo in enumerate(product(*(s["positions"] for s in sliders)), 1):
         if was_cancelled():
             response = stopped(index - 1, total, summary)
@@ -259,11 +263,28 @@ def solve_for_display(
             target["slide"] = False
             anchors[slider["label"]] = dict(selected)
 
-        # One complete placement-and-routing check per edge combination.
+        # A full normal Quick Solve budget for EACH edge position. A progress
+        # callback reports the actual variant index inside this edge position.
         # The original project and its lock metadata are never mutated.
+        def variant_progress(update):
+            if progress is not None:
+                progress({
+                    **update,
+                    "mode": "edge_slide_variant",
+                    "completed": (index - 1) * attempts + update["completed"],
+                    "budget": total_variant_budget,
+                    "position_index": index,
+                    "positions_total": total,
+                    "variant_index": update["completed"],
+                    "variants_per_position": attempts,
+                    "slide_positions": dict(anchors),
+                })
+
         result = _solve_one_position(
-            trial, attempts=1, clearance=clearance, cancelled=cancelled,
+            trial, attempts=attempts, clearance=clearance,
+            progress=variant_progress, cancelled=cancelled,
         )
+        variants_checked += result.get("attempts_used", len(result.get("history") or []))
         if result["status"] == "CANCELLED" or was_cancelled():
             response = stopped(index - 1, total, summary)
             response["history"] = history
@@ -280,6 +301,7 @@ def solve_for_display(
             "placement": fit,
             "routing": route,
             "slide_positions": anchors,
+            "variants_checked": result.get("attempts_used", len(sub)),
             "error": last_detail if result["status"] != "ROUTED" else None,
         }
         history.append(entry)
@@ -288,6 +310,8 @@ def solve_for_display(
                 "completed": index, "budget": total,
                 "seconds": perf_counter() - started,
                 "last": dict(entry), "mode": "edge_slide",
+                "variants_checked": variants_checked,
+                "variants_budget": total_variant_budget,
             })
         if result["status"] == "ROUTED":
             # Restore the requested sliding-lock metadata on the actual
@@ -307,11 +331,14 @@ def solve_for_display(
                     selected_parts[slider["id"]]["locked"] = True
                     selected_parts[slider["id"]]["edge"] = True
                     selected_parts[slider["id"]]["slide"] = True
-            result["attempts_used"] = index
+            result["attempts_used"] = variants_checked
             result["history"] = history
             result["slide_search"] = {
                 "components": summary, "positions_checked": index,
                 "positions_total": total, "selected": anchors,
+                "variants_checked": variants_checked,
+                "variants_budget": total_variant_budget,
+                "variants_per_position": attempts,
             }
             return result
 
@@ -321,23 +348,28 @@ def solve_for_display(
         message = (
             f"Edge+Slide {summary}: placement fitted at "
             f"{placements_fitted}/{total} position(s), but no electrically "
-            f"verified route was found after checking all {total}. "
+            f"verified route was found after checking all {total} positions "
+            f"and {variants_checked} placement attempts. "
             f"Last routing issue: {last_detail}"
         )
     else:
         message = (
             f"Edge+Slide {summary}: cannot fit the edge component(s) "
-            f"at any of the {total} legal position combination(s). "
+            f"at any of the {total} legal position combination(s) "
+            f"after {variants_checked} placement attempts. "
             f"Last placement issue: {last_detail}"
         )
     return {
         "status": "ROUTING_FAILED" if placements_fitted else "NO_FIT_FOUND",
-        "project": None, "attempts_used": total, "history": history,
+        "project": None, "attempts_used": variants_checked, "history": history,
         "errors": [message],
         "best_failure": history[-1] if history else None,
         "slide_search": {
             "components": summary, "positions_checked": total,
             "positions_total": total, "placements_fitted": placements_fitted,
+            "variants_checked": variants_checked,
+            "variants_budget": total_variant_budget,
+            "variants_per_position": attempts,
         },
     }
 
