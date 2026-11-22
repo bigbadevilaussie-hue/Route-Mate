@@ -289,6 +289,17 @@ def _nominal_body_gap(a: dict, b: dict) -> float:
     return hypot(x - nearest_x, y - nearest_y) - circle["radius_mm"]
 
 
+def _point_nominal_body_gap(x: float, y: float, solid: dict) -> float:
+    """Signed grid-point to assumed package-outline distance in millimetres."""
+    from math import hypot
+    if solid["shape"] == "circle":
+        sx, sy = solid["center_mm"]
+        return hypot(x - sx, y - sy) - solid["radius_mm"]
+    dx = max(solid["x_min_mm"] - x, 0, x - solid["x_max_mm"])
+    dy = max(solid["y_min_mm"] - y, 0, y - solid["y_max_mm"])
+    return hypot(dx, dy)
+
+
 def inspect_assumed_contacts(project: dict) -> list[dict]:
     """Advisory body/body and foreign pad/body contact from installed solids.
 
