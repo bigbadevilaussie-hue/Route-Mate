@@ -133,6 +133,11 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
             continue
         if component.get("locked") is not True:
             continue
+        # An edge-sliding lock is a hard edge constraint, not a fixed hole.
+        # It will be placed as a movable candidate restricted to its
+        # original side, with the original rotation and original nets.
+        if component.get("edge") and component.get("slide") and isinstance(component.get("boardPos"), dict):
+            continue
         label = str(component.get("label") or component.get("id") or "unnamed")
         if not isinstance(component.get("boardPos"), dict):
             errors.append(f"{label}: position-locked component has no board position")
@@ -242,7 +247,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
             len(item["definition"].get("pins", [])) == 2
             and isinstance(component.get("flexibleEndPos"), dict)
         )
-        rotations = [current] if flexible else (
+        rotations = [current] if flexible or item["slide_side"] else (
             [current] + [r for r in _ROTATIONS if r != current]
         )
 
@@ -281,6 +286,19 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
             for top in range(rows - height + 1):
                 for left in range(cols - width + 1):
                     origin_r, origin_c = top - min_r, left - min_c
+                    side = item["slide_side"]
+                    if side is not None and not (
+                        (side == "top" and top == 0)
+                        or (side == "bottom" and top + height == rows)
+                        or (side == "left" and left == 0)
+                        or (side == "right" and left + width == cols)
+                    ):
+                        continue
+                    if component.get("edge") and side is None and not (
+                        top == 0 or left == 0
+                        or top + height == rows or left + width == cols
+                    ):
+                        continue
                     if forbidden_anchors and (origin_r, origin_c, rotation) in forbidden_anchors.get(item["id"], ()):
                         continue
                     if reserve_x and (origin_c + pin_min_c < 2 or origin_c + pin_max_c >= cols - 2):
@@ -531,20 +549,45 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
         except (TypeError, ValueError, KeyError) as exc:
             geometry_errors.append(f"{label}: {exc}")
             continue
-        # Edge/slide flags on a locked, positioned part describe its existing
-        # anchor. Quick Fit must keep it fixed and route other parts around it.
-        # Unsupported movement constraints remain errors for movable parts.
-        if (component.get("edge") or component.get("slide")) and not (
-            component.get("locked") is True and isinstance(component.get("boardPos"), dict)
-        ):
-            geometry_errors.append(f"{label}: edge-anchor/sliding constraints are not yet supported for movable parts")
+        # Locked + edge + slide means the original edge is retained but
+        # position along that edge may change. A fixed lock without slide
+        # remains an exact, immutable placement. Edge-only movable parts
+        # are restricted to one of the four board edges.
+        if component.get("slide") and not (component.get("edge") and
+                                           component.get("locked") is True and
+                                           isinstance(component.get("boardPos"), dict)):
+            geometry_errors.append(f"{label}: slide requires a positioned, locked edge anchor")
             continue
-        # Already-positioned locked parts are fixed obstacles, not candidates.
-        if component.get("locked") is True and isinstance(component.get("boardPos"), dict):
+        if component.get("locked") is True and not isinstance(component.get("boardPos"), dict):
+            geometry_errors.append(f"{label}: locked component has no boardPos")
+            continue
+        slide_side = None
+        if component.get("locked") and component.get("slide"):
+            pos = component["boardPos"]
+            rotation = int(component.get("rotation", 0) or 0) % 360
+            try:
+                cells, _pins, _r, _c, _h, _w = _local_variant(component, definition, rotation)
+                rr = [int(pos["row"]) + r for r, _ in cells]
+                cc = [int(pos["col"]) + c for _, c in cells]
+                if min(rr) == 0:
+                    slide_side = "top"
+                elif max(rr) == rows - 1:
+                    slide_side = "bottom"
+                elif min(cc) == 0:
+                    slide_side = "left"
+                elif max(cc) == cols - 1:
+                    slide_side = "right"
+            except (KeyError, ValueError, TypeError):
+                pass
+            if slide_side is None:
+                geometry_errors.append(f"{label}: sliding anchor must already touch a board edge")
+                continue
+        # Already-positioned absolute locks remain fixed obstacles.
+        if component.get("locked") is True and not component.get("slide"):
             continue
         pending.append({
             "id": cid, "label": label, "definition": definition,
-            "area": width * height, "degree": 0,
+            "area": width * height, "degree": 0, "slide_side": slide_side,
         })
     if geometry_errors:
         status = ("CONSTRAINT_CONFLICT" if any("edge-anchor/sliding" in e
