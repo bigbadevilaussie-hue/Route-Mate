@@ -18,7 +18,21 @@ def solution_signature(project: dict[str, Any]) -> str:
         key=lambda row: row[0],
     )
     board = project.get("board", {})
-    payload = (components, board.get("cuts", []), board.get("wires", []))
+    cuts = sorted(
+        (int(c.get("row", -1)), int(c.get("col", -1)),
+         str(c.get("kind", "")))
+        for c in board.get("cuts", []) if isinstance(c, dict)
+    )
+    wires = sorted(
+        tuple(sorted((
+            (int(w["from"]["row"]), int(w["from"]["col"])),
+            (int(w["to"]["row"]), int(w["to"]["col"])),
+        )))
+        for w in board.get("wires", []) if isinstance(w, dict)
+        and isinstance(w.get("from"), dict) and isinstance(w.get("to"), dict)
+    )
+    # Different generated IDs/order do not make the same physical layout new.
+    payload = (components, cuts, wires)
     raw = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
