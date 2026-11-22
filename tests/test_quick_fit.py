@@ -193,7 +193,70 @@ class QuickFitPlacementTests(unittest.TestCase):
             "components": [{"id": "A", "defId": "pin", "edge": True}],
             "netAssignments": [],
         }
-        self.assertEqual(quick_fit(project)["status"], "CONSTRAINT_CONFLICT")
+        result = quick_fit(project)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        pos = result["project"]["components"][0]["boardPos"]
+        self.assertTrue(pos["row"] in (0, 3) or pos["col"] in (0, 3))
+
+    def test_positioned_locked_component_stays_exactly_fixed(self):
+        project = {
+            "board": {"rows": 7, "cols": 9},
+            "componentDefs": [{"id": "two", "width": 2, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0},
+                                        {"id": "2", "offsetRow": 0, "offsetCol": 1}],
+                               "bodyCells": []}],
+            "components": [
+                {"id": "locked", "label": "Fixed", "defId": "two",
+                 "boardPos": {"row": 0, "col": 0}, "rotation": 0,
+                 "locked": True, "edge": True, "slide": False},
+                {"id": "movable", "label": "Free", "defId": "two"},
+            ],
+            "netAssignments": [],
+        }
+        original = copy.deepcopy(project)
+        for variant in (0, 1, 2):
+            result = quick_fit(project, placement_variant=variant, clearance=1)
+            self.assertEqual(result["status"], "PLACED", result.get("errors"))
+            fixed = next(c for c in result["project"]["components"] if c["id"] == "locked")
+            self.assertEqual(fixed, original["components"][0])
+        self.assertEqual(project, original)
+
+    def test_edge_slider_stays_on_anchored_edge(self):
+        project = {
+            "board": {"rows": 6, "cols": 10},
+            "componentDefs": [{"id": "one", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [
+                {"id": "anchor", "label": "Sliding", "defId": "one",
+                 "boardPos": {"row": 0, "col": 4}, "rotation": 0,
+                 "locked": True, "edge": True, "slide": True},
+                {"id": "fixed", "defId": "one",
+                 "boardPos": {"row": 0, "col": 4}, "locked": True},
+            ],
+            "netAssignments": [],
+        }
+        # Anchor's old position is obstructed, but it may slide along
+        # the *same* top edge; the neighbour must remain fixed.
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result.get("errors"))
+        components = {c["id"]: c for c in result["project"]["components"]}
+        self.assertEqual(components["anchor"]["boardPos"]["row"], 0)
+        self.assertNotEqual(components["anchor"]["boardPos"]["col"], 4)
+        self.assertEqual(components["fixed"]["boardPos"], {"row": 0, "col": 4})
+        self.assertEqual(components["anchor"]["rotation"], 0)
+
+    def test_slide_without_locked_edge_anchor_is_rejected(self):
+        project = {
+            "board": {"rows": 6, "cols": 8},
+            "componentDefs": [{"id": "one", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "X", "defId": "one", "slide": True}],
+            "netAssignments": [],
+        }
+        result = quick_fit(project)
+        self.assertEqual(result["status"], "CONSTRAINT_CONFLICT")
 
     def test_missing_footprint_is_incomplete_geometry(self):
         project = {"board": {"rows": 4, "cols": 4},
