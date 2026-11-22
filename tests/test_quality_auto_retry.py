@@ -21,7 +21,9 @@ def verified(index):
 
 def placement(_source, **kwargs):
     output = fixture()
-    output["name"] = f"placement-{kwargs.get('placement_variant', 0)}"
+    variant = kwargs.get("placement_variant", 0)
+    output["name"] = f"placement-{variant}"
+    output["components"] = [{"id": "X", "boardPos": {"row": 0, "col": variant}}]
     return {"status": "PLACED", "project": output,
             "report": {"body_spacing_used": kwargs.get("body_spacing_holes", 1)}}
 
