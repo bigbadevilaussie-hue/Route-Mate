@@ -12,9 +12,10 @@ from typing import Any
 
 def solution_signature(project: dict[str, Any]) -> str:
     components = sorted(
-        (str(c.get("id")), c.get("boardPos"), c.get("rotation"),
-         c.get("flexibleEndPos"), c.get("leads"))
-        for c in project.get("components", []) if isinstance(c, dict)
+        ((str(c.get("id")), c.get("boardPos"), c.get("rotation"),
+          c.get("flexibleEndPos"), c.get("leads"))
+         for c in project.get("components", []) if isinstance(c, dict)),
+        key=lambda row: row[0],
     )
     board = project.get("board", {})
     payload = (components, board.get("cuts", []), board.get("wires", []))
@@ -28,9 +29,15 @@ def candidate_quality(project: dict[str, Any]) -> dict[str, Any]:
     from geometry_sidecar import make_document, assess_saved_board
 
     scored = score_render(project)
-    assessment = assess_saved_board(project, make_document(project))
-    contacts = len(assessment.get("contact_findings", []))
-    status = str(assessment.get("status", "UNVERIFIED"))
+    diagnostic = None
+    try:
+        assessment = assess_saved_board(project, make_document(project))
+        contacts = len(assessment.get("contact_findings", []))
+        status = str(assessment.get("status", "UNVERIFIED"))
+    except (KeyError, ValueError, TypeError) as exc:
+        # Never turn absent advisory geometry into a zero-warning result.
+        contacts, status = 1000000, "UNVERIFIED"
+        diagnostic = str(exc)
     signature = solution_signature(project)
     rank = (
         int(status == "HARD_CONFLICT"), contacts,
@@ -47,6 +54,7 @@ def candidate_quality(project: dict[str, Any]) -> dict[str, Any]:
         "wire_length_mm": float(scored["wire_length_mm"]),
         "rank": rank,
         "physical_certified": False,
+        "quality_diagnostic": diagnostic,
     }
 
 
