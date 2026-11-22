@@ -179,10 +179,10 @@ class LockDialog(QDialog):
             self.move(parent.mapToGlobal(QPoint(24, 90)))
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Component: {label}"))
-        self.locked = QRadioButton("Locked — keep on board")
-        self.unlocked = QRadioButton("Unlocked — return to placement pool")
-        self.edge = QCheckBox("Edge constrained")
-        self.slide = QCheckBox("May slide along edge")
+        self.locked = QRadioButton("Fixed — keep exact position")
+        self.unlocked = QRadioButton("Movable — return to Quick Solve")
+        self.edge = QCheckBox("Board-edge constraint")
+        self.slide = QCheckBox("May slide along this edge (keep rotation)")
         # Unlocked parts lose their old placement and return to Quick Fit.
         is_locked = bool(component.get("locked", False))
         self.locked.setChecked(is_locked)
@@ -191,11 +191,14 @@ class LockDialog(QDialog):
         self.slide.setChecked(bool(component.get("slide", False)))
         self.locked.toggled.connect(self._update_constraint_controls)
         self.unlocked.toggled.connect(self._update_constraint_controls)
+        self.edge.toggled.connect(self._update_constraint_controls)
         layout.addWidget(self.locked)
         layout.addWidget(self.unlocked)
         layout.addWidget(self.edge)
         layout.addWidget(self.slide)
-        layout.addWidget(QLabel("Unlocked components are repositioned by Quick Fit."))
+        hint = QLabel("Fixed = exact position. Edge + Slide = may move only along the same edge.\nMovable = auto-place while keeping all electrical connections.")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
         self._update_constraint_controls()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -205,7 +208,9 @@ class LockDialog(QDialog):
     def _update_constraint_controls(self):
         keep = self.locked.isChecked()
         self.edge.setEnabled(keep)
-        self.slide.setEnabled(keep)
+        self.slide.setEnabled(keep and self.edge.isChecked())
+        if not (keep and self.edge.isChecked()):
+            self.slide.setChecked(False)
 
     def values(self):
         return {"locked": self.locked.isChecked(),
