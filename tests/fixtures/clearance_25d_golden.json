@@ -17,8 +17,8 @@
         ]
       },
       "settings": {
-        "wire_od_mm": 0.4,
-        "min_clearance_mm": 0.3,
+        "wire_od_mm": 0.2,
+        "min_clearance_mm": 0.05,
         "z_margin_mm": 0.3,
         "lead_margin_mm": 0.1
       },
