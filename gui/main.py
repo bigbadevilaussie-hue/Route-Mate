@@ -1274,6 +1274,20 @@ class RouteMateWindow(QMainWindow):
             return
 
         solved = outcome["project"]
+        # Compute sidecar-backed advisory geometry for the ACTUAL solved
+        # placement. Do not overwrite the source project's collector sidecar.
+        from geometry_sidecar import load_or_create, assess_saved_board
+        geometry_document = load_or_create(
+            solved, self.project_path or Path("unsaved-project.json"), persist=False
+        )
+        geometry_assessment = assess_saved_board(solved, geometry_document)
+        self._assumed_geometry = geometry_document
+        self.log_line(
+            f"[2.5D][SOLVED][{geometry_assessment['status']}] "
+            f"{geometry_assessment['profile']} | "
+            f"{len(geometry_assessment['wire_results'])} jumpers checked | "
+            "conditional assumption, not physical sign-off."
+        )
         placement = outcome["placement"]
         routing = outcome["routing"]
         verification = outcome["verification"]
@@ -1303,6 +1317,8 @@ class RouteMateWindow(QMainWindow):
                 route_handoff["project"], routing,
             )
             route_result.module = "solve.hole_router"
+            route_result.report["assumed_25d_clearance"] = copy.deepcopy(geometry_assessment)
+            route_result.report["assumed_geometry_preset"] = geometry_document["geometry"]["preset"]
             route_result.options.update({
                 "from_stage": route_handoff["from_stage"],
                 "upstream_finding_ids": route_handoff["finding_ids"],
@@ -1399,7 +1415,11 @@ class RouteMateWindow(QMainWindow):
             temp = path.with_name(path.name + ".tmp")
             temp.write_text(payload, encoding="utf-8")
             temp.replace(path)
-        except OSError as exc:
+            # Match saved routing to an integrity-bound physical assumption
+            # sidecar, without rewriting or replacing the input source JSON.
+            from geometry_sidecar import load_or_create
+            load_or_create(self.project, path, persist=True)
+        except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Save failed", str(exc))
             return
         self.log_line(f"[SAVE] Verified routed board: {path}")
