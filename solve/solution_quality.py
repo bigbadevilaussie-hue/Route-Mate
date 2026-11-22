@@ -37,12 +37,13 @@ def solution_signature(project: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
 
-def candidate_quality(project: dict[str, Any]) -> dict[str, Any]:
+def candidate_quality(project: dict[str, Any], *,
+                      audit_report: dict[str, Any] | None = None) -> dict[str, Any]:
     """Prefer fewer nominal contacts, then provisional quality and routing cost."""
     from .render_quality import score_render
     from geometry_sidecar import make_document, assess_saved_board
 
-    scored = score_render(project)
+    scored = score_render(project, audit_report=audit_report)
     diagnostic = None
     try:
         assessment = assess_saved_board(project, make_document(project))
