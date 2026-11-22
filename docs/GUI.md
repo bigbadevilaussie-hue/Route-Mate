@@ -26,7 +26,9 @@ within its assigned budget. Across workers the coordinator de-duplicates
 signatures and prefers fewer assumed contact warnings, then better provisional
 0–100 quality, then routing costs. **Two candidates are a search target, not a
 guarantee:** if only one verified layout is found, it is retained and the GUI
-reports that limitation. A routing result is rechecked by the desktop adapter
+reports that limitation. If the best reaches two candidates but has a provisional
+score below 40/100 or more than one nominal contact, the remaining assigned
+attempt slots are used to seek improvement (no budget increase). A routing result is rechecked by the desktop adapter
 with electrical, grid and jumper audits; the GUI never describes an electrical
 PASS as a measured physical PASS.
 
