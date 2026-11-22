@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from math import hypot
 
-from .clearance_25d import EPS_MM, outline_distance
+from .clearance_25d import EPS_MM
 
 
 def _pt(values):
@@ -24,6 +24,77 @@ def _point_line_distance(point, start, end):
     fraction = min(1.0, max(0.0, fraction))
     return hypot(point[0] - start[0] - fraction * dx,
                  point[1] - start[1] - fraction * dy)
+
+
+def _cross(a, b, c):
+    return ((b[0] - a[0]) * (c[1] - a[1])
+            - (b[1] - a[1]) * (c[0] - a[0]))
+
+
+def _on_edge(p, a, b):
+    return (_point_line_distance(p, a, b) <= EPS_MM
+            and min(a[0], b[0]) - EPS_MM <= p[0] <= max(a[0], b[0]) + EPS_MM
+            and min(a[1], b[1]) - EPS_MM <= p[1] <= max(a[1], b[1]) + EPS_MM)
+
+
+def _edge_intersects(a, b, c, d):
+    if any((_on_edge(p, s, e) for p, s, e in (
+            (a, c, d), (b, c, d), (c, a, b), (d, a, b)))):
+        return True
+    return ((_cross(a, b, c) > 0) != (_cross(a, b, d) > 0)
+            and (_cross(c, d, a) > 0) != (_cross(c, d, b) > 0))
+
+
+def _in_polygon(point, vertices):
+    if any(_on_edge(point, vertices[i], vertices[(i + 1) % len(vertices)])
+           for i in range(len(vertices))):
+        return True
+    x, y = point
+    crossings = 0
+    for i in range(len(vertices)):
+        a, b = vertices[i], vertices[(i + 1) % len(vertices)]
+        if (a[1] > y) != (b[1] > y):
+            at_x = a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+            crossings += int(at_x >= x)
+    return crossings % 2 == 1
+
+
+def _outline_distance_independent(start, end, solid):
+    """Verifier's own circle/rectangle/polygon segment distance computation."""
+    shape = solid.get("shape")
+    if shape == "circle":
+        centre = _pt(solid["center_mm"])
+        radius = float(solid["radius_mm"])
+        if radius < 0:
+            raise ValueError("negative circle radius")
+        return max(0.0, _point_line_distance(centre, start, end) - radius)
+    if shape == "rectangle":
+        x0, x1 = float(solid["x_min_mm"]), float(solid["x_max_mm"])
+        y0, y1 = float(solid["y_min_mm"]), float(solid["y_max_mm"])
+        if x1 < x0 or y1 < y0:
+            raise ValueError("invalid rectangle")
+        vertices = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    elif shape == "polygon":
+        vertices = [_pt(x) for x in solid["vertices_mm"]]
+        if len(vertices) < 3:
+            raise ValueError("polygon needs >=3 vertices")
+    else:
+        raise ValueError(f"unsupported solid shape: {shape!r}")
+    if _in_polygon(start, vertices) or _in_polygon(end, vertices):
+        return 0.0
+    smallest = float("inf")
+    for i in range(len(vertices)):
+        a, b = vertices[i], vertices[(i + 1) % len(vertices)]
+        if _edge_intersects(start, end, a, b):
+            return 0.0
+        smallest = min(
+            smallest, _point_line_distance(start, a, b),
+            _point_line_distance(end, a, b),
+            _point_line_distance(a, start, end),
+            _point_line_distance(b, start, end),
+        )
+    return smallest
+
 
 
 def verify_jumper_25d(case: dict) -> dict:
@@ -65,7 +136,7 @@ def verify_jumper_25d(case: dict) -> dict:
 
     for solid in case.get("body_solids", []):
         threshold = outer_radius + clearance
-        if outline_distance(start, end, solid) >= threshold - EPS_MM:
+        if _outline_distance_independent(start, end, solid) >= threshold - EPS_MM:
             continue
         source = solid["z_min_source"]
         if source not in ("datasheet", "measured", "user_declared", "default_flush"):
@@ -95,7 +166,7 @@ def verify_jumper_25d(case: dict) -> dict:
             continue
         if float(zone["component_temp_c"]) <= float(zone["wire_insulation_limit_c"]):
             continue
-        if outline_distance(start, end, zone) < outer_radius + clearance - EPS_MM:
+        if _outline_distance_independent(start, end, zone) < outer_radius + clearance - EPS_MM:
             record("FAIL_PROVEN", "thermal_keepout", zone.get("id", ""))
 
     ranking = ("PASS", "CONDITIONAL", "FAIL_UNVERIFIED", "FAIL_PROVEN")
