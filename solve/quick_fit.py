@@ -687,7 +687,11 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
                 "placement_variant": placement_variant,
             },
         }
-    result = _failure("NO_FIT_FOUND", source,
+    conflict = any(
+        "fixed edge anchor does not touch" in error
+        for error in last_errors
+    )
+    result = _failure("CONSTRAINT_CONFLICT" if conflict else "NO_FIT_FOUND", source,
                       last_errors or [f"no complete placement found on {rows}x{cols} board"])
     result["report"] = {
         "board": {"rows": rows, "cols": cols},
