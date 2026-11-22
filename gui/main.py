@@ -1855,14 +1855,27 @@ class RouteMateWindow(QMainWindow):
         placement = outcome["placement"]
         spacing = placement.get("report", {})
         used_spacing = spacing.get("body_spacing_used")
+        requested_spacing = spacing.get("body_spacing_requested", self._body_spacing_holes)
+        unmet_spacing = (used_spacing is not None
+                         and int(used_spacing) < int(requested_spacing))
         if used_spacing is not None:
-            requested_spacing = spacing.get("body_spacing_requested", 1)
             level = "PREFERRED" if used_spacing == requested_spacing else "COMPACT_FALLBACK"
             self.log_line(
                 f"[PLACEMENT][SPACING][{level}] requested={requested_spacing} "
                 f"free hole(s), used={used_spacing} | "
                 f"nominal contacts={contact_count} | "
                 "assumed package geometry, not measured clearance."
+            )
+        if unmet_spacing:
+            self.log_line(
+                f"[SPACING][NOT_MET] Requested {requested_spacing} free hole(s), "
+                f"achieved {used_spacing}; a verified compact route was selected. "
+                "This is NOT evidence of the requested physical clearance."
+            )
+            self.solve_activity.setText(
+                f"SPACING NOT MET: requested {requested_spacing} hole(s), "
+                f"achieved {used_spacing}; {contact_count} nominal contacts. "
+                "Electrical PASS only."
             )
         routing = outcome["routing"]
         verification = outcome["verification"]
@@ -1914,11 +1927,18 @@ class RouteMateWindow(QMainWindow):
         self.project = solved
         counts = verification["counts"]
         hard_conflict = geometry_assessment["status"] == "HARD_CONFLICT"
+        advisory_risk = bool(contact_count or overhangs or unmet_spacing)
         self._set_board_summary(
             (f"Electrical PASS · 2.5D HARD CONFLICT — inspect Activity. "
              f"{len(solved['board']['cuts'])} cuts, "
              f"{len(solved['board']['wires'])} jumpers."
              if hard_conflict else
+             f"Electrical PASS · requested spacing NOT MET ({requested_spacing} → "
+             f"{used_spacing} holes) · physical fit UNVERIFIED"
+             if unmet_spacing else
+             f"Electrical PASS · {len(overhangs)} nominal board overhang(s) · "
+             "physical fit UNVERIFIED"
+             if overhangs else
              f"Electrical PASS · {contact_count} nominal contacts marked RED · "
              "physical fit UNVERIFIED"
              if contact_count else
@@ -1926,7 +1946,7 @@ class RouteMateWindow(QMainWindow):
              f"{len(solved['board']['wires'])} jumpers · "
              f"{outcome['attempts_used']} placement attempt(s) · physical sign-off pending"),
             level="failed" if hard_conflict else
-                  "neutral" if contact_count else "pass",
+                  "neutral" if advisory_risk else "pass",
         )
         self.sidebar_tabs.setCurrentIndex(0)
         self.log_line(
@@ -1955,8 +1975,9 @@ class RouteMateWindow(QMainWindow):
                 + " Consider trying another layout with extra room between parts. "
                 "The current electrical PASS remains valid and the solved board "
                 "is retained; nominal body sizes may be exaggerated. "
-                "A wider-spacing retry is not yet automated. "
-                "Extra spacing may increase board size, cuts, jumpers or solve time."
+                "The bounded portfolio has searched the requested spacing "
+                "and compact fallbacks; no contact-free verified alternative "
+                "was selected in this run. Verify actual package sizes before assembly."
             )
         try:
             top_svg, renderer_log = self._render_component_side(solved)
