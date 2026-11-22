@@ -127,6 +127,8 @@ def wire_keepout_errors(project: dict) -> list[str]:
             continue
         label = str(part.get("label") or part.get("id") or "unnamed")
         if is_off_board_component(part):
+            if part.get("boardExcluded") is True and part.get("offBoard") is not True:
+                continue
             for point in (part.get("leads") or {}).values():
                 if isinstance(point, dict) and "row" in point and "col" in point:
                     pin_holes[(int(point["row"]), int(point["col"]))].add(label)
