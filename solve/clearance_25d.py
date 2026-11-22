@@ -151,6 +151,10 @@ def classify_jumper(case: dict[str, Any]) -> dict[str, Any]:
         center = _point(lead["center_mm"], "lead.center_mm")
         lr = _number(lead["radius_mm"], "lead.radius_mm", minimum=0)
         # Cylindrical lead envelopes are always checked without the body z-gate.
+        at_endpoint = min(hypot(center[0] - p[0], center[1] - p[1])
+                          for p in (a, b)) <= EPS_MM
+        if at_endpoint and lead.get("allowed_endpoint", False):
+            continue
         if _distance_point_segment(center, a, b) + EPS_MM < radius + lr + lead_margin:
             findings.append(_result("FAIL_PROVEN", "lead_clearance", str(lead.get("id", ""))))
 
@@ -170,6 +174,10 @@ def classify_jumper(case: dict[str, Any]) -> dict[str, Any]:
         elif wire_top + z_margin <= zmin + EPS_MM:
             if source == "user_declared":
                 findings.append(_result("CONDITIONAL", "declared_standoff", name))
+        elif lift >= zmax + z_margin - EPS_MM:
+            # Lifted jumper entirely above the explicit solid.
+            if source == "user_declared":
+                findings.append(_result("CONDITIONAL", "declared_height", name))
         elif solid.get("allow_contact", False):
             if solid.get("contact_source") not in {"measured", "datasheet", "user_declared"}:
                 raise ValueError(f"{name}: contact permission requires provenance")
@@ -178,8 +186,12 @@ def classify_jumper(case: dict[str, Any]) -> dict[str, Any]:
             findings.append(_result("FAIL_PROVEN", "body_clearance", name))
 
     for zone in case.get("thermal_zones", []):
-        if "temperature_basis" not in zone:
+        if "component_temp_c" not in zone or "wire_insulation_limit_c" not in zone:
             continue  # no guessed thermal keepout
+        temperature = _number(zone["component_temp_c"], "component_temp_c")
+        insulation_limit = _number(zone["wire_insulation_limit_c"], "wire_insulation_limit_c")
+        if temperature <= insulation_limit:
+            continue
         if outline_distance(a, b, zone) + EPS_MM < radius + margin:
             findings.append(_result("FAIL_PROVEN", "thermal_keepout", str(zone.get("id", ""))))
 
