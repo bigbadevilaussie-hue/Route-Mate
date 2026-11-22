@@ -4,6 +4,24 @@
 
 See [Documentation map](../README.md) and [PRE-SOLVE intelligence handoff](MODULE_IO_AND_HANDOFF_AUDIT.md) for the existing preparation terminology and sidecar boundary.
 
+## Route-Mate 1.42 — capacitor contact/edge placement correction
+
+The Normal and Wider spacing preferences now outrank near-net and shared-strip
+convenience while considering proposed movable component locations. The placement
+scout also penalises nominal body silhouettes extending beyond the true board
+perimeter (half-hole pitch beyond the outside hole centres). Candidate selection
+compares advisory overhang and body/pad contacts before provisional routing
+quality, and a poor/overhanging winner triggers further attempts only within
+the original fixed budget. Locked/edge-fixed parts do not move; if overhang
+is forced by a hard lock or no better verified route exists, the GUI reports
+it rather than certifying physical fit. All body dimensions are still collector
+assumptions, not measured package envelopes.
+
+The routing audit still requires **straight vertical** wire records; an apparent
+bend in the SVG cannot be declared a solver dogleg without checking the saved
+wire endpoints against the production SVG. The 1.42 placement preference does
+not itself change the SVG renderer's wire artwork.
+
 ## Route-Mate 1.41 — CPU portfolio and clearer solve feedback
 
 **Current implementation on `main`.** The Qt solve coordinator runs a
