@@ -21,6 +21,7 @@ def solve_with_feedback(
     *,
     attempts: int = 24,
     clearance: int = 1,
+    body_spacing_holes: int = 1,
     route_order: str = "constrained",
     quick_backtracks: int = 2,
     router: str = "hole_graph",
@@ -81,7 +82,8 @@ def solve_with_feedback(
             else:
                 c["locked"] = True
         fit = quick_fit(trial, clearance=clearance, placement_variant=variant,
-                        forbidden_anchors=forbidden)
+                        forbidden_anchors=forbidden,
+                        body_spacing_holes=body_spacing_holes)
         if fit.get("status") != "PLACED":
             return None
         result = fit["project"]
@@ -91,7 +93,8 @@ def solve_with_feedback(
                     c["locked"] = True
                 else:
                     c.pop("locked", None)
-        return result
+        fit["project"] = result
+        return fit
 
     best: dict[str, Any] | None = None
     best_rank: tuple[int, int, int] | None = None
@@ -120,9 +123,12 @@ def solve_with_feedback(
         if repairs:
             previous, target = repairs.pop(0)
             repaired = relocation(previous, target, variant)
-            fit = {"status": "PLACED", "project": repaired} if repaired else {"status": "NO_FIT_FOUND", "errors": ["relocation failed"]}
+            fit = repaired if repaired else {"status": "NO_FIT_FOUND", "errors": ["relocation failed"]}
         else:
-            fit = quick_fit(project, clearance=clearance, placement_variant=variant)
+            fit = quick_fit(
+                project, clearance=clearance, placement_variant=variant,
+                body_spacing_holes=body_spacing_holes,
+            )
         if cancelled is not None and cancelled():
             return stopped()
         if fit["status"] != "PLACED":
@@ -180,8 +186,10 @@ def solve_with_feedback(
                 "status": "ROUTED", "project": routed["project"],
                 "verification": routed["verification"],
                 "placement_variant": variant,
+                "placement_report": fit.get("report", {}),
                 "attempts_used": len(history), "history": history,
-                "warnings": routed.get("warnings", []),
+                "warnings": list(fit.get("warnings", []))
+                            + list(routed.get("warnings", [])),
             }
 
         # Prioritize movable components attached to nets mentioned by router errors.
