@@ -5,12 +5,14 @@ because these tests verify Qt plumbing, not the separate Node SVG renderer.
 """
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import os
 import tempfile
 from pathlib import Path
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -30,6 +32,72 @@ class GuiSolveSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_workflow_reaches_100_only_after_real_electrical_check(self):
+        window = RouteMateWindow()
+        try:
+            stages = {}
+            for name in (
+                "IN.project_import", "PREPARE.electrical", "PREPARE.presolve",
+                "PREPARE.constraints", "SOLVE.quick_fit",
+                "SOLVE.route", "VERIFY.independent",
+            ):
+                report = {"status": "PASS"} if name in (
+                    "PREPARE.electrical", "VERIFY.independent") else {}
+                stages[name] = SimpleNamespace(stage=name, status="completed", report=report)
+            window.pipeline_run = SimpleNamespace(context=SimpleNamespace(stages=stages))
+            window._refresh_checklist()
+            self.assertEqual(window.checklist.percent.text(), "100%")
+            self.assertEqual(window.checklist.bar.value(), 7)
+            stages["PREPARE.electrical"].report["status"] = "FAIL"
+            window._refresh_checklist()
+            self.assertEqual(window.checklist.percent.text(), "86%")
+            self.assertEqual(window.checklist.rows["SANITY"].text(), "✕")
+        finally:
+            window.close()
+
+    def test_repeat_quick_solve_uses_locked_input_not_old_routed_output(self):
+        project = json.loads((ROOT / "benchmarks/moto/moto.json").read_text())
+        locked = next(c for c in project["components"]
+                      if c.get("defId") == "def-connector-2")
+        locked["boardPos"] = {"row": 0, "col": 1}
+        locked["locked"] = True
+        old = copy.deepcopy(project)
+        old["board"]["wires"] = [{
+            "id": "OLD", "from": {"row": 2, "col": 0},
+            "to": {"row": 4, "col": 0},
+        }]
+        calls = []
+        class Event:
+            def connect(self, callback):
+                pass
+        class Worker:
+            def __init__(self, source, parent=None):
+                calls.append(copy.deepcopy(source))
+                self.completed = Event()
+                self.crashed = Event()
+                self.finished = Event()
+            def isRunning(self):
+                return True
+            def start(self):
+                pass
+        window = RouteMateWindow()
+        window.project = old
+        window._quick_source = copy.deepcopy(project)
+        window.pipeline_run = None
+        try:
+            with patch("gui.main.SolveWorker", Worker):
+                window.solve_board()
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["board"]["wires"], [])
+            self.assertEqual(calls[0]["board"]["cuts"], [])
+            preserved = next(c for c in calls[0]["components"] if c["id"] == locked["id"])
+            self.assertEqual(preserved["boardPos"], locked["boardPos"])
+            self.assertTrue(preserved["locked"])
+            self.assertIn("Quick Solve", window.board_result_label.text())
+        finally:
+            window._solver_worker = None
+            window.close()
 
     def test_old_obstructed_saved_board_is_flagged_unsafe(self):
         """Render JSON must not silently endorse the old cap-crossing board."""
