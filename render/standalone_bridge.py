@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import subprocess
 import tempfile
 from pathlib import Path
@@ -233,7 +234,22 @@ def _run(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedPro
     )
 
 
+def _bundled_runtime() -> tuple[Path, Path] | None:
+    """Use the included standalone renderer and Node when PyInstaller-frozen."""
+    if not getattr(sys, "frozen", False):
+        return None
+    root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    node = root / "renderer-runtime" / "node"
+    cli = root / "renderer-runtime" / "standalone-renderer" / "cli.js"
+    if not node.is_file() or not cli.is_file():
+        raise RuntimeError("Standalone app is missing its bundled Node.js renderer.")
+    return node, cli
+
+
 def ensure_renderer() -> Path:
+    bundled = _bundled_runtime()
+    if bundled is not None:
+        return bundled[1]
     if not shutil.which("git"):
         raise RuntimeError("Git is required to install the production stripboard renderer.")
     if not shutil.which("node"):
@@ -286,8 +302,10 @@ def render_project(
         render_input.write_text(
             json.dumps(project, ensure_ascii=False), encoding="utf-8"
         )
+        runtime = _bundled_runtime()
+        node = str(runtime[0]) if runtime else "node"
         result = _run([
-            "node", str(cli), str(render_input), "--output", str(output_dir),
+            node, str(cli), str(render_input), "--output", str(output_dir),
         ])
     if result.returncode:
         raise RuntimeError("Production renderer failed:\n" + result.stdout)
