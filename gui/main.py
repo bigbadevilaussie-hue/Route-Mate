@@ -1548,6 +1548,19 @@ class RouteMateWindow(QMainWindow):
             f"{len(geometry_assessment['wire_results'])} jumpers checked | "
             "conditional assumption, not physical sign-off."
         )
+        if geometry_assessment["status"] == "HARD_CONFLICT":
+            self.log_line(
+                f"[2.5D][HARD_CONFLICT] "
+                f"{geometry_assessment['counts']['FAIL_PROVEN']} jumper(s) "
+                "have independently reproduced exact-grid conflicts."
+            )
+            for finding in geometry_assessment["findings"]:
+                if finding["verdict"] == "FAIL_PROVEN":
+                    self.log_line(
+                        f"[2.5D][HARD_CONFLICT] wire={finding['wire']} "
+                        f"reason={finding['reason']} "
+                        f"obstacle={finding.get('obstacle', '')}"
+                    )
         placement = outcome["placement"]
         routing = outcome["routing"]
         verification = outcome["verification"]
@@ -1598,11 +1611,16 @@ class RouteMateWindow(QMainWindow):
 
         self.project = solved
         counts = verification["counts"]
+        hard_conflict = geometry_assessment["status"] == "HARD_CONFLICT"
         self._set_board_summary(
-            f"Electrical PASS · {len(solved['board']['cuts'])} cuts · "
-            f"{len(solved['board']['wires'])} jumpers · "
-            f"{outcome['attempts_used']} placement attempt(s) · physical sign-off pending",
-            level="pass",
+            (f"Electrical PASS · 2.5D HARD CONFLICT — inspect Activity. "
+             f"{len(solved['board']['cuts'])} cuts, "
+             f"{len(solved['board']['wires'])} jumpers."
+             if hard_conflict else
+             f"Electrical PASS · {len(solved['board']['cuts'])} cuts · "
+             f"{len(solved['board']['wires'])} jumpers · "
+             f"{outcome['attempts_used']} placement attempt(s) · physical sign-off pending"),
+            level="failed" if hard_conflict else "pass",
         )
         self.sidebar_tabs.setCurrentIndex(0)
         self.log_line(
@@ -1627,8 +1645,10 @@ class RouteMateWindow(QMainWindow):
                 self.log_line("[RENDER] " + renderer_log)
             self.log_line("[RENDER] Solved component and mirrored copper sides are ready.")
             self.statusBar().showMessage(
-                f"Electrical PASS — {len(solved['board']['cuts'])} cuts, "
-                f"{len(solved['board']['wires'])} jumpers. Physical cut access unverified."
+                ("Electrical PASS but 2.5D HARD CONFLICT: inspect Activity before building."
+                 if hard_conflict else
+                 f"Electrical PASS — {len(solved['board']['cuts'])} cuts, "
+                 f"{len(solved['board']['wires'])} jumpers. Physical cut access unverified.")
             )
         except Exception as exc:
             self.log_line(f"[RENDER][ERROR] Could not show solved board: {exc}")
