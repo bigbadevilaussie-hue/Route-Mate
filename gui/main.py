@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 _VERSION_FILE = REPO_ROOT / "VERSION"
 GUI_VERSION = (_VERSION_FILE.read_text(encoding="utf-8").strip()
-               if _VERSION_FILE.is_file() else "1.38")
+               if _VERSION_FILE.is_file() else "1.39")
 CODE_VERSION = GUI_VERSION
 
 from PySide6.QtCore import Qt, QByteArray, QPoint, QThread, Signal
@@ -379,7 +379,7 @@ class WorkflowChecklist(QWidget):
         )
         self.lock_warning.hide()
         layout.addWidget(self.lock_warning)
-        note = QLabel("Electrical completion ≠ build-ready physical clearance")
+        note = QLabel("Electrical verification complete · physical clearance not certified")
         note.setWordWrap(True)
         note.setStyleSheet("font-size: 10px; color: #697586;")
         layout.addWidget(note)
