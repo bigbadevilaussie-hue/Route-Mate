@@ -4,6 +4,45 @@
 
 See [Documentation map](../README.md) and [PRE-SOLVE intelligence handoff](MODULE_IO_AND_HANDOFF_AUDIT.md) for the existing preparation terminology and sidecar boundary.
 
+## Route-Mate 1.38 — Quick Solve and desktop refresh
+
+**Implemented in source on `fix/routing-aware-placement`.** The desktop reads
+its version from the repository `VERSION` file so the title bar and engine
+version cannot silently drift.
+
+- **Quick Solve** uses the existing routing-feedback engine and independently
+  checked hole-graph router. It starts from an immutable *approved locked
+  input*, never from the previously routed output. Repeating a solve creates
+  a fresh sidecar run with new input checks rather than accidentally using
+  the legacy incremental router.
+- **Review Locks** opens a single table of positioned on-board parts. From
+  either an imported layout or a successful solved board, choose **Auto-place**,
+  **Fixed at current position**, **Fixed on this edge**, or **Slide along current
+  edge**. This preserves net assignments and existing footprint definitions.
+  The slider keeps the original side and rotation; all other fixed parts retain
+  their exact board position. Invalid/missing anchors cause explicit failure,
+  not silent relocation. Unlocking removes the old position before solving.
+- Fixed-position preservation is checked again after solving. A solver result
+  that shifts an absolute lock or moves an edge slider to another side is
+  rejected and cannot be exported as a verified board.
+- **Overview** shows seven actual project stages: import, netlist, footprints,
+  locks, placement, routing and independent electrical verification. The former
+  88% display was due to checking the wrong stage name for electrical sanity.
+  Repository unit tests are CI/developer work, not a project-solving milestone
+  and are no longer launched on every JSON import.
+- **Activity** holds detailed logs and failures. The larger board canvas
+  supports scroll-wheel zoom, click-and-drag panning, and +/−/Fit controls.
+  Board summary distinguishes electrical PASS from pending real-world cut
+  access and package measurements.
+- **Open Solved** previews a previously saved routed JSON and flags outdated
+  layouts failing jumper checks; use **Load JSON** for a new solve. **Save Solved
+  JSON** never overwrites the imported source without selecting a different
+  filename.
+
+`VERSION` is now `1.38`. Existing frozen macOS application bundles are not
+updated by a Git pull; launch the source GUI with `python3 run_gui.py`
+until packaging is rebuilt.
+
 ## Solver mode decision
 
 The GUI will expose Quick Solve and Hell Mode as **two modes of the same shared solver**, not separate engines. Both must use identical hard constraints and independent electrical/physical verification. Quick Solve failure means no verified candidate found within its budget, not proven impossibility. Hell Mode may refine a verified Quick Solve result. This is future behaviour, not a claim of current implementation. See [Solver Architecture Decision](SOLVER_ARCHITECTURE_DECISION.md); the locked [Physical Model Specification](PHYSICAL_MODEL_SPEC.md) takes precedence.
