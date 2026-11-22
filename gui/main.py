@@ -1301,19 +1301,44 @@ class RouteMateWindow(QMainWindow):
             "(estimate, single worker)."
         )
         last = attempt.get("last", {})
-        self.log_line(
-            f"[SOLVE][ATTEMPT {completed}/{budget}] "
-            f"placement={last.get('placement')} routing={last.get('routing')} "
-            f"time={seconds:.2f}s · remaining-budget estimate ~{maximum_seconds}s"
-        )
+        if attempt.get("mode") == "edge_slide":
+            self.log_line(
+                f"[EDGE+SLIDE][POSITION {completed}/{budget}] "
+                f"{last.get('slide_positions')} | "
+                f"placement={last.get('placement')} routing={last.get('routing')} "
+                f"time={seconds:.2f}s"
+            )
+            self.statusBar().showMessage(
+                f"Edge+Slide {completed}/{budget} positions checked · "
+                f"stops on first verified route."
+            )
+        else:
+            self.log_line(
+                f"[SOLVE][ATTEMPT {completed}/{budget}] "
+                f"placement={last.get('placement')} routing={last.get('routing')} "
+                f"time={seconds:.2f}s · remaining-budget estimate ~{maximum_seconds}s"
+            )
 
     def _solve_completed(self, outcome: dict[str, Any]):
         """On the GUI thread, accept only a verified board and redraw it."""
         status = outcome.get("status", "FAILED")
-        self.log_line(f"[SOLVE] {status} — {outcome.get('attempts_used', 0)} placement attempt(s).")
+        slide_search = outcome.get("slide_search")
+        if slide_search:
+            self.log_line(
+                f"[EDGE+SLIDE] {slide_search['components']} | "
+                f"checked {slide_search['positions_checked']}/"
+                f"{slide_search['positions_total']} position(s)"
+                + (f" | selected={slide_search['selected']}"
+                   if slide_search.get("selected") else "")
+            )
+        else:
+            self.log_line(f"[SOLVE] {status} — {outcome.get('attempts_used', 0)} placement attempt(s).")
         if status != "ROUTED":
             self._set_board_summary(
-                f"{status} · no verified board found in the search budget",
+                (f"{status} · checked all {slide_search['positions_total']} "
+                 "Edge+Slide positions; see Activity"
+                 if slide_search else
+                 f"{status} · no verified board found in the search budget"),
                 level="failed",
             )
             self.sidebar_tabs.setCurrentIndex(1)
@@ -1334,7 +1359,10 @@ class RouteMateWindow(QMainWindow):
                 stage.status = "failed"
                 stage.options["router"] = "hole_graph"
                 self._record_pipeline_result(stage, findings)
-            self.statusBar().showMessage("No verified route found; original preview retained.")
+            self.statusBar().showMessage(
+                (str((outcome.get("errors") or ["No Edge+Slide solution"])[0])[:350]
+                 if slide_search else "No verified route found; original preview retained.")
+            )
             return
 
         solved = outcome["project"]
