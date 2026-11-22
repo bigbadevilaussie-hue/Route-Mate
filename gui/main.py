@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox, QHBoxLayout,
     QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QComboBox,
     QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget, QProgressBar, QTabWidget, QFrame,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 
 
@@ -217,6 +218,107 @@ class LockDialog(QDialog):
                 "edge": self.edge.isChecked() if self.locked.isChecked() else False,
                 "slide": self.slide.isChecked() if self.locked.isChecked() else False,
                 "reposition": self.unlocked.isChecked()}
+
+
+class LockManagerDialog(QDialog):
+    """Choose placement constraints for every positioned component at once."""
+
+    def __init__(self, components: list[dict], project: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Review component locks — Quick Solve")
+        self.resize(680, min(760, 265 + 30 * len(components)))
+        self._parts = components
+        self._modes = []
+        layout = QVBoxLayout(self)
+        description = QLabel(
+            "Fixed keeps the exact position. Edge slide moves only along its "
+            "current board edge. Auto-place lets Quick Solve move the component. "
+            "Pins and net assignments are always preserved."
+        )
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        board = project["board"]
+        rows, cols = int(board["rows"]), int(board["cols"])
+        from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+        defs = dict(BUILTIN_DEFS)
+        defs.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                     if isinstance(d, dict) and d.get("id")})
+        table = QTableWidget(len(components), 3, self)
+        table.setHorizontalHeaderLabels(["Component", "Position", "Quick Solve constraint"])
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 165)
+        table.setColumnWidth(1, 165)
+        table.setAlternatingRowColors(True)
+        for index, part in enumerate(components):
+            label = str(part.get("label") or part.get("id"))
+            pos = part["boardPos"]
+            table.setItem(index, 0, QTableWidgetItem(label))
+            table.setItem(index, 1, QTableWidgetItem(
+                f"R{int(pos['row']) + 1} · C{int(pos['col']) + 1}"
+            ))
+            on_edge = False
+            definition = resolve_definition(part, defs)
+            if definition is not None:
+                try:
+                    pins, body = component_geometry(part, definition)
+                    cells = [(int(p["row"]), int(p["col"])) for p in pins] + list(body)
+                    if cells:
+                        rr = [p[0] for p in cells]
+                        cc = [p[1] for p in cells]
+                        on_edge = (min(rr) == 0 or max(rr) == rows - 1
+                                   or min(cc) == 0 or max(cc) == cols - 1)
+                except (ValueError, TypeError, KeyError):
+                    on_edge = False
+            combo = QComboBox(table)
+            combo.addItem("Auto-place", "move")
+            combo.addItem("Fixed at current position", "fixed")
+            if on_edge:
+                combo.addItem("Fixed on this edge", "edge")
+                combo.addItem("Slide along current edge", "slide")
+            mode = ("slide" if part.get("locked") and part.get("edge") and part.get("slide")
+                    else "edge" if part.get("locked") and part.get("edge")
+                    else "fixed" if part.get("locked") else "move")
+            selected = combo.findData(mode)
+            combo.setCurrentIndex(max(0, selected))
+            self._modes.append(combo)
+            table.setCellWidget(index, 2, combo)
+        layout.addWidget(table, 1)
+        actions = QHBoxLayout()
+        fixed_all = QPushButton("Fix all current positions")
+        fixed_all.clicked.connect(lambda: self._choose_all("fixed"))
+        actions.addWidget(fixed_all)
+        free_all = QPushButton("Auto-place all")
+        free_all.clicked.connect(lambda: self._choose_all("move"))
+        actions.addWidget(free_all)
+        actions.addStretch()
+        layout.addLayout(actions)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _choose_all(self, mode: str):
+        for combo in self._modes:
+            index = combo.findData(mode)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+
+    def values(self) -> dict[str, dict[str, bool]]:
+        result = {}
+        for component, combo in zip(self._parts, self._modes):
+            mode = combo.currentData()
+            result[str(component["id"])] = {
+                "locked": mode != "move",
+                "edge": mode in ("edge", "slide"),
+                "slide": mode == "slide",
+                "reposition": mode == "move",
+            }
+        return result
 
 
 class BoardView(QGraphicsView):
@@ -885,71 +987,40 @@ class RouteMateWindow(QMainWindow):
         return result.returncode == 0
 
     def _ask_lock_settings(self, placed: list[dict[str, Any]]):
+        """Review all current placements in one compact, editable table."""
         self.presolve_constraints = {}
-        if not placed:
-            self.log_line("[LOCKS] No saved positions; no existing components require lock questions.")
-        else:
-            self.log_line(f"[LOCKS] Asking Locked / Edge / Slide for {len(placed)} placed components.")
-            for index, component in enumerate(placed, 1):
-                component_id = str(component.get("id"))
-                label = str(component.get("label") or component.get("id"))
-                highlighted_svg, renderer_log = self._render_component_side(
-                    self.project, highlight_component_id=component_id
-                )
-                self._show_board(highlighted_svg)
-                self.statusBar().showMessage(
-                    f"Reviewing component {index}/{len(placed)}: {label}"
-                )
-                self.log_line(f"[LOCKS] Highlighting {label} on the board ({index}/{len(placed)}).")
-                if renderer_log:
-                    self.log_line("[RENDER] " + renderer_log)
-                dialog = LockDialog(component, index, len(placed), self)
-                if dialog.exec() != QDialog.DialogCode.Accepted:
-                    top_svg, _ = self._render_component_side(self.project)
-                    self._show_board(top_svg)
-                    self.log_line("[LOCKS] Cancelled. Changes already accepted remain rendered; Quick Place not started.")
-                    return
-
-                values = dialog.values()
-                self.presolve_constraints[component_id] = values
-                self.log_line(
-                    f"[LOCKS] {label}: Locked={values['locked']} "
-                    f"Edge={values['edge']} Slide={values['slide']} "
-                    f"Reposition={values['reposition']}"
-                )
-
-                # Apply each answer immediately, then redraw before asking about
-                # the next component. This preserves the original interactive flow.
+        if placed:
+            self.log_line(f"[LOCKS] Reviewing {len(placed)} positioned parts.")
+            dialog = LockManagerDialog(placed, self.project, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                self.log_line("[LOCKS] Review cancelled; layout unchanged.")
+                return
+            self.presolve_constraints = dialog.values()
+            for component in placed:
+                values = self.presolve_constraints[str(component["id"])]
                 if values["reposition"]:
-                    # Return the part to the solver pool without excluding it,
-                    # deleting its net assignments or losing its footprint.
                     component.pop("boardPos", None)
                     component.pop("flexibleEndPos", None)
                     component["locked"] = False
                     component["edge"] = False
                     component["slide"] = False
-                    self.log_line(f"[PLACEMENT] {label} returned to Quick Fit placement pool.")
                 else:
                     component["locked"] = True
                     component["edge"] = bool(values["edge"])
                     component["slide"] = bool(values["slide"])
-
-                top_svg, renderer_log = self._render_component_side(self.project)
-                self._show_board(top_svg)
-                self.log_line(f"[RENDER] Board refreshed after {label}.")
-                if renderer_log:
-                    self.log_line("[RENDER] " + renderer_log)
-
+        else:
+            self.log_line("[LOCKS] No positioned parts to review. New parts will be auto-placed.")
         self.log_line(
-            f"[LOCKS] Recorded {len(self.presolve_constraints)} component responses."
+            f"[LOCKS] {sum(v['locked'] for v in self.presolve_constraints.values())} fixed/edge anchors; "
+            f"{sum(v['reposition'] for v in self.presolve_constraints.values())} movable parts."
         )
         self._record_project_stage(
             "PREPARE.constraints", "gui.lock_dialog",
             {"constraints": copy.deepcopy(self.presolve_constraints)},
         )
-
-        # Use approved locks as the immutable Quick Solve input.
         self._quick_source = copy.deepcopy(self.project)
+        preview, _ = self._render_component_side(self.project)
+        self._show_board(preview)
         self.review_locks_action.setEnabled(True)
         self.solve_board()
 
@@ -960,7 +1031,19 @@ class RouteMateWindow(QMainWindow):
             return
         if self.project is None:
             return
-        source = copy.deepcopy(self._quick_source or self.project)
+        source = copy.deepcopy(
+            self.project if self._solved_verified else (self._quick_source or self.project)
+        )
+        # A successfully solved board is a useful anchor template, not a
+        # valid input to the incremental legacy router. Retain any original
+        # manual routing, but discard the just-generated cuts and jumpers.
+        if self._solved_verified and self._quick_source is not None:
+            source["board"]["cuts"] = copy.deepcopy(
+                self._quick_source.get("board", {}).get("cuts", [])
+            )
+            source["board"]["wires"] = copy.deepcopy(
+                self._quick_source.get("board", {}).get("wires", [])
+            )
         placed = [c for c in source.get("components", [])
                   if isinstance(c, dict) and isinstance(c.get("boardPos"), dict)
                   and not is_off_board_component(c)]
