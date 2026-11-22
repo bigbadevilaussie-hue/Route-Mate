@@ -55,7 +55,7 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
         visited = []
         emitted = []
 
-        def fake_solve(trial, *, attempts, clearance, progress=None):
+        def fake_solve(trial, *, attempts, clearance, progress=None, cancelled=None):
             self.assertEqual(attempts, 1)
             self.assertFalse(trial["components"][0]["slide"])
             position = trial["components"][0]["boardPos"]["col"]
