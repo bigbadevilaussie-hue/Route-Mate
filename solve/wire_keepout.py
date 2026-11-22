@@ -116,6 +116,26 @@ def wire_keepout_errors(project: dict) -> list[str]:
     board = project["board"]
     rows, cols = int(board["rows"]), int(board["cols"])
     forbidden = vertical_gap_keepouts(project, rows, cols)
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({
+        str(d["id"]): d for d in project.get("componentDefs", [])
+        if isinstance(d, dict) and d.get("id")
+    })
+    pin_holes: dict[tuple[int, int], set[str]] = defaultdict(set)
+    for part in project.get("components", []):
+        if not isinstance(part, dict):
+            continue
+        label = str(part.get("label") or part.get("id") or "unnamed")
+        if is_off_board_component(part):
+            for point in (part.get("leads") or {}).values():
+                if isinstance(point, dict) and "row" in point and "col" in point:
+                    pin_holes[(int(point["row"]), int(point["col"]))].add(label)
+        elif isinstance(part.get("boardPos"), dict):
+            definition = resolve_definition(part, definitions)
+            if definition:
+                pins, _ = component_geometry(part, definition)
+                for pin in pins:
+                    pin_holes[(int(pin["row"]), int(pin["col"]))].add(label)
     errors = []
     for i, wire in enumerate(board.get("wires", [])):
         a, b = wire.get("from", {}), wire.get("to", {})
@@ -134,6 +154,14 @@ def wire_keepout_errors(project: dict) -> list[str]:
             errors.append(
                 f"{wire.get('id', i)}: jumper crosses component artwork/keepout: "
                 + ", ".join(sorted(hit))
+            )
+        intermediate_pins = set()
+        for row in range(min(r0, r1) + 1, max(r0, r1)):
+            intermediate_pins.update(pin_holes.get((row, c0), ()))
+        if intermediate_pins:
+            errors.append(
+                f"{wire.get('id', i)}: jumper passes through intermediate component "
+                "pin/pad holes: " + ", ".join(sorted(intermediate_pins))
             )
     return errors
 
