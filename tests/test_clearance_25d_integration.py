@@ -66,6 +66,12 @@ class ExplicitClearanceTests(unittest.TestCase):
     def test_router_graph_admits_measured_gap_but_blocks_unknown(self):
         from solve.hole_router import _static
         project = sample()
+        # The graph builder requires at least one assigned physical terminal.
+        # Keep this assignment local to the router test; clearance tests do
+        # not need an electrical circuit.
+        project["netAssignments"] = [{
+            "componentId": "C1", "pinId": "1", "netId": "N1",
+        }]
         _, cols, _, _, _, reachable = _static(project)
         self.assertIn((3 * cols + 13, 1), reachable[2 * cols + 13])
         project["physicalClearance"]["body_solids"][0].update(
