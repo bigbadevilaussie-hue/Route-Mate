@@ -1,7 +1,7 @@
 name: MOTO automatic routing
 on:
   push:
-    branches: [fix/routing-aware-placement]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 jobs:
