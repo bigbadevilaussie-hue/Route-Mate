@@ -524,12 +524,13 @@ class SolveWorker(QThread):
         self.project = copy.deepcopy(project)
         self.workers = 3
         self.body_spacing_holes = 1
+        self.attempts = 24
 
     def run(self):
         try:
             from solve.parallel_quick import solve_parallel_for_display
             self.completed.emit(solve_parallel_for_display(
-                self.project, workers=self.workers, attempts=24,
+                self.project, workers=self.workers, attempts=self.attempts,
                 body_spacing_holes=self.body_spacing_holes,
                 progress=self.attempted.emit,
                 cancelled=self.isInterruptionRequested,
