@@ -229,6 +229,40 @@ def assumed_pad_body_intersection(
     return None
 
 
+def assumed_blocked_pad_holes(
+    solids: list[dict], rows: int, cols: int, clearance_mm: float = 0.85,
+) -> dict[tuple[int, int], str]:
+    """Precompute only holes near nominal bodies, not every board hole per pin.
+
+    This prevents the otherwise quadratic external-pad allocation slowdown
+    on large boards or repeated Edge+Slide placement variants.
+    """
+    from math import ceil, floor
+    blocked = {}
+    for solid in solids:
+        if solid["shape"] == "circle":
+            cx, cy = solid["center_mm"]
+            radius = solid["radius_mm"] + clearance_mm
+            xmin, xmax = cx - radius, cx + radius
+            ymin, ymax = cy - radius, cy + radius
+        else:
+            xmin = solid["x_min_mm"] - clearance_mm
+            xmax = solid["x_max_mm"] + clearance_mm
+            ymin = solid["y_min_mm"] - clearance_mm
+            ymax = solid["y_max_mm"] + clearance_mm
+        for row in range(max(0, ceil(ymin / PITCH)),
+                         min(rows - 1, floor(ymax / PITCH)) + 1):
+            for col in range(max(0, ceil(xmin / PITCH)),
+                             min(cols - 1, floor(xmax / PITCH)) + 1):
+                if (row, col) not in blocked:
+                    obstacle = assumed_pad_body_intersection(
+                        row, col, [solid], clearance_mm,
+                    )
+                    if obstacle is not None:
+                        blocked[row, col] = obstacle
+    return blocked
+
+
 def assess_saved_board(project: dict, document: dict) -> dict:
     """Independent per-jumper 2.5D comparison using sidecar as source of truth."""
     if document.get("schema") != SCHEMA or document.get("project_sha256") != _hash(project):
@@ -339,4 +373,4 @@ def assess_saved_board(project: dict, document: dict) -> dict:
     }
 
 
-__all__ = ["sidecar_path", "make_document", "load_or_create", "assess_saved_board", "assumed_body_pad_keepouts", "assumed_pad_body_intersection"]
+__all__ = ["sidecar_path", "make_document", "load_or_create", "assess_saved_board", "assumed_body_pad_keepouts", "assumed_pad_body_intersection", "assumed_blocked_pad_holes"]
