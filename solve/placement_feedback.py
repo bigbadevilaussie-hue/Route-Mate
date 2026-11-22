@@ -59,6 +59,16 @@ def solve_with_feedback(
 
     def relocation(candidate, target, variant):
         trial = copy.deepcopy(candidate)
+        prior = next(
+            (c for c in candidate.get("components", [])
+             if isinstance(c, dict) and str(c.get("id")) == target), {}
+        )
+        pos = prior.get("boardPos")
+        forbidden = {}
+        if isinstance(pos, dict):
+            forbidden[target] = {
+                (int(pos["row"]), int(pos["col"]), int(prior.get("rotation") or 0))
+            }
         for c in trial.get("components", []):
             if not isinstance(c, dict) or is_off_board_component(c):
                 continue
@@ -67,7 +77,8 @@ def solve_with_feedback(
                 c["locked"] = False
             else:
                 c["locked"] = True
-        fit = quick_fit(trial, clearance=clearance, placement_variant=variant)
+        fit = quick_fit(trial, clearance=clearance, placement_variant=variant,
+                        forbidden_anchors=forbidden)
         if fit.get("status") != "PLACED":
             return None
         result = fit["project"]
