@@ -17,9 +17,15 @@ ROOT = Path(__file__).resolve().parent
 
 
 def run(attempts: int, backtracks: int) -> dict:
-    state = json.loads((ROOT / "benchmarks/audio/audio.routemate-state.json").read_text(encoding="utf-8"))
-    project = copy.deepcopy(state["pipeline"]["stages"]["SOLVE.quick_fit"]["report"]["result"]["project"])
     reference = json.loads((ROOT / "benchmarks/audio/audio10wires38cuts.json").read_text(encoding="utf-8"))
+    sidecar = ROOT / "benchmarks/audio/audio.routemate-state.json"
+    if sidecar.exists():
+        state = json.loads(sidecar.read_text(encoding="utf-8"))
+        project = copy.deepcopy(state["pipeline"]["stages"]["SOLVE.quick_fit"]["report"]["result"]["project"])
+    else:
+        # No saved Quick Fit sidecar in CI: start from the AUDIO netlist
+        # and discard all unlocked onboard positions before placement.
+        project = copy.deepcopy(reference)
     reference_by_id = {str(c.get("id")): c for c in reference.get("components", []) if isinstance(c, dict)}
     for component in project.get("components", []):
         if not isinstance(component, dict):
@@ -77,6 +83,8 @@ if __name__ == "__main__":
         print(f"VERIFICATION={result['verification'].get('status')} VARIANT={result['placement_variant']}")
     else:
         print(f"BEST_FAILURE={result.get('best_failure')}")
+        if result.get("error"):
+            print(f"ERROR={result['error']}")
     if args.json:
         print(json.dumps({k: v for k, v in result.items() if k != "project"}, indent=2))
     raise SystemExit(0 if result["status"] == "ROUTED" else 1)
