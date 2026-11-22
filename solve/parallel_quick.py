@@ -208,14 +208,28 @@ def solve_parallel_for_display(
                 and isinstance(r.get("project"), dict)]
     signatures = set()
     ranked = []
+    summary_by_signature: dict[str, dict[str, Any]] = {}
     for result in verified:
         signatures.update(result.get("solution_signatures") or
                           [solution_signature(result["project"])])
+        for summary in result.get("candidate_summaries", []):
+            signature = str(summary.get("signature") or "")
+            if signature:
+                summary_by_signature[signature] = summary
         ranked.append((candidate_quality(result["project"], audit_report=result.get("physical_audit"))["rank"], result))
     portfolio = {
         "workers": len(plan), "attempts_budget": attempts,
         "attempts_used": total_used, "target": 2,
         "solutions_found": len(signatures),
+        "candidate_summaries": sorted(
+            summary_by_signature.values(),
+            key=lambda s: (
+                len(s.get("nominal_board_overhangs") or []),
+                int(s.get("nominal_contacts") or 0),
+                -float(s.get("provisional_score") or 0),
+                str(s.get("signature") or ""),
+            ),
+        ),
         "verified_candidates": len(verified),
         "worker_failures": failures,
         "worker_strategies": sorted(
