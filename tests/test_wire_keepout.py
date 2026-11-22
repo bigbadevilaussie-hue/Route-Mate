@@ -66,6 +66,17 @@ class WireKeepoutTests(unittest.TestCase):
                             for e in wire_keepout_errors(project)))
         self.assertEqual(quick_audit(project)["status"], "FAIL")
 
+    def test_all_physical_pads_are_known_to_router(self):
+        """Even an unassigned connector pin must not become a wire passage."""
+        from solve.hole_router import _static
+        project = tiny(part("J1", "def-connector-2", 5, 12),
+                       wire_from={"row": 2, "col": 12},
+                       wire_to={"row": 8, "col": 12})
+        rows, cols, bodies, pin_net, nets, vreach = _static(project)
+        self.assertEqual(pin_net[5 * cols + 12], "__UNASSIGNED_PAD__")
+        self.assertTrue(any("intermediate component pin" in e
+                            for e in wire_keepout_errors(project)))
+
     def test_routing_never_modifies_source(self):
         project = tiny(part("C1", "def-cap-polarized", 2, 12),
                        wire_from={"row": 2, "col": 12},
