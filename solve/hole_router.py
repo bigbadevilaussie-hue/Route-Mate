@@ -22,6 +22,7 @@ from .route import _terminals
 from .verify import verify_project
 from .quick_rules import quick_audit
 from .quality_audit import audit_project
+from .wire_keepout import vertical_gap_keepouts
 
 
 def _result(status: str, source: Any, errors: list[str], **extra) -> dict[str, Any]:
@@ -67,28 +68,26 @@ def _static(project: dict) -> tuple[int, int, set[int], dict[int, str], dict[str
             if 0 <= row < rows and 0 <= col < cols:
                 bodies.add(row * cols + col)
 
-    # Same-net pin holes are legal jumper landings (as in the existing
-    # Route-Mate quick geometry rules). Forbidding every pin landing isolates
-    # terminal banks that have different-net neighbours along their strip.
-    # Other-net pins remain forbidden to a net's search in _route_net.
-    # Copper may pass under a component body; jumpers may not.
-    blocked = bodies
+    # The footprint bodyCells are NOT sufficient to describe drawn parts:
+    # electrolytic capacitor cans and transistor bodies may have none.
+    # A vertical jumper is legal only when EVERY crossed *gap* is clear.
+    # Shared with independent quick_audit, so the graph and the checker
+    # cannot silently disagree about an artwork obstruction.
+    forbidden = vertical_gap_keepouts(project, rows, cols)
     vreach: dict[int, tuple[tuple[int, int], ...]] = {}
     for col in range(cols):
-        row = 0
-        while row < rows:
-            while row < rows and row * cols + col in blocked:
-                row += 1
-            start = row
-            while row < rows and row * cols + col not in blocked:
-                row += 1
-            # All pairs within a body-clear run, including component pin landings.
-            for r in range(start, row):
+        start = 0
+        for row in range(rows):
+            if row != rows - 1 and (row, col) not in forbidden:
+                continue
+            # Connected run of clear vertical gaps, inclusive endpoints.
+            for r in range(start, row + 1):
                 hole = r * cols + col
                 vreach[hole] = tuple(
-                    (rr * cols + col, abs(rr - r))
-                    for rr in range(start, row) if rr != r
+                    (rr * cols + col, abs(rr-r))
+                    for rr in range(start, row + 1) if rr != r
                 )
+            start = row + 1
     return rows, cols, bodies, pin_net, {n: sorted(s) for n, s in nets.items()}, vreach
 
 
@@ -142,6 +141,13 @@ def _route_net(
             for other, jump, length in neighbours:
                 if other in pin_net and pin_net[other] != net:
                     continue
+                if jump:
+                    # Also exclude wires that traverse *intermediate* pad holes,
+                    # not merely incompatible jumper endpoints.
+                    arow, brow = sorted((row, other // cols))
+                    if any((rr * cols + col) in pin_net
+                           for rr in range(arow + 1, brow)):
+                        continue
                 foreign = len(claims.get(other, set()) - {net})
                 step = 1.0 + present * foreign + historical.get(other, 0.0)
                 if jump:
