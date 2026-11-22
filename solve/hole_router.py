@@ -67,10 +67,12 @@ def _static(project: dict) -> tuple[int, int, set[int], dict[int, str], dict[str
             if 0 <= row < rows and 0 <= col < cols:
                 bodies.add(row * cols + col)
 
-    # A jumper can only land at non-pin, non-body holes. It must also
-    # traverse no occupied component-body cells and (conservatively) no pins.
-    # Copper under a body remains legal, so do NOT remove those graph nodes.
-    blocked = bodies | set(pin_net)
+    # Same-net pin holes are legal jumper landings (as in the existing
+    # Route-Mate quick geometry rules). Forbidding every pin landing isolates
+    # terminal banks that have different-net neighbours along their strip.
+    # Other-net pins remain forbidden to a net's search in _route_net.
+    # Copper may pass under a component body; jumpers may not.
+    blocked = bodies
     vreach: dict[int, tuple[tuple[int, int], ...]] = {}
     for col in range(cols):
         row = 0
@@ -80,7 +82,7 @@ def _static(project: dict) -> tuple[int, int, set[int], dict[int, str], dict[str
             start = row
             while row < rows and row * cols + col not in blocked:
                 row += 1
-            # All pairs within one body-clear vertical run are possible.
+            # All pairs within a body-clear run, including component pin landings.
             for r in range(start, row):
                 hole = r * cols + col
                 vreach[hole] = tuple(
