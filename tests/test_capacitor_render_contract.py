@@ -138,6 +138,33 @@ class CapacitorEndToEndTests(unittest.TestCase):
         self.assertIn('data-route-mate-nominal-contact="body"', copper)
         self.assertEqual(project, source)
 
+    def test_stale_c4_board_label_is_moved_off_c1_without_moving_pads(self):
+        project = {
+            "board": {"rows": 12, "cols": 12, "cuts": [], "wires": []},
+            "components": [
+                {"id": "CER", "label": "C4", "defId": "def-capacitor",
+                 "value": "15pf", "boardPos": {"row": 5, "col": 5},
+                 "rotation": 0,
+                 "boardLabelOffset": {"x": -1.0, "y": -34.294}},
+                {"id": "CAN", "label": "C1", "defId": "def-cap-polarized",
+                 "value": "1000uF", "boardPos": {"row": 2, "col": 5},
+                 "rotation": 0},
+            ],
+            "componentDefs": [],
+        }
+        source = copy.deepcopy(project)
+        self.assertEqual(inspect_assumed_contacts(project), [])
+        rendered = _renderer_input(project)
+        self.assertEqual(len(rendered["_routeMateLabelAdjustments"]), 1)
+        movement = rendered["_routeMateLabelAdjustments"][0]
+        self.assertEqual(movement["label"], "C4")
+        self.assertEqual(movement["blocked_by"], "C1")
+        part = next(p for p in rendered["components"] if p["label"] == "C4")
+        self.assertEqual(part["boardLabelOffset"], {"x": 0.0, "y": 0.0})
+        self.assertEqual(part["boardPos"], {"row": 5, "col": 5})
+        self.assertEqual(part["package"], "cap-ceramic")
+        self.assertEqual(project, source)
+
     def test_clearance_on_distant_parts_never_raises_contact_alarm(self):
         project = touching_project()
         project["components"][1]["boardPos"] = {"row": 10, "col": 10}
