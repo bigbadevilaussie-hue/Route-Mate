@@ -42,6 +42,21 @@ for entry in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" "128 128x128" "25
 done
 iconutil -c icns "$ICONS.iconset" -o "$ICONS.icns"
 
+# Resolve the already-built standalone renderer at BUILD time, not at app launch.
+# Only the compiled renderer output is copied, not Karl's source checkout.
+command -v git >/dev/null || { echo "ERROR: Git needed for build-time renderer preparation." >&2; exit 1; }
+command -v node >/dev/null || { echo "ERROR: Node.js needed for build-time packaging." >&2; exit 1; }
+RENDER_CLI="$("$PYTHON" -c 'from render.standalone_bridge import ensure_renderer; print(ensure_renderer())')"
+RENDER_DIR="$(dirname "$RENDER_CLI")"
+NODE_BIN="$(command -v node)"
+RUNTIME="$ROOT/build/renderer-runtime"
+mkdir -p "$RUNTIME"
+rm -rf "$RUNTIME/standalone-renderer"
+ditto "$RENDER_DIR" "$RUNTIME/standalone-renderer"
+cp "$NODE_BIN" "$RUNTIME/node"
+chmod +x "$RUNTIME/node"
+"$RUNTIME/node" --version >/dev/null
+
 # The frozen executable must initialize Python's multiprocessing spawn support.
 "$PYTHON" -m PyInstaller \
   --noconfirm --clean --windowed --onedir \
@@ -49,6 +64,8 @@ iconutil -c icns "$ICONS.iconset" -o "$ICONS.icns"
   --icon "$ICONS.icns" \
   --add-data "VERSION:." \
   --add-data "icon/RouteMate-original.png:icon" \
+  --add-data "$RUNTIME/standalone-renderer:renderer-runtime/standalone-renderer" \
+  --add-binary "$RUNTIME/node:renderer-runtime" \
   --collect-submodules solve \
   --collect-submodules pipeline \
   run_gui.py
@@ -61,5 +78,5 @@ ditto "$APP" "$DEST"
 echo
 echo "BUILT: $DEST"
 echo "Double-click Route-Mate.app on your Desktop."
-echo "NOTE: The production board renderer still requires external git and node."
+echo "Bundled standalone renderer and Node; no system Git/Node needed at runtime."
 echo "NOTE: First launch and actual solve must be verified on this Mac."
