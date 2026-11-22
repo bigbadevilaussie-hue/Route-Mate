@@ -17,7 +17,7 @@ from .quick_rules import quick_audit
 from .quality_audit import audit_project
 
 
-def solve_for_display(
+def _solve_one_position(
     project: dict[str, Any], *, attempts: int = 24,
     clearance: int = 1,
     progress: Callable[[dict[str, Any]], None] | None = None,
@@ -156,6 +156,156 @@ def solve_for_display(
         "placement_variant": outcome["placement_variant"],
         "attempts_used": outcome["attempts_used"],
         "warnings": routing["warnings"],
+    }
+
+
+def solve_for_display(
+    project: dict[str, Any], *, attempts: int = 24,
+    clearance: int = 1,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """GUI solve: try all Edge+Slide positions, stopping at first verified fit.
+
+    Generic 24-variant feedback remains available for non-sliding projects.
+    A selected Edge+Slide anchor is not a random placement variant: its
+    physical edge positions are an explicit finite search space.
+    """
+    from itertools import product
+    from math import prod
+    from time import perf_counter
+    from .slide_fit import edge_slide_positions
+
+    try:
+        sliders = edge_slide_positions(project)
+    except (KeyError, TypeError, ValueError) as exc:
+        return {
+            "status": "CONSTRAINT_CONFLICT", "project": None,
+            "attempts_used": 0, "history": [], "errors": [str(exc)],
+        }
+    if not sliders:
+        return _solve_one_position(
+            project, attempts=attempts, clearance=clearance, progress=progress,
+        )
+
+    total = prod(len(s["positions"]) for s in sliders)
+    summary = ", ".join(
+        f"{s['label']} ({s['edge']}: {len(s['positions'])} positions)"
+        for s in sliders
+    )
+    if total == 0:
+        return {
+            "status": "CONSTRAINT_CONFLICT", "project": None,
+            "attempts_used": 0, "history": [],
+            "errors": [f"Edge+Slide cannot fit: {summary}. "
+                       "The footprint has no legal position on its selected edge."],
+            "slide_search": {"components": summary, "positions_checked": 0,
+                             "positions_total": total},
+        }
+
+    history = []
+    placements_fitted = 0
+    last_detail = None
+    for index, combo in enumerate(product(*(s["positions"] for s in sliders)), 1):
+        started = perf_counter()
+        trial = copy.deepcopy(project)
+        by_id = {
+            str(p.get("id")): p for p in trial.get("components", [])
+            if isinstance(p, dict)
+        }
+        anchors = {}
+        for slider, selected in zip(sliders, combo):
+            target = by_id[slider["id"]]
+            previous = target["boardPos"]
+            original_end = target.get("flexibleEndPos")
+            if isinstance(original_end, dict):
+                dr = selected["row"] - int(previous["row"])
+                dc = selected["col"] - int(previous["col"])
+                target["flexibleEndPos"] = {
+                    "row": int(original_end["row"]) + dr,
+                    "col": int(original_end["col"]) + dc,
+                }
+            target["boardPos"] = dict(selected)
+            # Freeze THIS position only. Quick Fit must not silently slide
+            # it again; all other genuine locks remain unchanged.
+            target["locked"] = True
+            target["edge"] = True
+            target["slide"] = False
+            anchors[slider["label"]] = dict(selected)
+
+        # One complete placement-and-routing check per edge combination.
+        # The original project and its lock metadata are never mutated.
+        result = _solve_one_position(trial, attempts=1, clearance=clearance)
+        sub = result.get("history") or []
+        detail = sub[-1] if sub else {}
+        fit = detail.get("placement", result["status"])
+        route = detail.get("routing", result["status"])
+        if fit == "PLACED" or result["status"] == "ROUTED":
+            placements_fitted += 1
+        last_detail = (result.get("errors") or [detail.get("error") or "not routed"])[0]
+        entry = {
+            "variant": index - 1,
+            "placement": fit,
+            "routing": route,
+            "slide_positions": anchors,
+            "error": last_detail if result["status"] != "ROUTED" else None,
+        }
+        history.append(entry)
+        if progress is not None:
+            progress({
+                "completed": index, "budget": total,
+                "seconds": perf_counter() - started,
+                "last": dict(entry), "mode": "edge_slide",
+            })
+        if result["status"] == "ROUTED":
+            # Restore the requested sliding-lock metadata on the actual
+            # verified layout, including both GUI stage copies.
+            for stage in (
+                result.get("project"),
+                (result.get("placement") or {}).get("project"),
+                (result.get("routing") or {}).get("project"),
+            ):
+                if not isinstance(stage, dict):
+                    continue
+                selected_parts = {
+                    str(p.get("id")): p for p in stage.get("components", [])
+                    if isinstance(p, dict)
+                }
+                for slider in sliders:
+                    selected_parts[slider["id"]]["locked"] = True
+                    selected_parts[slider["id"]]["edge"] = True
+                    selected_parts[slider["id"]]["slide"] = True
+            result["attempts_used"] = index
+            result["history"] = history
+            result["slide_search"] = {
+                "components": summary, "positions_checked": index,
+                "positions_total": total, "selected": anchors,
+            }
+            return result
+
+    # No false 'part cannot physically fit' claim when placement did fit
+    # and only routing failed; preserve both counts and actionable reason.
+    if placements_fitted:
+        message = (
+            f"Edge+Slide {summary}: placement fitted at "
+            f"{placements_fitted}/{total} position(s), but no electrically "
+            f"verified route was found after checking all {total}. "
+            f"Last routing issue: {last_detail}"
+        )
+    else:
+        message = (
+            f"Edge+Slide {summary}: cannot fit the edge component(s) "
+            f"at any of the {total} legal position combination(s). "
+            f"Last placement issue: {last_detail}"
+        )
+    return {
+        "status": "ROUTING_FAILED" if placements_fitted else "NO_FIT_FOUND",
+        "project": None, "attempts_used": total, "history": history,
+        "errors": [message],
+        "best_failure": history[-1] if history else None,
+        "slide_search": {
+            "components": summary, "positions_checked": total,
+            "positions_total": total, "placements_fitted": placements_fitted,
+        },
     }
 
 
