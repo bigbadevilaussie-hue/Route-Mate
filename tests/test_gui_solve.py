@@ -442,7 +442,17 @@ class GuiSolveSmokeTests(unittest.TestCase):
             window.close()
 
     def test_moto_worker_updates_both_board_sides(self):
+        # Real board/solver/Qt handoff, but use the bounded 8-attempt smoke
+        # budget rather than the full 24-slot multicores benchmark. The real
+        # three-process integration has a dedicated CI smoke test.
+        from gui.main import SolveWorker
+        class SmokeWorker(SolveWorker):
+            def __init__(self, project, parent=None):
+                super().__init__(project, parent)
+                self.attempts = 8
+
         window = RouteMateWindow()
+        window._recommended_workers = 1
         window.project = json.loads((ROOT / "benchmarks/moto/moto.json").read_text(encoding="utf-8"))
         window.project_path = ROOT / "benchmarks/moto/moto.json"
         window.solve_action.setEnabled(True)
@@ -452,7 +462,8 @@ class GuiSolveSmokeTests(unittest.TestCase):
                                   setattr(window, "_copper_svg", SVG) or SVG,
                                   "headless test renderer",
                               )):
-                window.solve_board()
+                with patch("gui.main.SolveWorker", SmokeWorker):
+                    window.solve_board()
                 self.assertFalse(window.solve_action.isEnabled())
                 deadline = time.monotonic() + 40
                 while window._solver_worker is not None and time.monotonic() < deadline:
