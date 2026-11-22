@@ -263,6 +263,113 @@ def assumed_blocked_pad_holes(
     return blocked
 
 
+def _nominal_body_gap(a: dict, b: dict) -> float:
+    """Signed XY perimeter gap (mm); negative means nominal overlap."""
+    from math import hypot
+
+    if a["shape"] == "circle" and b["shape"] == "circle":
+        return hypot(a["center_mm"][0] - b["center_mm"][0],
+                     a["center_mm"][1] - b["center_mm"][1]) - (
+                         a["radius_mm"] + b["radius_mm"]
+                     )
+    if a["shape"] == "rectangle" and b["shape"] == "rectangle":
+        x = max(a["x_min_mm"] - b["x_max_mm"],
+                b["x_min_mm"] - a["x_max_mm"], 0)
+        y = max(a["y_min_mm"] - b["y_max_mm"],
+                b["y_min_mm"] - a["y_max_mm"], 0)
+        if x or y:
+            return hypot(x, y)
+        return 0.0
+    circle, rect = (
+        (a, b) if a["shape"] == "circle" else (b, a)
+    )
+    x, y = circle["center_mm"]
+    nearest_x = min(max(x, rect["x_min_mm"]), rect["x_max_mm"])
+    nearest_y = min(max(y, rect["y_min_mm"]), rect["y_max_mm"])
+    return hypot(x - nearest_x, y - nearest_y) - circle["radius_mm"]
+
+
+def inspect_assumed_contacts(project: dict) -> list[dict]:
+    """Advisory body/body and foreign pad/body contact from installed solids.
+
+    This does NOT claim measured contact. It is independent of copper-net
+    electrical PASS and is used to colour the same concerns red in the GUI.
+    """
+    from math import hypot
+    from collector_geometry import CLEARANCE
+
+    margin = CLEARANCE["min_clearance_mm"]
+    pad_margin = (CLEARANCE["lead_radius_mm"]
+                  + CLEARANCE["lead_margin_mm"]
+                  + margin)
+    solids = assumed_body_pad_keepouts(project)
+    by_id = {str(p["id"]): p for p in project.get("components", [])
+             if isinstance(p, dict) and p.get("id")}
+    issues = []
+    for i, a in enumerate(solids):
+        for b in solids[i + 1:]:
+            # Different z ranges imply no nominal three-dimensional body touch.
+            if max(a["z_min_mm"], b["z_min_mm"]) >= min(
+                a["z_max_mm"], b["z_max_mm"]
+            ):
+                continue
+            gap = _nominal_body_gap(a, b)
+            if gap < margin:
+                issues.append({
+                    "kind": "body_body", "component_ids": [a["id"], b["id"]],
+                    "components": [a["label"], b["label"]],
+                    "gap_mm": round(gap, 3),
+                    "certainty": "ASSUMED_UNVERIFIED",
+                })
+    # A correct pin may still be under another body's nominal overhang.
+    # Only check FOREIGN component pads; a capacitor's own pins sit underneath
+    # its body by design and are not a clash.
+    from board_geometry import component_geometry
+    defs = dict(BUILTIN_DEFS)
+    defs.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                 if isinstance(d, dict) and d.get("id")})
+    for p in by_id.values():
+        pid = str(p["id"])
+        label = str(p.get("label") or pid)
+        pins = []
+        is_external = is_off_board_component(p)
+        if is_external:
+            if p.get("boardExcluded") is True and p.get("offBoard") is not True:
+                continue
+            for name, pad in (p.get("leads") or {}).items():
+                pins.append((str(name), pad))
+        elif isinstance(p.get("boardPos"), dict):
+            definition = _definition(p, defs)
+            if definition is not None:
+                physical, _ = component_geometry(p, definition)
+                pins.extend((str(pin["id"]), pin) for pin in physical)
+        for pin, point in pins:
+            row, col = int(point["row"]), int(point["col"])
+            x, y = col * PITCH, row * PITCH
+            for solid in solids:
+                if solid["id"] == pid:
+                    continue
+                if solid["shape"] == "circle":
+                    sx, sy = solid["center_mm"]
+                    gap = hypot(x - sx, y - sy) - solid["radius_mm"]
+                else:
+                    dx = max(solid["x_min_mm"] - x, 0,
+                             x - solid["x_max_mm"])
+                    dy = max(solid["y_min_mm"] - y, 0,
+                             y - solid["y_max_mm"])
+                    gap = hypot(dx, dy)
+                if gap < pad_margin:
+                    issues.append({
+                        "kind": "external_pad_body" if is_external else "pad_body",
+                        "component_ids": [pid, solid["id"]],
+                        "components": [label, solid["label"]],
+                        "pad": {"row": row, "col": col, "pin": pin},
+                        "gap_mm": round(gap, 3),
+                        "certainty": "ASSUMED_UNVERIFIED",
+                    })
+    return issues
+
+
 def assess_saved_board(project: dict, document: dict) -> dict:
     """Independent per-jumper 2.5D comparison using sidecar as source of truth."""
     if document.get("schema") != SCHEMA or document.get("project_sha256") != _hash(project):
@@ -361,6 +468,7 @@ def assess_saved_board(project: dict, document: dict) -> dict:
         status = "UNVERIFIED"
     else:
         status = "ASSUMED_CLEARANCE_PASS"
+    contacts = inspect_assumed_contacts(project)
     return {
         "status": status,
         "counts": counts,
@@ -369,8 +477,11 @@ def assess_saved_board(project: dict, document: dict) -> dict:
         "unknown_bodies": sorted(unknown),
         "profile": model["preset"],
         "physical_signoff": False,
-        "scope": "assumed-body-and-lead-clearance with hard occupied-pin-hole check; electrical nets and cut access separately verified",
+        "contact_findings": contacts,
+        "contacts_status": "ASSUMED_CONTACT_RISK" if contacts else "ASSUMED_CONTACT_CLEAR",
+        "scope": "assumed-body-and-lead-clearance with hard occupied-pin-hole check; nominal body/pad contacts advisory; electrical nets and cut access separately verified",
     }
 
 
-__all__ = ["sidecar_path", "make_document", "load_or_create", "assess_saved_board", "assumed_body_pad_keepouts", "assumed_pad_body_intersection", "assumed_blocked_pad_holes"]
+__all__ = ["sidecar_path", "make_document", "load_or_create", "assess_saved_board", "assumed_body_pad_keepouts", "assumed_pad_body_intersection", "assumed_blocked_pad_holes",
+           "inspect_assumed_contacts"]
