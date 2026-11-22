@@ -31,7 +31,10 @@ class SavedWitnessSidecarTests(unittest.TestCase):
                 self.assertEqual(wires[wire_id]["verdict"], "CONDITIONAL",
                                  wires[wire_id])
             self.assertFalse(report["physical_signoff"])
-            self.assertIn(report["status"], ("UNVERIFIED", "ASSUMED_CLEARANCE_PASS"))
+            self.assertEqual(report["status"], "ASSUMED_CLEARANCE_PASS", report)
+            self.assertEqual(report["unknown_bodies"], [])
+            self.assertEqual(report["counts"]["FAIL_PROVEN"], 0)
+            self.assertEqual(report["counts"]["FAIL_UNVERIFIED"], 0)
             self.assertEqual(original, board)
 
     def test_moto_independent_checks_use_same_collector_sidecar(self):
@@ -40,7 +43,11 @@ class SavedWitnessSidecarTests(unittest.TestCase):
             document = load_or_create(board, Path(d) / "moto.json")
             result = assess_saved_board(board, document)
         self.assertEqual(len(result["wire_results"]), 14)
-        self.assertEqual(result["profile"], "standard-through-hole-v1")
+        self.assertEqual(result["profile"], "standard-through-hole-v2")
+        self.assertEqual(result["status"], "ASSUMED_CLEARANCE_PASS", result)
+        self.assertEqual(result["unknown_bodies"], [])
+        self.assertEqual(result["counts"]["FAIL_PROVEN"], 0)
+        self.assertEqual(result["counts"]["FAIL_UNVERIFIED"], 0)
         self.assertFalse(result["physical_signoff"])
 
     def test_stale_project_rebuilds_sidecar_and_old_snapshot_rejected(self):
