@@ -17,6 +17,24 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_placement_feedback.py' -v
       - name: Karl AUDIO hole-graph regression
         run: python -m unittest discover -s tests -p 'test_hole_router.py' -v
+      - name: Validate both saved WR sidecars and 2.5D geometry
+        run: |
+          python -m unittest tests.test_geometry_sidecar_integration tests.test_assumed_25d_provenance tests.test_collector_geometry_assumptions -v
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from solve.verify import verify_project
+          for fixture in (
+              "benchmarks/audio/audio10wires38cuts.json",
+              "benchmarks/moto/moto14wires30cuts.json",
+          ):
+              project = json.loads(Path(fixture).read_text())
+              check = verify_project(project)
+              print(f"WR_ELECTRICAL fixture={fixture} status={check['status']} "
+                    f"shorts={check['counts']['short_groups']} "
+                    f"opens={check['counts']['open_nets']} "
+                    f"errors={check['errors'][:5]}", flush=True)
+          PY
       - name: End-to-end automatic AUDIO placement and routing
         run: python benchmark_audio_feedback.py --attempts 8 --timeout 45 --out /tmp/route-mate-audio-autorouted.json
       - name: Publish verified AUDIO board
