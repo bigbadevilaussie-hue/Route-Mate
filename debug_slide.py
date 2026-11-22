@@ -6,13 +6,17 @@ from __future__ import annotations
 
 import argparse
 import copy
+import cProfile
+import io
 import json
+import pstats
+from time import perf_counter
 from pathlib import Path
 
 from board_geometry import BUILTIN_DEFS, resolve_definition
 from placement_policy import is_off_board_component
 from solve.quick_fit import _local_variant, edge_side
-from solve.placement_feedback import solve_with_feedback
+import solve.placement_feedback as feedback
 
 
 def load_project(path: Path) -> dict:
@@ -76,6 +80,7 @@ def main() -> None:
     parser.add_argument("--attempts", type=int, default=1, help="placement variants per fixed position")
     parser.add_argument("--clearance", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true", help="print positions without solving")
+    parser.add_argument("--profile", action="store_true", help="show top cumulative-time functions per scan (adds profiling overhead)")
     args = parser.parse_args()
     if args.limit < 0:
         parser.error("--limit must be nonnegative")
@@ -141,6 +146,26 @@ def main() -> None:
         sequence = sequence[:args.limit]
     print(f"[SLIDE] {original.get('label') or original.get('id')} side={side} rotation={rotation} "
           f"board={rows}x{cols} positions={len(positions)} testing={len(sequence)}", flush=True)
+    # Diagnostic-only wrappers measure the actual solver phases without
+    # changing Quick Fit or routing parameters. Restore on exit.
+    phase_times = {"placement": 0.0, "hole_router": 0.0, "legacy_router": 0.0}
+    original_fit = feedback.quick_fit
+    original_holes = feedback.route_holes
+    original_copper = feedback.route_copper
+
+    def timed(phase, function):
+        def invoke(*args, **kwargs):
+            started = perf_counter()
+            try:
+                return function(*args, **kwargs)
+            finally:
+                phase_times[phase] += perf_counter() - started
+        return invoke
+
+    feedback.quick_fit = timed("placement", original_fit)
+    feedback.route_holes = timed("hole_router", original_holes)
+    feedback.route_copper = timed("legacy_router", original_copper)
+
     for i, index in enumerate(sequence, 1):
         row, col = positions[index]
         trial = copy.deepcopy(project)
@@ -152,10 +177,33 @@ def main() -> None:
         print(tag + " LOCK -> SOLVE", flush=True)
         if args.dry_run:
             continue
-        result = solve_with_feedback(
-            trial, attempts=args.attempts, clearance=args.clearance,
-            quick_backtracks=0, router="hole_graph",
+        for phase in phase_times:
+            phase_times[phase] = 0.0
+        profiler = cProfile.Profile() if args.profile else None
+        started = perf_counter()
+        try:
+            if profiler is not None:
+                profiler.enable()
+            result = feedback.solve_with_feedback(
+                trial, attempts=args.attempts, clearance=args.clearance,
+                quick_backtracks=0, router="hole_graph",
+            )
+        finally:
+            if profiler is not None:
+                profiler.disable()
+            elapsed = perf_counter() - started
+        accounted = sum(phase_times.values())
+        print(
+            f"  TIME total={elapsed:.3f}s placement={phase_times['placement']:.3f}s "
+            f"hole_router={phase_times['hole_router']:.3f}s "
+            f"legacy_router={phase_times['legacy_router']:.3f}s "
+            f"other={max(0.0, elapsed - accounted):.3f}s",
+            flush=True,
         )
+        if profiler is not None:
+            buffer = io.StringIO()
+            pstats.Stats(profiler, stream=buffer).strip_dirs().sort_stats("cumulative").print_stats(12)
+            print("  PROFILE top 12 by cumulative time:\\n" + buffer.getvalue(), flush=True)
         history = result.get("history", [])
         for h in history:
             print("  placement={placement} routing={routing} cuts={cuts} wires={wires} error={error}".format(
@@ -166,7 +214,10 @@ def main() -> None:
         print(tag + f" RESULT={result['status']}", flush=True)
         if result["status"] == "ROUTED":
             print("[SLIDE] electrical route found; sweep stopped. Nothing written.", flush=True)
-            return
+            break
+    feedback.quick_fit = original_fit
+    feedback.route_holes = original_holes
+    feedback.route_copper = original_copper
     print("[SLIDE] sweep finished; no files changed.", flush=True)
 
 
