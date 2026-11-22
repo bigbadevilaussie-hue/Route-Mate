@@ -1,7 +1,10 @@
 """Collector geometry defaults: deterministic, explicit assumptions, no safety forgery."""
 import copy
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from collector_geometry import build_assumed_geometry, CLEARANCE, PRESET_VERSION
 
@@ -70,6 +73,42 @@ class CollectorGeometryTests(unittest.TestCase):
         self.assertEqual(CLEARANCE["min_clearance_mm"], 0.3)
         self.assertEqual(CLEARANCE["search_preference_margin_mm"], 0.0)
         self.assertEqual(build_assumed_geometry(project())["component_count"], 0)
+
+    def test_collector_cli_writes_sidecar_and_hash_to_manifest(self):
+        from collect import main
+        import hashlib
+        import sys
+        data = project(part("C1", "def-cap-polarized", value="10uF"))
+        data.update({
+            "board": {"rows": 10, "cols": 15, "cuts": [], "wires": []},
+            "nets": [], "netAssignments": [],
+        })
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)
+            source = path / "input.json"
+            source.write_text(json.dumps(data), encoding="utf-8")
+            out = path / "collection"
+            args = [
+                "collect.py", "--json", str(source),
+                "--actual-rows", "10", "--actual-cols", "15",
+                "--wanted-rows-mode", "max", "--wanted-rows", "10",
+                "--wanted-cols-mode", "max", "--wanted-cols", "15",
+                "--out", str(out),
+            ]
+            with patch.object(sys, "argv", args):
+                self.assertEqual(main(), 0)
+            geometry_file = out / "physical_geometry.json"
+            manifest = json.loads((out / "manifest.json").read_text())
+            sidecar = json.loads(geometry_file.read_text())
+            self.assertEqual(manifest["physical_geometry_sidecar"], str(geometry_file))
+            self.assertEqual(
+                manifest["physical_geometry_sidecar_sha256"],
+                hashlib.sha256(geometry_file.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(sidecar["components"][0]["status"], "ASSUMED_UNVERIFIED")
+            self.assertEqual(sidecar["components"][0]["body_solids"][0]["radius_mm"], 2.5)
+            self.assertNotIn("physicalClearance",
+                             json.loads((out / "projects" / "0.json").read_text()))
 
     def test_duplicate_ids_and_bad_pin_coordinates_fail(self):
         with self.assertRaisesRegex(ValueError, "duplicate component IDs"):
