@@ -739,11 +739,25 @@ class RouteMateWindow(QMainWindow):
         supplied. Do not add physicalClearance to the solver input: its
         absolute-coordinate contract requires measured/locked shapes.
         """
-        from collector_geometry import build_assumed_geometry
-        model = build_assumed_geometry(project)
-        self._assumed_geometry = model
+        from geometry_sidecar import load_or_create
+        # Exact project snapshot + preset are checksum-bound in a persistent
+        # sidecar. The collector's generator remains the only profile owner.
+        path = self.project_path
+        if path is None:
+            from collector_geometry import build_assumed_geometry
+            model = build_assumed_geometry(project)
+            document = None
+        else:
+            document = load_or_create(project, path)
+            model = document["geometry"]
+        self._assumed_geometry = document if document is not None else model
         if stage is not None:
             stage.report["assumed_geometry"] = copy.deepcopy(model)
+            if document is not None:
+                from geometry_sidecar import sidecar_path
+                stage.report["assumed_geometry_sidecar"] = str(sidecar_path(path))
+                stage.report["assumed_geometry_project_sha256"] = document["project_sha256"]
+                stage.report["assumed_geometry_sha256"] = document["geometry_sha256"]
             stage.options["geometry_preset"] = model["preset"]
             stage.options["geometry_status"] = "ASSUMED_UNVERIFIED"
         assumed = sum(x["status"] == "ASSUMED_UNVERIFIED" for x in model["components"])
@@ -806,8 +820,21 @@ class RouteMateWindow(QMainWindow):
             # A saved board bypasses Import, but must not bypass the shared
             # collector geometry assumptions. Advisory only, no false PASS.
             self._record_assumed_geometry(project)
-            self.log_line("[RENDER JSON] Saved-board 2.5D clearance remains UNVERIFIED "
-                          "until placement-relative validation is integrated.")
+            from geometry_sidecar import assess_saved_board, sidecar_path
+            geometry_audit = assess_saved_board(project, self._assumed_geometry)
+            self.log_line(f"[2.5D][{geometry_audit['status']}] "
+                          f"Profile={geometry_audit['profile']} | "
+                          f"source={sidecar_path(path)} | "
+                          f"{len(geometry_audit['wire_results'])} jumper(s) checked "
+                          "by router and independent verifier.")
+            for finding in geometry_audit["findings"][:25]:
+                self.log_line(f"[2.5D][{finding['verdict']}] "
+                              f"{finding['wire']}: {finding['reason']} ({finding['item']})")
+            if geometry_audit["unknown_bodies"]:
+                self.log_line("[2.5D][UNVERIFIED] No assumed body solid for: "
+                              + ", ".join(geometry_audit["unknown_bodies"]))
+            self.log_line("[2.5D] ASSUMED only; pad/access checks and actual "
+                          "installed dimensions are NOT physically certified.")
             # Historic routed JSON may be electrically sound yet contain
             # jumpers drawn directly through a capacitor or other body.
             # Never present those saved results without a safety warning.
@@ -831,9 +858,14 @@ class RouteMateWindow(QMainWindow):
                     summary = (
                         f"{label} saved layout · {len(audit['errors'])} geometry finding(s)"
                     )
+                    # Preserve hard failures; assess legacy artwork warnings
+                    # against the collector's actual package assumptions.
+                    if unverified_only:
+                        summary = f"{geometry_audit['status']} saved layout · 2.5D assumed geometry"
                     self._set_board_summary(summary, level="neutral" if unverified_only else "failed")
                     self.log_line(
-                        f"[RENDER JSON][{label}] {len(audit['errors'])} geometry finding(s)."
+                        f"[RENDER JSON][{label}] {len(audit['errors'])} legacy "
+                        "geometry finding(s); compare [2.5D] sidecar evidence."
                     )
                     for issue in audit["errors"][:25]:
                         self.log_line(f"[RENDER JSON][{label}] " + issue)
@@ -843,10 +875,10 @@ class RouteMateWindow(QMainWindow):
                         )
                         QMessageBox.warning(
                             self, "Saved routing clearance unverified",
-                            f"{len(audit['errors'])} artwork or clearance finding(s). "
-                            "These do not prove physical interference. Verify the actual "
-                            "wire insulation, lead positions and mounted body clearance "
-                            "before construction; see Activity for details.",
+                            f"Legacy artwork flagged {len(audit['errors'])} wire(s). "
+                            f"Independent 2.5D assumed-geometry status: {geometry_audit['status']}. "
+                            "These are not measured physical findings; see Activity "
+                            "for per-jumper 2.5D evidence and unknown packages.",
                         )
                     else:
                         self.statusBar().showMessage(
