@@ -53,15 +53,27 @@ def candidate_quality(project: dict[str, Any], *,
         # Never turn absent advisory geometry into a zero-warning result.
         contacts, status = 1000000, "UNVERIFIED"
         diagnostic = str(exc)
+    from collector_geometry import PITCH_MM
+    from geometry_sidecar import assumed_body_pad_keepouts
+    from .quick_fit import _nominal_body_overhangs_board
+    board = project.get("board", {})
+    overhangs = [
+        str(solid.get("label") or solid.get("id"))
+        for solid in assumed_body_pad_keepouts(project)
+        if _nominal_body_overhangs_board(
+            solid, int(board["rows"]), int(board["cols"]), PITCH_MM
+        )
+    ]
     signature = solution_signature(project)
     rank = (
-        int(status == "HARD_CONFLICT"), contacts,
+        int(status == "HARD_CONFLICT"), len(overhangs), contacts,
         -float(scored["score"]), int(scored["wires"]), int(scored["cuts"]),
         float(scored["wire_length_mm"]), signature,
     )
     return {
         "signature": signature,
         "nominal_contacts": contacts,
+        "nominal_board_overhangs": overhangs,
         "provisional_score": float(scored["score"]),
         "assumed_25d_status": status,
         "wires": int(scored["wires"]),
