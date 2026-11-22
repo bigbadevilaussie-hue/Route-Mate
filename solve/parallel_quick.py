@@ -14,11 +14,22 @@ from typing import Any, Callable
 from .solution_quality import candidate_quality, solution_signature
 
 
-def choose_workers(recommended: int, logical_cpus: int) -> int:
-    """User-requested three/four-process desktop policy, capped by CPU count."""
+def choose_workers(recommended: int, logical_cpus: int,
+                   timings: dict[int, float] | None = None) -> int:
+    """Prefer four processes on a near-tie; synthetic probe noise is not proof.
+
+    For example, a synthetic 3w=0.27s and 4w=0.29s result cannot
+    justify giving an expensive real routing variant fewer CPU processes.
+    """
     available = max(1, min(4, int(logical_cpus)))
     if available < 3:
         return available
+    if available == 4 and timings:
+        times = {int(k): float(v) for k, v in timings.items()}
+        three, four = times.get(3), times.get(4)
+        if three is not None and four is not None and min(three, four) > 0:
+            if four <= 1.15 * three:
+                return 4
     return min(available, max(3, int(recommended)))
 
 
@@ -38,7 +49,8 @@ def partition_attempts(attempts: int, workers: int) -> list[tuple[int, int]]:
 
 def _process_job(project: dict[str, Any], quota: int, offset: int,
                  body_spacing_holes: int, job_index: int,
-                 messages: Any, stop_flag: Any) -> dict[str, Any]:
+                 messages: Any, stop_flag: Any,
+                 worker_count: int = 4) -> dict[str, Any]:
     """Picklable top-level function executed in a real OS process."""
     from .desktop_integration import solve_for_display
 
@@ -61,10 +73,25 @@ def _process_job(project: dict[str, Any], quota: int, offset: int,
     # one so the original compact sequence has no missing variant index.
     variant_offset = (offset - 1 if body_spacing_holes > 0 and offset > 0
                       else offset)
+    # One process keeps the proven original compact fallbacks at their full
+    # router budget. Other processes run exploratory bounded searches: one
+    # (or two with four CPUs) genuinely pursues the requested body spacing;
+    # the rest explores extra compact placements with a smaller router cap.
+    prefer_spacing = (body_spacing_holes > 0 and
+                      (job_index == 1 or (worker_count == 4 and job_index == 2)))
+    extras = {}
+    if prefer_spacing:
+        extras["prefer_spacing_variants"] = True
+    if job_index > 0:
+        extras["hole_expansion_budget"] = 180000
     result = solve_for_display(
         project, attempts=quota, variant_offset=variant_offset,
         body_spacing_holes=body_spacing_holes, solutions_target=2,
-        progress=notify, cancelled=stop_flag.is_set,
+        progress=notify, cancelled=stop_flag.is_set, **extras,
+    )
+    result["_worker_strategy"] = (
+        "requested_spacing" if prefer_spacing else
+        "proven_compact" if job_index == 0 else "bounded_compact"
     )
     result["_worker_pid"] = getpid()
     return result
@@ -119,7 +146,8 @@ def solve_parallel_for_display(
         with ProcessPoolExecutor(max_workers=len(plan), mp_context=context) as pool:
             future_to_job = {
                 pool.submit(_process_job, project, quota, offset,
-                            body_spacing_holes, index, messages, stop_flag): index
+                            body_spacing_holes, index, messages, stop_flag,
+                            len(plan)): index
                 for index, (offset, quota) in enumerate(plan)
             }
             pending = set(future_to_job)
@@ -189,9 +217,13 @@ def solve_parallel_for_display(
         "solutions_found": len(signatures),
         "verified_candidates": len(verified),
         "worker_failures": failures,
+        "worker_strategies": sorted(
+            ((int(r["_worker_pid"]), r.get("_worker_strategy", "unknown"))
+             for r in results if r.get("_worker_pid") is not None),
+        ),
         "worker_pids": sorted({int(r["_worker_pid"]) for r in results
                                if r.get("_worker_pid") is not None}),
-        "strategy": "fixed-budget deterministic variant partition",
+        "strategy": "fixed attempt portfolio, proven baseline and bounded spacing exploration",
     }
     if ranked:
         ranked.sort(key=lambda item: item[0])
