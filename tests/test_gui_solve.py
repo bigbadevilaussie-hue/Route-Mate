@@ -238,6 +238,7 @@ class GuiSolveSmokeTests(unittest.TestCase):
                                     window.render_json()
                         log = window.log.toPlainText()
                         self.assertIn("[2.5D][ASSUMED_CLEARANCE_PASS]", log)
+                        self.assertIn("[RENDER JSON][ELECTRICAL][PASS]", log)
                         self.assertIn("[RENDER JSON][ASSUMED_PASS]", log)
                         self.assertIn("source=" + str(sidecar_path(path)), log)
                         self.assertTrue(sidecar_path(path).exists())
