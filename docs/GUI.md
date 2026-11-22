@@ -4,9 +4,46 @@
 
 See [Documentation map](../README.md) and [PRE-SOLVE intelligence handoff](MODULE_IO_AND_HANDOFF_AUDIT.md) for the existing preparation terminology and sidecar boundary.
 
+## Route-Mate 1.41 — CPU portfolio and clearer solve feedback
+
+**Current implementation on `main`.** The Qt solve coordinator runs a
+`ProcessPoolExecutor` using spawned operating-system processes, not CPU-bound
+Python threads. The startup speed probe informs a 3–4 process policy when
+hardware permits; machines with fewer than three logical CPUs use what exists.
+Worker count changes latency but does **not** increase the 24-placement-attempt
+Quick Solve budget. Each worker owns a deterministic disjoint variant range.
+The coordinator keeps Qt responsive and propagates cooperative Stop requests.
+
+After loading the JSON and choosing the physical board dimensions, a separate
+dialog asks for **Off (0)**, **Normal (1)** or **Wider (2)** free-hole nominal
+spacing. The choice is kept outside the imported circuit JSON. It is an
+advisory body-spacing preference, **not** evidence of measured clearance, and
+the solver can report a compact routing fallback. Fixed locks and the actual
+board envelope remain hard constraints.
+
+A process searches for up to two distinct, independently checked candidates
+within its assigned budget. Across workers the coordinator de-duplicates
+signatures and prefers fewer assumed contact warnings, then better provisional
+0–100 quality, then routing costs. **Two candidates are a search target, not a
+guarantee:** if only one verified layout is found, it is retained and the GUI
+reports that limitation. A routing result is rechecked by the desktop adapter
+with electrical, grid and jumper audits; the GUI never describes an electrical
+PASS as a measured physical PASS.
+
+The Overview panel shows live worker/attempt details, elapsed duration,
+estimated remaining time based on completed work, and candidate count.
+The estimate is provisional, not a deadline; a candidate can end the
+search early. SVG wheel zoom and the +/− magnification controls are disabled.
+The **Fit** control and board panning remain. Qt SVG renderers are cached for
+the two most recent board images to avoid unnecessary reparsing.
+
+Run `python3 -m unittest discover -s tests -p 'test_*.py' -v` and
+`python3 run_gui.py` to validate on the iMac. The historical 1.38 section
+below describes previous behaviour, not the current process model.
+
 ## Route-Mate 1.38 — Quick Solve and desktop refresh
 
-**Implemented in source on `fix/routing-aware-placement`.** The desktop reads
+**Historical implementation note (prior to 1.41).** The desktop reads
 its version from the repository `VERSION` file so the title bar and engine
 version cannot silently drift.
 
@@ -76,7 +113,7 @@ The GUI must not become a replacement schematic editor. Karl's Circuit Designer 
 
 ## Verified hole-graph solver wired to the desktop GUI (development branch)
 
-The current `fix/routing-aware-placement` GUI uses the same Python
+The current `main` GUI uses the same Python
 `solve_with_feedback` engine as the AUDIO and MOTO command-line benchmarks.
 It does **not** run the legacy `route_copper(vertical_only=True)` on fresh
 projects. The original router is retained as a fallback for inputs with manual
@@ -88,7 +125,7 @@ Workflow:
    the existing source-mode tests; show the initial layout and ask any saved
    component lock questions.
 2. After those decisions, **Solve Board** runs placement feedback and
-   negotiated-congestion hole routing inside a `QThread`, keeping the board
+   negotiated-congestion hole routing from a Qt coordinator and OS processes, keeping the board
    preview and GUI event loop responsive. It respects fixed component positions.
 3. Only a candidate passing `verify_project`, `quick_audit` and
    `audit_project` is displayed. The independent electrical result and
