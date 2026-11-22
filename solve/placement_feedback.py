@@ -262,7 +262,8 @@ def solve_with_feedback(
                 best_quality = min(verified_results,
                                    key=lambda entry: entry[1]["rank"])[1]
                 if (float(best_quality.get("provisional_score", 0)) >= 40.0
-                        and int(best_quality.get("nominal_contacts", 1000000)) <= 1):
+                        and int(best_quality.get("nominal_contacts", 1000000)) <= 1
+                        and not best_quality.get("nominal_board_overhangs")):
                     break
 
         # Prioritize movable components attached to nets mentioned by router errors.
