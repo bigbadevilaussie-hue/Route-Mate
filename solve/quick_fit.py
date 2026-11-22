@@ -443,6 +443,18 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
     """Allocate real board holes to external pins, without placing their bodies."""
     components = project["components"]
     used, net_holes, row_nets = set(), {}, {}
+    # Grid-empty holes can still be inaccessible under a large mounted
+    # package. Screen external solder-pad locations against the versioned
+    # collector's nominal installed 2.5D body silhouettes, not SVG artwork.
+    from geometry_sidecar import (
+        assumed_body_pad_keepouts, assumed_pad_body_intersection,
+    )
+    from collector_geometry import CLEARANCE
+    assumed_bodies = assumed_body_pad_keepouts(project)
+    nominal_pad_clearance = (
+        CLEARANCE["lead_radius_mm"] + CLEARANCE["lead_margin_mm"]
+        + CLEARANCE["min_clearance_mm"]
+    )
     for component in components:
         if not isinstance(component, dict):
             continue
@@ -455,6 +467,15 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
                 hole = (int(point["row"]), int(point["col"]))
                 if not (0 <= hole[0] < rows and 0 <= hole[1] < cols) or hole in used:
                     raise ValueError(f"{component.get('label', cid)} lead {pid}: invalid or duplicate board hole")
+                under = assumed_pad_body_intersection(
+                    hole[0], hole[1], assumed_bodies, nominal_pad_clearance
+                )
+                if under is not None:
+                    raise ValueError(
+                        f"{component.get('label', cid)} lead {pid}: locked "
+                        f"termination pad {hole} lies within assumed body "
+                        f"clearance of {under}; adjust the pad or package position"
+                    )
                 used.add(hole)
                 net = pin_nets.get((cid, str(pid)))
                 if net:
@@ -501,6 +522,10 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
                 for col in range(cols):
                     if (row, col) in used:
                         continue
+                    if assumed_pad_body_intersection(
+                        row, col, assumed_bodies, nominal_pad_clearance
+                    ) is not None:
+                        continue
                     neighbors = row_nets.get(row, {})
                     if net and any(neighbors.get(c) not in (None, net)
                                    for c in (col - 1, col, col + 1)):
@@ -515,7 +540,10 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
                     if best is None or score < best[0]:
                         best = (score, row, col)
             if best is None:
-                raise ValueError(f"{component.get('label', cid)} pin {pid}: no free termination hole")
+                raise ValueError(
+                    f"{component.get('label', cid)} pin {pid}: no accessible "
+                    "termination hole outside assumed component body envelopes"
+                )
             _, row, col = best
             leads[pid] = {"row": row, "col": col}
             used.add((row, col))
