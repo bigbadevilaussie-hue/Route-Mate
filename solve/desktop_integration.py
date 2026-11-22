@@ -24,6 +24,8 @@ def _solve_one_position(
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
     variant_offset: int = 0, solutions_target: int = 1,
+    prefer_spacing_variants: bool = False,
+    hole_expansion_budget: int = 600000,
 ) -> dict[str, Any]:
     """Return verified solved board plus stage-adapter-compatible reports.
 
@@ -38,6 +40,10 @@ def _solve_one_position(
         extras["variant_offset"] = variant_offset
     if solutions_target != 1:
         extras["solutions_target"] = solutions_target
+    if prefer_spacing_variants:
+        extras["prefer_spacing_variants"] = True
+    if hole_expansion_budget != 600000:
+        extras["hole_expansion_budget"] = hole_expansion_budget
     outcome = solve_with_feedback(
         source, attempts=attempts, clearance=clearance,
         body_spacing_holes=body_spacing_holes,
@@ -184,6 +190,8 @@ def solve_for_display(
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
     variant_offset: int = 0, solutions_target: int = 1,
+    prefer_spacing_variants: bool = False,
+    hole_expansion_budget: int = 600000,
 ) -> dict[str, Any]:
     """GUI solve: try all Edge+Slide positions, stopping at first verified fit.
 
@@ -227,6 +235,10 @@ def solve_for_display(
         extras["variant_offset"] = variant_offset
     if solutions_target != 1:
         extras["solutions_target"] = solutions_target
+    if prefer_spacing_variants:
+        extras["prefer_spacing_variants"] = True
+    if hole_expansion_budget != 600000:
+        extras["hole_expansion_budget"] = hole_expansion_budget
     if not sliders:
         return _solve_one_position(
             project, attempts=attempts, clearance=clearance,
