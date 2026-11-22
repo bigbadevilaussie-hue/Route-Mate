@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from fractions import Fraction as F
+from math import ceil, floor, isqrt
 from typing import Any
 
 from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
@@ -158,18 +159,54 @@ def _hits_gap(shape: dict, row: int, col: int) -> bool:
     return delta_x * delta_x + (nearest_y - shape["row"])**2 <= shape["radius2"]
 
 
+def _candidate_gaps(shape: dict, rows: int, cols: int):
+    """Conservative integer gap bounds; exact decision stays in _hits_gap.
+
+    A vertical edge runs from y=row to row+1. If a shape occupies
+    y in [ymin,ymax], any crossing edge must satisfy
+    row >= ymin-1 and row <= ymax. Bounding columns intersect [xmin,xmax].
+    For circles, an integer radius strictly greater than the true radius
+    avoids any floating-point rounding or boundary loss.
+    """
+    kind = shape["kind"]
+    if kind == "square":
+        ymin = shape["row"] - shape["half"]
+        ymax = shape["row"] + shape["half"]
+        xmin = shape["col"] - shape["half"]
+        xmax = shape["col"] + shape["half"]
+    elif kind == "rect":
+        ymin, ymax = shape["r0"], shape["r1"]
+        xmin, xmax = shape["c0"], shape["c1"]
+    else:
+        # Integer-only upper bound: ceil(sqrt(ceil(radius²))) + 1.
+        # Deliberately overinclusive; _hits_gap uses exact Fraction maths.
+        radius = isqrt(ceil(shape["radius2"])) + 2
+        ymin, ymax = shape["row"] - radius, shape["row"] + radius
+        xmin, xmax = shape["col"] - radius, shape["col"] + radius
+    lo_row = max(0, ceil(ymin - 1))
+    hi_row = min(rows - 2, floor(ymax))
+    lo_col = max(0, ceil(xmin))
+    hi_col = min(cols - 1, floor(xmax))
+    for col in range(lo_col, hi_col + 1):
+        for row in range(lo_row, hi_row + 1):
+            yield row, col
+
+
 def vertical_gap_keepouts(project: dict, rows: int, cols: int) -> dict[tuple[int, int], set[str]]:
-    """Map forbidden (row above gap, column) to obstructing component labels."""
+    """Map forbidden vertical gaps to labels using local shape broad-phase.
+
+    Physical 2.5D input retains its separate explicit-model path. For legacy
+    artwork, only eliminate gaps mathematically unable to hit each shape:
+    _hits_gap remains the exact authority, preserving all old decisions.
+    """
     physical = _physical_contract(project)
     if physical is not None:
         return _physical_gap_keepouts(project, rows, cols, physical)
     bad: dict[tuple[int, int], set[str]] = defaultdict(set)
-    shapes = component_keepouts(project)
-    for shape in shapes:
-        for col in range(cols):
-            for row in range(rows-1):
-                if _hits_gap(shape, row, col):
-                    bad[(row, col)].add(shape["label"])
+    for shape in component_keepouts(project):
+        for row, col in _candidate_gaps(shape, rows, cols):
+            if _hits_gap(shape, row, col):
+                bad[(row, col)].add(shape["label"])
     return bad
 
 
