@@ -33,6 +33,16 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertGreater(len(result["project"]["board"]["cuts"]), 0)
         self.assertGreater(len(result["project"]["board"]["wires"]), 0)
 
+    def test_raw_audio_project_is_displayable(self):
+        source = json.loads((ROOT / "benchmarks/audio/audio.json").read_text())
+        self.assertFalse(any(c.get("boardPos") for c in source["components"]))
+        result = solve_for_display(source, attempts=8)
+        self.assertEqual(result["status"], "ROUTED", result.get("errors"))
+        self.assertEqual(result["verification"]["status"], "PASS")
+        self.assertNotEqual(result["grid_audit"]["status"], "FAIL")
+        self.assertEqual(result["physical_audit"]["status"], "PASS")
+        self.assertGreater(len(result["project"]["board"]["wires"]), 0)
+
     def test_failed_solve_is_never_returned_as_displayable_board(self):
         source = {"board": {"rows": 2, "cols": 3}, "components": []}
         outcome = {"status": "ROUTING_FAILED", "project": None,
