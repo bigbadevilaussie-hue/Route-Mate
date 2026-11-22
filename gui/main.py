@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import traceback
+from time import perf_counter
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +20,10 @@ if str(REPO_ROOT) not in sys.path:
 
 _VERSION_FILE = REPO_ROOT / "VERSION"
 GUI_VERSION = (_VERSION_FILE.read_text(encoding="utf-8").strip()
-               if _VERSION_FILE.is_file() else "1.40")
+               if _VERSION_FILE.is_file() else "1.41")
 CODE_VERSION = GUI_VERSION
 
-from PySide6.QtCore import Qt, QByteArray, QPoint, QThread, Signal
+from PySide6.QtCore import Qt, QByteArray, QPoint, QThread, Signal, QTimer
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QGraphicsSvgItem
@@ -178,6 +181,45 @@ class BoardSizeDialog(QDialog):
         }
 
 
+
+class SpacingDialog(QDialog):
+    """Select an advisory body-gap preference without changing circuit data."""
+
+    def __init__(self, parent=None, selected: int = 1):
+        super().__init__(parent)
+        self.setWindowTitle("Quick Solve — component spacing")
+        self.setMinimumWidth(420)
+        layout = QVBoxLayout(self)
+        heading = QLabel("How much space should Quick Solve leave between parts?")
+        heading.setWordWrap(True)
+        heading.setStyleSheet("font-size: 14px; font-weight: 700;")
+        layout.addWidget(heading)
+        self.choice = QComboBox()
+        self.choice.addItem("Off — compact placement (0 free holes)", 0)
+        self.choice.addItem("Normal — 1 free hole (2.54 mm nominal)", 1)
+        self.choice.addItem("Wider — 2 free holes (5.08 mm nominal)", 2)
+        self.choice.setCurrentIndex(max(0, min(2, int(selected))))
+        layout.addWidget(self.choice)
+        note = QLabel(
+            "This is a preference, not guaranteed physical clearance. "
+            "Exact component locks and the purchased board size remain hard "
+            "constraints. A reported compact fallback can be used if the "
+            "preferred spacing cannot be routed."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def value(self) -> int:
+        return int(self.choice.currentData())
+
+
 class LockDialog(QDialog):
     """Collect PRE-SOLVE constraints for one already-placed component."""
     def __init__(self, component: dict[str, Any], index: int, total: int, parent=None):
@@ -259,6 +301,8 @@ class BoardView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._renderer = None
+        self._renderer_cache = {}
+        self._svg_key = None
         self._user_zoomed = False
 
     def fit_board(self):
@@ -278,12 +322,8 @@ class BoardView(QGraphicsView):
             self._user_zoomed = True
 
     def wheelEvent(self, event):
-        amount = event.angleDelta().y()
-        if amount:
-            self.zoom(1.2 if amount > 0 else 1 / 1.2)
-            event.accept()
-        else:
-            super().wheelEvent(event)
+        # The wheel scrolls; it no longer magnifies the SVG unexpectedly.
+        super().wheelEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -301,15 +341,24 @@ class BoardView(QGraphicsView):
             r"stroke-width:0.55px!important;font-weight:700!important;opacity:1!important;}</style>",
             svg, count=1,
         )
+        key = hashlib.sha256(svg.encode("utf-8")).hexdigest()
+        if key == self._svg_key:
+            return
+        renderer = self._renderer_cache.get(key)
+        if renderer is None:
+            renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+            if not renderer.isValid():
+                raise ValueError("Component-side renderer produced invalid SVG.")
+            if len(self._renderer_cache) >= 2:
+                self._renderer_cache.pop(next(iter(self._renderer_cache)))
+            self._renderer_cache[key] = renderer
         scene = self.scene()
         scene.clear()
-        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-        if not renderer.isValid():
-            raise ValueError("Component-side renderer produced invalid SVG.")
         item = QGraphicsSvgItem()
         item.setSharedRenderer(renderer)
         scene.addItem(item)
         self._renderer = renderer
+        self._svg_key = key
         scene.setSceneRect(item.boundingRect())
         self.fit_board()
 
@@ -452,7 +501,7 @@ class StartupSpeedProbe(QThread):
 
 
 class SolveWorker(QThread):
-    """Run the shared solver off the Qt event loop; report finished attempts."""
+    """Run fixed-budget solver jobs in real OS processes, outside the Qt GUI."""
 
     completed = Signal(object)
     crashed = Signal(str)
@@ -461,12 +510,16 @@ class SolveWorker(QThread):
     def __init__(self, project: dict[str, Any], parent=None):
         super().__init__(parent)
         self.project = copy.deepcopy(project)
+        self.workers = 3
+        self.body_spacing_holes = 1
 
     def run(self):
         try:
-            from solve.desktop_integration import solve_for_display
-            self.completed.emit(solve_for_display(
-                self.project, attempts=24, progress=self.attempted.emit,
+            from solve.parallel_quick import solve_parallel_for_display
+            self.completed.emit(solve_parallel_for_display(
+                self.project, workers=self.workers, attempts=24,
+                body_spacing_holes=self.body_spacing_holes,
+                progress=self.attempted.emit,
                 cancelled=self.isInterruptionRequested,
             ))
         except Exception:
@@ -490,8 +543,17 @@ class RouteMateWindow(QMainWindow):
         self._speed_probe_worker = None
         self._stop_requested = False
         self._close_when_idle = False
-        self._recommended_workers = 1
+        from solve.parallel_quick import choose_workers
+        self._recommended_workers = choose_workers(3, os.cpu_count() or 1)
+        self._body_spacing_holes = 1
         self._solve_attempt_seconds = []
+        self._solve_started = None
+        self._solve_done = 0
+        self._solve_budget = 24
+        self._solve_found = 0
+        self._solve_clock = QTimer(self)
+        self._solve_clock.setInterval(500)
+        self._solve_clock.timeout.connect(self._update_solve_clock)
         self._solve_input = None
         self._solved_verified = False
         self._quick_source = None  # Locked pre-route project; never a previously solved layout.
@@ -598,6 +660,23 @@ class RouteMateWindow(QMainWindow):
         overview_layout.addWidget(self.project_summary)
         overview_layout.addWidget(self.checklist)
         overview_layout.addWidget(self.solve_summary)
+        self.solve_activity = QLabel("Ready to search for two verified layouts")
+        self.solve_activity.setWordWrap(True)
+        self.solve_activity.setStyleSheet(
+            "font-size: 13px; font-weight: 700; color: #173c66; padding: 4px;"
+        )
+        overview_layout.addWidget(self.solve_activity)
+        self.solve_progress = QProgressBar()
+        self.solve_progress.setRange(0, 24)
+        self.solve_progress.setValue(0)
+        self.solve_progress.setFormat("%v / %m placement attempts")
+        overview_layout.addWidget(self.solve_progress)
+        self.solve_worker_status = QLabel("Workers: checking CPU capacity")
+        self.solve_worker_status.setWordWrap(True)
+        overview_layout.addWidget(self.solve_worker_status)
+        self.solve_eta = QLabel("Elapsed: —   Estimated remaining: —")
+        self.solve_eta.setWordWrap(True)
+        overview_layout.addWidget(self.solve_eta)
         overview_layout.addStretch()
         self.sidebar_tabs = QTabWidget()
         self.sidebar_tabs.setObjectName("sidebarTabs")
@@ -611,8 +690,7 @@ class RouteMateWindow(QMainWindow):
         left_panel.setMaximumWidth(375)
         split.addWidget(left_panel)
 
-        # Right: prominent board canvas with a compact identity, result and
-        # zoom controls; panning is available by dragging the board.
+        # Right: stable board canvas. Scroll/pan and Fit; wheel zoom is disabled.
         board_panel = QWidget()
         board_layout = QVBoxLayout(board_panel)
         board_layout.setContentsMargins(8, 8, 8, 8)
@@ -632,8 +710,6 @@ class RouteMateWindow(QMainWindow):
         heading_text.addWidget(self.board_result_label)
         heading_row.addLayout(heading_text, 1)
         for caption, callback, tip in (
-            ("−", lambda: self.top_view.zoom(1 / 1.2), "Zoom out"),
-            ("+", lambda: self.top_view.zoom(1.2), "Zoom in"),
             ("Fit", self.fit_board, "Fit the complete board"),
         ):
             button = QPushButton(caption)
@@ -1434,16 +1510,30 @@ class RouteMateWindow(QMainWindow):
         self.load_action.setEnabled(False)
         self.render_action.setEnabled(False)
         self.log_line("[QUICK SOLVE] Routing-aware placement with exact locks and edge constraints...")
+        spacing_name = ("OFF", "NORMAL", "WIDER")[self._body_spacing_holes]
         self.log_line(
-            "[PLACEMENT][SPACING] NORMAL default: 1 free grid hole "
-            "(2.54 mm nominal body gap). Fixed locks stay fixed. "
-            "If a complete layout cannot fit, compact spacing is a "
-            "reported fallback; nominal dimensions are not measured."
+            f"[PLACEMENT][SPACING] {spacing_name}: {self._body_spacing_holes} "
+            "free hole(s); fixed locks and board boundaries remain hard. "
+            "Compact fallback is reported; nominal bodies are assumptions."
         )
         self._set_board_summary("Quick Solve in progress · preserving approved locks", project=source, level="working")
         self.statusBar().showMessage("Quick Solve running — the board remains responsive.")
         self._solve_attempt_seconds = []
+        self._solve_started = perf_counter()
+        self._solve_done = 0
+        self._solve_budget = 24
+        self._solve_found = 0
+        self.solve_progress.setRange(0, 24)
+        self.solve_progress.setValue(0)
+        self.solve_activity.setText("Searching placements → routing → independent verification")
+        self.solve_worker_status.setText(
+            f"{self._recommended_workers} CPU processes · target: 2 distinct verified layouts"
+        )
+        self._update_solve_clock()
+        self._solve_clock.start()
         self._solver_worker = SolveWorker(self._solve_input, self)
+        self._solver_worker.workers = self._recommended_workers
+        self._solver_worker.body_spacing_holes = self._body_spacing_holes
         self._solver_worker.attempted.connect(self._solve_attempted)
         self._solver_worker.completed.connect(self._solve_completed)
         self._solver_worker.crashed.connect(self._solve_crashed)
@@ -1451,13 +1541,24 @@ class RouteMateWindow(QMainWindow):
         self._solver_worker.start()
 
     def _speed_probe_completed(self, report: dict[str, Any]):
-        self._recommended_workers = int(report["recommended_workers"])
+        from solve.parallel_quick import choose_workers
+        suggested = int(report["recommended_workers"])
+        self._recommended_workers = choose_workers(
+            suggested, int(report.get("logical_cpus") or os.cpu_count() or 1)
+        )
         times = report["timings"]
         timings = ", ".join(f"{workers}w={seconds:.2f}s" for workers, seconds in times.items())
         self.log_line(
             f"[SPEED] Startup mixed-load probe: {timings}; "
-            f"recommended={self._recommended_workers} worker(s). "
-            "Current Quick Solve remains single-worker."
+            f"probe fastest={suggested} worker(s); "
+            f"Quick Solve uses {self._recommended_workers} OS processes "
+            "(3 minimum when available, 4 if probe recommends 4)."
+        )
+        self.solve_worker_status.setText(
+            f"{self._recommended_workers} CPU processes selected from startup probe"
+        )
+        self.log_line(
+            "[SPEED] Worker count changes latency, not the fixed 24-attempt budget."
         )
     def _speed_probe_failed(self, error: str):
         self.log_line(f"[SPEED][UNAVAILABLE] Startup probe: {error}; solver unaffected.")
@@ -1484,8 +1585,60 @@ class RouteMateWindow(QMainWindow):
         self._close_when_idle = True
         self.close()
 
+    @staticmethod
+    def _clock_text(seconds: float) -> str:
+        total = max(0, int(round(seconds)))
+        return f"{total // 60}m {total % 60:02d}s"
+
+    def _update_solve_clock(self):
+        if self._solve_started is None:
+            return
+        elapsed = max(0.0, perf_counter() - self._solve_started)
+        if self._solve_done:
+            estimate = elapsed / self._solve_done * max(0, self._solve_budget - self._solve_done)
+            remaining = self._clock_text(estimate) + " (approx., full budget)"
+        else:
+            remaining = "calibrating from first completed attempt"
+        self.solve_eta.setText(
+            f"Elapsed: {self._clock_text(elapsed)}   Estimated remaining: {remaining}"
+        )
+
     def _solve_attempted(self, attempt: dict[str, Any]):
         if self._stop_requested:
+            return
+        if attempt.get("mode") == "parallel":
+            completed = int(attempt.get("completed", 0))
+            budget = max(1, int(attempt.get("budget", 24)))
+            self._solve_done = max(self._solve_done, completed)
+            self._solve_budget = max(self._solve_budget, budget)
+            self._solve_found = max(
+                self._solve_found, int(attempt.get("solutions_found", 0))
+            )
+            self.solve_progress.setRange(0, self._solve_budget)
+            self.solve_progress.setValue(self._solve_done)
+            worker = int(attempt.get("worker", 1))
+            workers = int(attempt.get("workers", self._recommended_workers))
+            last = attempt.get("last") or {}
+            self.solve_activity.setText(
+                f"Worker {worker}/{workers}: {last.get('placement', 'placing')} "
+                f"→ {last.get('routing', 'routing')} · "
+                f"{self._solve_found} / 2 verified candidates found"
+            )
+            self._update_solve_clock()
+            if attempt.get("worker_finished"):
+                self.log_line(f"[WORKER {worker}/{workers}] Finished its assigned budget.")
+            else:
+                self.log_line(
+                    f"[WORKER {worker}/{workers}][ATTEMPTS] "
+                    f"{self._solve_done}/{self._solve_budget} · "
+                    f"route={last.get('routing')} · "
+                    f"{float(attempt.get('seconds', 0)):.2f}s"
+                )
+            self.statusBar().showMessage(
+                f"Quick Solve: {workers} CPU processes · "
+                f"{self._solve_done}/{self._solve_budget} attempts · "
+                f"{self._solve_found}/2 candidates; see Overview for ETA."
+            )
             return
         if attempt.get("mode") == "edge_slide_variant":
             completed = int(attempt["completed"])
@@ -1543,6 +1696,25 @@ class RouteMateWindow(QMainWindow):
     def _solve_completed(self, outcome: dict[str, Any]):
         """On the GUI thread, accept only a verified board and redraw it."""
         status = outcome.get("status", "FAILED")
+        portfolio = outcome.get("portfolio") or {}
+        if portfolio:
+            found = int(portfolio.get("solutions_found", 0))
+            self._solve_found = found
+            self.solve_activity.setText(
+                f"Search finished · {found} / 2 distinct verified layouts; "
+                + ("best provisional quality selected" if found else "no verified route")
+            )
+            self.solve_worker_status.setText(
+                f"{portfolio.get('workers', 1)} CPU processes · "
+                f"{portfolio.get('attempts_used', 0)}/"
+                f"{portfolio.get('attempts_budget', 24)} possible attempts"
+            )
+            self.log_line(
+                f"[PORTFOLIO] {found} distinct verified layout(s) compared "
+                f"across {portfolio.get('workers')} processes; "
+                f"fixed budget {portfolio.get('attempts_budget')}. "
+                "Provisional quality is not physical sign-off."
+            )
         if self._stop_requested:
             # Even if a verification result raced with the Stop click, never
             # publish a board after the user requested cancellation.
@@ -1773,6 +1945,9 @@ class RouteMateWindow(QMainWindow):
         QMessageBox.warning(self, "Solve failed", message.splitlines()[-1])
 
     def _solve_finished(self):
+        self._solve_clock.stop()
+        self._update_solve_clock()
+        self._solve_started = None
         self._solver_worker = None
         self._solve_input = None
         self._stop_requested = False
@@ -1906,6 +2081,15 @@ class RouteMateWindow(QMainWindow):
                 self.log_line("[COLLECT] Board dimensions cancelled; project not advanced.")
                 return
             dimensions = board_dialog.values()
+            spacing_dialog = SpacingDialog(self, selected=self._body_spacing_holes)
+            if spacing_dialog.exec() != QDialog.DialogCode.Accepted:
+                self.log_line("[SPACING] Cancelled; project not advanced.")
+                return
+            self._body_spacing_holes = spacing_dialog.value()
+            self.log_line(
+                f"[SPACING] Selected {('Off', 'Normal', 'Wider')[self._body_spacing_holes]} "
+                f"({self._body_spacing_holes} free hole(s))."
+            )
             if dimensions["wantedRowsMode"] == "fixed" and dimensions["wantedRows"] > dimensions["actualRows"]:
                 raise ValueError("Fixed preferred rows cannot exceed actual physical rows.")
             if dimensions["wantedColsMode"] == "fixed" and dimensions["wantedCols"] > dimensions["actualCols"]:
@@ -1923,7 +2107,7 @@ class RouteMateWindow(QMainWindow):
             import_result, import_findings = project_import_stage_result(
                 source, project,
                 warnings=collect_warnings,
-                options=dimensions,
+                options={**dimensions, "body_spacing_holes": self._body_spacing_holes},
             )
             self._record_assumed_geometry(project, stage=import_result)
             self._record_pipeline_result(import_result, import_findings)
