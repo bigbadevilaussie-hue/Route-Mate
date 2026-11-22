@@ -203,7 +203,7 @@ def wire_keepout_errors(project: dict) -> list[str]:
         if c0 != c1 or r0 == r1:
             continue  # Other geometric invalidities handled by quick_audit.
         if physical is not None:
-            from .clearance_25d import classify_jumper
+            from .clearance_25d_verify import verify_jumper_25d
             case = {
                 "jumper": {
                     "from_mm": [c0 * 2.54, r0 * 2.54],
@@ -214,7 +214,7 @@ def wire_keepout_errors(project: dict) -> list[str]:
                 "leads": physical["leads"],
                 "thermal_zones": physical.get("thermal_zones", []),
             }
-            result = classify_jumper(case)
+            result = verify_jumper_25d(case)
             for finding in result["findings"]:
                 # Do not certify user-declared clearance as unconditional PASS.
                 if finding["verdict"] != "PASS":
