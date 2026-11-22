@@ -62,8 +62,13 @@ class PortfolioPolicyTests(unittest.TestCase):
                    return_value={"status": "ROUTING_FAILED"}) as solve:
             _process_job(layout(1), 6, 12, 2, 3, Queue(), Flag())
         self.assertEqual(solve.call_args.kwargs["attempts"], 6)
-        self.assertEqual(solve.call_args.kwargs["variant_offset"], 12)
+        self.assertEqual(solve.call_args.kwargs["variant_offset"], 11)
         self.assertEqual(solve.call_args.kwargs["body_spacing_holes"], 2)
+        # For spacing OFF there is no scout, hence no shift.
+        with patch("solve.desktop_integration.solve_for_display",
+                   return_value={"status": "ROUTING_FAILED"}) as compact:
+            _process_job(layout(1), 6, 12, 0, 3, Queue(), Flag())
+        self.assertEqual(compact.call_args.kwargs["variant_offset"], 12)
         self.assertEqual(solve.call_args.kwargs["solutions_target"], 2)
 
     def test_variant_offset_is_passed_into_quick_fit(self):
