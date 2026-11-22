@@ -859,31 +859,52 @@ class RouteMateWindow(QMainWindow):
                          or "CONDITIONAL" in issue)
                         for issue in audit["errors"]
                     )
-                    label = "UNVERIFIED" if unverified_only else "UNSAFE"
-                    summary = (
-                        f"{label} saved layout · {len(audit['errors'])} geometry finding(s)"
+                    assumed_clear = (
+                        unverified_only
+                        and geometry_audit["status"] == "ASSUMED_CLEARANCE_PASS"
                     )
-                    # Preserve hard failures; assess legacy artwork warnings
-                    # against the collector's actual package assumptions.
-                    if unverified_only:
-                        summary = f"{geometry_audit['status']} saved layout · 2.5D assumed geometry"
-                    self._set_board_summary(summary, level="neutral" if unverified_only else "failed")
+                    label = ("ARTWORK_ONLY" if assumed_clear else
+                             "UNVERIFIED" if unverified_only else "UNSAFE")
+                    summary = (
+                        "Assumed 2.5D clearance PASS · measured clearance UNVERIFIED"
+                        if assumed_clear else
+                        f"{geometry_audit['status']} saved layout · "
+                        "2.5D assumptions not sufficient"
+                        if unverified_only else
+                        f"UNSAFE saved layout · {len(audit['errors'])} hard finding(s)"
+                    )
+                    self._set_board_summary(
+                        summary, level="neutral" if unverified_only else "failed"
+                    )
                     self.log_line(
                         f"[RENDER JSON][{label}] {len(audit['errors'])} legacy "
                         "geometry finding(s); compare [2.5D] sidecar evidence."
                     )
                     for issue in audit["errors"][:25]:
                         self.log_line(f"[RENDER JSON][{label}] " + issue)
-                    if unverified_only:
+                    if assumed_clear:
+                        # Only legacy artwork hypotheses remain. Both independent
+                        # 2.5D engines approved the NOMINAL sidecar, and hard
+                        # occupied-hole checks ran. No misleading warning popup.
+                        self.log_line(
+                            "[RENDER JSON][ASSUMED_PASS] Nominal 2.5D model clear. "
+                            "Neither installation measurements nor physical "
+                            "construction approval are implied."
+                        )
                         self.statusBar().showMessage(
-                            "Saved layout: artwork overlap / clearance UNVERIFIED, not a proven collision."
+                            "Saved layout: assumed 2.5D clearance PASS; "
+                            "physical sign-off and cut access still unverified."
+                        )
+                    elif unverified_only:
+                        self.statusBar().showMessage(
+                            "Saved layout: geometry UNVERIFIED; inspect [2.5D] findings."
                         )
                         QMessageBox.warning(
                             self, "Saved routing clearance unverified",
                             f"Legacy artwork flagged {len(audit['errors'])} wire(s). "
                             f"Independent 2.5D assumed-geometry status: {geometry_audit['status']}. "
-                            "These are not measured physical findings; see Activity "
-                            "for per-jumper 2.5D evidence and unknown packages.",
+                            "Actual installed dimensions remain unverified; "
+                            "see Activity for physical gaps.",
                         )
                     else:
                         self.statusBar().showMessage(
@@ -896,15 +917,19 @@ class RouteMateWindow(QMainWindow):
                             "see Activity for details.",
                         )
                 else:
+                    status = geometry_audit["status"]
                     self._set_board_summary(
-                        "Saved layout · grid artwork check clear · electrical status unverified",
+                        ("Assumed 2.5D clearance PASS · physical sign-off pending"
+                         if status == "ASSUMED_CLEARANCE_PASS"
+                         else f"{status} saved layout · physical sign-off pending"),
                         level="neutral",
                     )
                     self.log_line(
-                        "[RENDER JSON] Grid artwork checks clear; measured package/cut access NOT certified."
+                        f"[RENDER JSON][{status}] Grid artwork checks clear; "
+                        "measured package/cut access NOT certified."
                     )
                     self.statusBar().showMessage(
-                        f"Rendered JSON: {path.name} — grid checks clear, physical certification pending."
+                        f"Rendered JSON: {path.name} — {status}; physical sign-off pending."
                     )
         except Exception as exc:
             self.log_line(f"[RENDER JSON][ERROR] {type(exc).__name__}: {exc}")
