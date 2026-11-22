@@ -1,6 +1,6 @@
 # Route-Mate Hell Mode: Implementation Spec
 
-**Status:** proposal v0.1, for implementation against Route-Mate 1.38+
+**Status:** implementation spec v0.2 — M1 acceptance tests frozen; Route-Mate 1.38+
 **Audience:** the implementing engineer (ChatGPT / Codex)
 **Goal:** a separate, long-running search mode that minimises wires, then cuts, then wire length, on any circuit, with no reference record to chase. Every run races against its own Quick Solve baseline.
 
@@ -9,10 +9,10 @@
 ## 0. Ground rules (read first)
 
 1. **Quick Solve must not change behaviour.** It works. Hell Mode is a new GUI section and a new module. If a change to shared code alters Quick Solve output for the same input and seed, that is a regression.
-2. **One shared core.** Hell Mode calls the same placement, router, electrical check and geometry verifier as Quick Solve. No private copy of geometry rules. If the rules live in two places, they will drift and records will not reproduce.
+2. **Shared core.** Hell Mode and Quick Solve share the placement model, the routing API, the electrical-check API, the normative physical-model constants, and the golden fixtures. They do **not** share geometry-verifier code. Hell Mode calls the verifier only through its public entry point `verify_layout(layout, spec) -> report`. The verifier must not import router internals, and the router must not import verifier internals. An import-graph test enforces this (M1-7).
 3. **A result only counts if it is verified.** A layout with fewer wires that fails the electrical check or the geometry verifier is a number, not a record. Reports must separate `RECORD` from `BUILD_READY` (section 8).
-4. **Deterministic.** Same input JSON + same seed + same settings = same output, regardless of worker count. Every worker gets its own RNG seeded from `(master_seed, stage, seed_index)`.
-5. **Do not edit specs silently.** The 2.5D keepout model (leads / body solids / artwork, z-gate then exact XY distance, provenance-tagged standoff) needs a versioned amendment to `docs/PHYSICAL_MODEL_SPEC.md` before Hell Mode depends on it. Until that lands, Hell Mode uses whatever verifier Quick Solve uses and records the verifier version in the output.
+4. **Determinism.** Iteration-budgeted runs reproduce identical output for identical input, locks, settings and seed regardless of worker count. Time-budgeted runs record realised work for deterministic iteration-budgeted replay. Every worker gets its own RNG seeded from `(master_seed, stage, seed_index)`.
+5. **Versioned physical model.** The approved v1.1 amendment `docs/PHYSICAL_MODEL_25D_AMENDMENT.md` is referenced by `docs/PHYSICAL_MODEL_SPEC.md`. Hell Mode records its actual physical-model and verifier versions; it does not infer missing dimensions or certify unverified cut access.
 
 ---
 
@@ -62,7 +62,7 @@ Normalised metrics for cross-board comparison (report only):
 ## 3. Pipeline
 
 ```
-Stage 0  Baseline        Quick Solve once -> baseline score to beat
+Stage 0  Baseline        Current Quick Solve once -> measured baseline, injected as seed -1
 Stage 1  Sweep           N1 seeds, short budget each, cheap eval only
 Stage 2  Halving         keep top fraction, longer budget, repeat
 Stage 3  Deep refine     top K distinct layouts, long budget, plateau stop
@@ -84,10 +84,49 @@ Stage 5  Final verify    full verifier on the winner and runners-up
 Rules:
 
 - **Successive halving:** a seed that is mediocre at 20k moves rarely wins at 500k, so stop paying for it.
-- **Plateau stop per candidate:** kill a candidate if there is no improvement in `plateau_moves` (default 50,000 in Stage 3, 10,000 in Stage 2). Reallocate its remaining budget to candidates still improving.
-- **Global stop:** whichever comes first of (a) time budget, (b) iteration budget, (c) global plateau (no new best across all workers for `global_plateau_minutes`, default 5), (d) user presses Stop. Stop must always keep and save the best.
+- **Plateau stop per candidate:** retire a candidate after `plateau_moves` without improvement (default 50,000 in Stage 3, 10,000 in Stage 2). Freed budget is spent at the next stage boundary in deterministic order, never mid-stage.
+- **Global stop:** time-budgeted runs honour the wall-clock deadline, global plateau and Stop at chunk boundaries, then proceed to Stage 5 and preserve the best verified result. Iteration-budgeted runs use deterministic move and plateau limits, not wall-clock stop conditions.
 - **No target number.** There is no "stop at 25 wires". Optional user target is allowed, but the default is plateau-based.
 - The user can **extend** a finished run (continue from the saved state) if the improvement curve was still dropping.
+
+---
+
+### Time budgeting and reproducibility — v0.2
+
+the default stages total roughly 23M attempted moves. At 60,000 moves/s aggregate that is about 6.4 minutes of pure move processing, before routing overhead, verification, checkpoints and coordination. A 10-minute budget is therefore tight and must not assume the plan fits.
+
+### Work units and checkpoints
+
+- All work is expressed as **chunks** of fixed move counts (default 5,000). Time is checked only at chunk boundaries.
+- Each worker returns its candidate state at every chunk boundary. The coordinator checkpoints at **stage boundaries** (always) and every `checkpoint_chunks` chunks (default 20).
+- Stage boundaries are **barriers**: all candidates in a stage finish their stage budget (or are retired by their own plateau rule) before promotion decisions.
+
+### Budget scaling (time-budgeted runs)
+
+1. Reserve time for Stage 5 final verification and file writes: `reserve = max(10 s, 5% of the time budget)`.
+2. Measure aggregate throughput during a short calibration at the start of Stage 1.
+3. Compute `scale = clamp((time_budget - reserve) * throughput_total / planned_moves, 0.05, 1.0)`.
+4. Multiply per-stage move counts (and the Stage 1 seed count, rounded) by `scale`.
+5. Store the resolved budgets in `run.json` as `resolved_budget`.
+
+Suggested wall-time shares: Stage 1 10%, Stage 2 25%, Stage 3 45%, Stage 4 15%, Stage 5 reserve. If the deadline is reached mid-stage, finish the current chunk and jump straight to Stage 5 with the best verified state.
+
+### Plateau and reallocation
+
+To keep iteration-budgeted runs scheduling-independent:
+
+- Per-candidate plateau stops depend only on that candidate's own move counts.
+- Freed budget is **not** reallocated mid-stage. It is spent at the next stage boundary (for example by funding extra Stage 4 restarts), in a deterministic order.
+- `global_plateau_minutes` and the Stop button are wall-clock features and apply to time-budgeted runs only.
+
+### Two reproducibility contracts
+
+| Run type | Guarantee |
+|---|---|
+| **Iteration-budgeted** (move budgets only, no wall-clock stop) | Identical output for identical `(input, locks, settings, master seed)` regardless of worker count and scheduling. Required by M4 test 2. |
+| **Time-budgeted** (wall-clock stop, Stop button, global plateau) | Reproducible only under identical scheduling conditions. **But** every such run records its realised work log (`resolved_budget` plus per-candidate stop chunk) in `run.json`, so it can be **replayed exactly as an iteration-budgeted run** and reproduce the same result on any worker count. |
+
+Merge order for results is always sorted by `(score_tuple, seed_index)`, never by completion order.
 
 ---
 
@@ -152,7 +191,17 @@ Per move, recompute only what changed:
 | Cheap | every move | electrical connectivity of touched nets, hole occupancy, wire/cut/length counters |
 | Heavy | only when a move would become a new per-candidate best, and in Stage 5 | full geometry verifier (2.5D keepouts), cut-access heuristics, full electrical check |
 
-If the heavy check rejects a would-be best, discard it, record a `heavy_reject` counter with reason code, and continue from the previous best. Do not let heavy rejects silently bias the search: log them so we can see if the cheap tier is too permissive.
+When a move would become a candidate's new best and the heavy verifier rejects it:
+
+1. **Ineligibility.** The state is never recorded as a best, and it is written to `rejected.json` with reason codes.
+2. **Revert.** The move is undone in the active annealing state using its undo record. A state the final authority rejects is not a valid place to continue from, and keeping it would make later "bests" inherit the failure and re-trigger heavy checks.
+3. **Tabu.** The rejected state hash is blocked for the next `tabu_moves` (default 2,000) so the search does not immediately re-propose it.
+4. **Classify** the failure:
+   - `ROUTER_VERIFIER_DISAGREEMENT`: the failing rule is one the router claims to enforce. This is a bug in one implementation. Save a repro (input hash, settings, seed, move index, state), and fail the run under `--paranoid` and in CI. In a normal run, log it and continue.
+   - `HEAVY_ONLY_REJECT`: the failing rule is verifier-only (full electrical, cut access heuristics). This is expected behaviour, counted but not an error.
+5. **Circuit breaker.** After 20 consecutive heavy rejects on one candidate, run the heavy verifier on every accepted improving move for that candidate (not just would-be bests) and log `cheap_tier_too_permissive` in the report. If it continues, retire the candidate.
+
+Answer to the explicit question: **both**. Discard eligibility, and undo the move in the active state.
 
 ### 4.5 Adaptive move weights
 
@@ -189,7 +238,7 @@ Near-identical layouts waste deep-refinement runs. Before Stage 3 (and Stage 2b)
 - Worker count default = the value recommended by the startup speed probe (currently 3 on the dev machine). User-overridable. Never exceed physical cores minus one without an explicit override.
 - Use **processes**, not threads (CPU-bound Python). Each worker is independent: it gets `(input_json, settings, seed, budget)` and returns `(best_state, stats)`.
 - Coordinator is single-threaded: schedules work, merges results, writes checkpoints, updates the GUI queue. Workers never write the shared checkpoint.
-- Determinism: results must not depend on which worker ran which seed or on completion order. Sort merged results by `(score_tuple, seed_index)`.
+- Determinism: iteration-budgeted results are independent of worker scheduling; sort merged results by `(score_tuple, seed_index)`. Time-budgeted runs log realised work for replay.
 - Cancellation: workers poll a shared stop flag every ~1,000 moves and return their best so far.
 - Avoid shipping huge state over IPC. Send compact encoded placements and recompute routing in the worker where needed.
 
@@ -210,14 +259,24 @@ Result classes:
 
 | Class | Requirements |
 |---|---|
-| `RECORD` | Lowest score tuple among layouts that pass the electrical check and have no `FAIL_*` geometry verdicts. `CONDITIONAL` allowed, listed. |
-| `BUILD_READY` | `RECORD` requirements plus no `CONDITIONAL` verdicts and cut access verified (when a cut-access verifier exists; otherwise flagged `cut_access: unverified`). |
+| Class | Requirements |
+|---|---|
+| `RECORD` | Passes the electrical check, and every jumper and keepout check is unconditional `PASS`. Lowest score tuple among such layouts. |
+| `BUILD_READY` | `RECORD` plus cut access verified. While no cut-access verifier exists this is never granted, and results carry `cut_access: unverified`. |
+
+`geometry_policy`, default and only v1 value `"PASS_ONLY"`. The value `"ALLOW_CONDITIONAL"` is reserved and must raise a clear "not implemented" error.
+
+**Behaviour under PASS_ONLY:**
+
+- The router treats `CONDITIONAL`, `FAIL_UNVERIFIED` and `FAIL_PROVEN` as blocked.
+- The verifier still reports the full four-verdict vocabulary, so reports stay honest (an unknown-standoff block shows as `FAIL_UNVERIFIED`, not as a collision).
+- A candidate whose verifier report contains anything other than `PASS` is ineligible as a result. 
 
 A fewer-wire layout that fails verification is stored under `rejected_candidates` with reasons, never presented as the result.
 
 Run report must state:
 
-- baseline (Quick Solve) score vs final score, e.g. "improved from 38 wires / 48 cuts to X / Y"
+- the measured baseline (or `no baseline`) versus the final score, with `improved`, `equal`, or `no improvement` status
 - normalised metrics
 - verifier version and physical-model spec version
 - any `CONDITIONAL` assumptions and any `cut_access: unverified` flag
@@ -251,7 +310,7 @@ rejected.json             heavy-verifier rejects with reason codes
 
 `best_solved.json` must load in the existing Load JSON / Open Solved flow with no changes to the loader. Extra Hell Mode data goes under a namespaced key (`"hellmode": {...}`) that older versions ignore.
 
-`run.json` must contain enough to **replay** a result: input hash, settings, master seed, seed index, stage, move count, verifier version.
+`run.json` must contain enough to **replay** a result: input hash, settings, master seed, seed index, stage, move count, verifier version, physical-model spec version, measured Quick Solve baseline, `resolved_budget`, and for time-budgeted runs each candidate's realised stop chunk.
 
 Resume: a run can restart from `run.json` plus candidate files and continue from the last completed stage boundary (mid-stage resume is optional).
 
@@ -298,7 +357,7 @@ Exit code 0 on completion with a verified result, non-zero if no verified layout
 
 ## 13. Tests (write these before the search code)
 
-1. **Quick Solve regression:** same output before and after the Hell Mode merge, for `moto.json`, `audio10wires38cuts.json`, `moto14wires30cuts.json`, with fixed seeds.
+1. **Quick Solve regression:** compare unsolved Set U inputs to snapshots pinned from the pre-merge SHA; historical solved exports are Set H compatibility tests only.
 2. **Determinism:** same seed gives byte-identical `best_solved.json` with 1 worker and with 3 workers.
 3. **Incremental vs full:** `--paranoid` run of 200k moves, zero mismatches.
 4. **Locks:** locked components never move across 1M random moves.
@@ -308,6 +367,45 @@ Exit code 0 on completion with a verified result, non-zero if no verified layout
 8. **Diversity:** duplicate candidates are collapsed; `min_distance` relaxes and logs when needed.
 9. **Stop and resume:** Stop mid-run keeps the best; resume continues from the checkpoint.
 10. **Golden geometry fixtures** (shared with the verifier): G01 to G07, G03a/G03b split, plus boundary cases exactly at and just inside `min_clearance` with a stated floating-point tolerance. Hell Mode must not accept anything these fixtures reject.
+
+---
+
+### Set U / Set H regression and measured baseline — v0.2
+
+**Set U, unsolved regression (Quick Solve isolation):**
+
+- `fixtures/unsolved/<circuit>.json`, plus a locks file and a fixed seed per circuit, in a manifest.
+- A pinned snapshot `baseline_snapshot/<circuit>.quick_solve.json` generated from the **pre-merge** commit. The manifest records that commit SHA and the Quick Solve version.
+- Test: post-merge Quick Solve on the same inputs produces a byte-identical output (or identical canonical hash).
+- Snapshots are replaced only in a dedicated commit that states why Quick Solve behaviour intentionally changed.
+
+**Set H, historical solved exports (compatibility only):**
+
+- `audio10wires38cuts.json`, `moto14wires30cuts.json`, `moto1_solved.json`, and any other saved exports.
+- Tests: loads without error, round-trips through save, geometry verifier runs and returns a reason-coded report.
+- No wire or cut counts are asserted. Expected geometry verdicts are frozen only after measured footprint overrides exist (as planned for the Audio W4/W6/W8 and Moto W0/W3/W8/W9/W13 flags). Until then the test is "report is produced and reason-coded".
+
+**Baseline measurement (replaces any hard-coded baseline):**
+
+- At run start, Hell Mode runs the **current** Quick Solve on the loaded circuit with the same locks and a fixed seed.
+- It stores `baseline` in `run.json`: score tuple, Quick Solve version, git SHA, seed, wall time, verifier report summary.
+- If Quick Solve yields no verified layout, `baseline` is `null`, the GUI says "no baseline", and the run proceeds.
+- **Inject the baseline layout into the candidate pool** (seed index `-1`), so the final result is never worse than the baseline by construction. The report states `improved`, `equal` or `no improvement` against it.
+
+### Frozen M1 acceptance tests
+
+| ID | Test |
+|---|---|
+| M1-1 | Set U unsolved Quick Solve regression against pinned snapshots (A3), at least Moto and Audio. |
+| M1-2 | Set H historical exports load, round-trip, and produce a reason-coded verifier report. |
+| M1-3 | `--paranoid` run of 200k moves per move type on two circuits: incremental state equals full recompute, zero mismatches. |
+| M1-4 | Every move type is reversible: apply then undo returns an identical state hash. |
+| M1-5 | Locked components never move across 1M random moves. |
+| M1-6 | Profiling report produced: time breakdown (move gen, route, score, verify, I/O), full-recompute moves/s versus incremental moves/s on the same machine. Soft gate: incremental at least 5x faster per worker. If missed, the report must explain which cost dominates. |
+| M1-7 | Import-graph test: the verifier does not import router internals and the router does not import verifier internals (A2). |
+| M1-8 | Golden geometry fixtures G01 to G07, the G03a/G03b split, and the two boundary cases pass in router and verifier **independently**. Under `PASS_ONLY`, router expectation for `CONDITIONAL` cases (G04) is "blocked", while the verifier reports `CONDITIONAL`. G07 expects `FAIL_UNVERIFIED` in the verifier and "blocked" in the router. |
+
+Nothing in M2 to M7 starts until M1-1 through M1-8 are green, with M1-6 allowed to pass only on a written speed explanation.
 
 ---
 
@@ -322,8 +420,20 @@ Exit code 0 on completion with a verified result, non-zero if no verified layout
 | 5 | Checkpointing, resume, history | tests 9 passes |
 | 6 | GUI section + live panel | Start/Stop/Extend work, UI never blocks |
 | 7 | Tuning: adaptive weights, reheat, lower bound | measurable gain logged vs M3 |
+| 8 | Conditional routing (deferred beyond v1) | router/verifier assumptions agree; G04/G07 pass; report records assumptions |
 
-Ship after each milestone behind a feature flag. Do not start M6 before M4 is stable.
+Ship after each milestone behind a feature flag. Do not start M2 until M1-1 through M1-8 pass. Do not start M6 before M4 is stable.
+
+### M8 prerequisites — conditional routing
+
+1. The router can emit `CONDITIONAL` with an explicit assumption list (declared standoff, `allow_contact`).
+2. The verifier returns the same assumptions for each `CONDITIONAL`.
+3. Golden fixtures G04 and G07 pass in both implementations.
+4. `run.json` gains an `assumptions` array, and reports list every assumption a record depends on.
+
+Then `geometry_policy = "ALLOW_CONDITIONAL"` may be enabled, with `CONDITIONAL` records reported separately from `PASS`-only records.
+
+Then `geometry_policy = "ALLOW_CONDITIONAL"` may be enabled, with conditional records distinguished from PASS-only records.
 
 ---
 
@@ -348,4 +458,6 @@ Ship after each milestone behind a feature flag. Do not start M6 before M4 is st
 
 ## 17. Definition of done
 
-Hell Mode is done when, on `moto.json`, a Hell preset run on 3 workers finishes in about 10 minutes or less, produces a layout that passes the electrical check and the geometry verifier, beats the Quick Solve baseline (38 wires / 48 cuts) on the tuple score, saves a replayable `run.json`, and Quick Solve output is unchanged.
+On `moto.json`, a Hell preset run on 3 workers finishes within the time budget, produces a layout that passes the electrical check and has unconditional `PASS` geometry, has a score tuple strictly better than the **measured** Quick Solve baseline recorded in `run.json`, saves a replayable `run.json`, and leaves Quick Solve output unchanged against its pinned snapshot. If no strict improvement is found, the run reports `no improvement` and the investigation (not the label) is the deliverable.
+
+The numbers 38 wires / 48 cuts must not appear in code, tests or acceptance criteria. They were an observation from one Quick Solve screenshot.
