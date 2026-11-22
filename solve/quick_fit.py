@@ -553,16 +553,16 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
         # position along that edge may change. A fixed lock without slide
         # remains an exact, immutable placement. Edge-only movable parts
         # are restricted to one of the four board edges.
-        if component.get("slide") and not (component.get("edge") and
-                                           component.get("locked") is True and
-                                           isinstance(component.get("boardPos"), dict)):
-            geometry_errors.append(f"{label}: slide requires a positioned, locked edge anchor")
+        if component.get("slide") and not (
+            component.get("locked") is True and isinstance(component.get("boardPos"), dict)
+        ):
+            geometry_errors.append(f"{label}: slide requires a positioned, locked anchor")
             continue
         if component.get("locked") is True and not isinstance(component.get("boardPos"), dict):
             geometry_errors.append(f"{label}: locked component has no boardPos")
             continue
         slide_side = None
-        if component.get("locked") and component.get("slide"):
+        if component.get("locked") and component.get("slide") and component.get("edge"):
             pos = component["boardPos"]
             rotation = int(component.get("rotation", 0) or 0) % 360
             try:
@@ -583,15 +583,20 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
                 geometry_errors.append(f"{label}: sliding anchor must already touch a board edge")
                 continue
         # Already-positioned absolute locks remain fixed obstacles.
-        if component.get("locked") is True and not component.get("slide"):
+        if component.get("locked") is True and not (
+            component.get("slide") and component.get("edge")
+        ):
             continue
         pending.append({
             "id": cid, "label": label, "definition": definition,
             "area": width * height, "degree": 0, "slide_side": slide_side,
         })
     if geometry_errors:
-        status = ("CONSTRAINT_CONFLICT" if any("edge-anchor/sliding" in e
-                  for e in geometry_errors) else "INCOMPLETE_GEOMETRY")
+        status = ("CONSTRAINT_CONFLICT" if any(
+            phrase in error
+            for error in geometry_errors
+            for phrase in ("slide requires", "sliding anchor", "locked component")
+        ) else "INCOMPLETE_GEOMETRY")
         return _failure(status, source, geometry_errors)
 
     assignments = source.get("netAssignments")
