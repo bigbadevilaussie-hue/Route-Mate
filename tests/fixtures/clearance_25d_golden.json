@@ -281,7 +281,8 @@
           "x_max_mm": 1,
           "y_min_mm": 3,
           "y_max_mm": 7,
-          "temperature_basis": "measured operating temperature > wire insulation rating"
+          "component_temp_c": 125,
+          "wire_insulation_limit_c": 80
         }
       ]
     },
