@@ -12,9 +12,14 @@ import math
 import re
 from typing import Any
 
+from capacitor_contract import (
+    capacitor_body_spec, capacitor_contract_notes,
+    resolved_capacitor_package, capacitance_farads,
+)
+
 PITCH_MM = 2.54
 SCHEMA = "route-mate/assumed-geometry/1.0"
-PRESET_VERSION = "standard-through-hole-v2"
+PRESET_VERSION = "standard-through-hole-v3"
 CLEARANCE = {
     "wire_od_mm": 0.9,
     "min_clearance_mm": 0.3,
@@ -30,6 +35,7 @@ PROFILES = {
     "electrolytic_medium": ("circle", 6.3, 1.5, 12.0),
     "electrolytic_large": ("circle", 10.0, 1.5, 20.0),
     "ceramic": ("rectangle", 4.0, 2.5, 1.5),
+    "film": ("rectangle", 7.2, 2.5, 1.8),
     "resistor": ("rectangle", 6.3, 2.5, 1.2),
     "diode": ("rectangle", 4.0, 2.5, 1.2),
     "led": ("circle", 5.0, 1.0, 7.0),
@@ -49,7 +55,7 @@ FOOTPRINT_ENVELOPE_ASSUMPTIONS = {
 # Installation standoffs are intentionally fixed assumptions, NOT measurements.
 ASSUMED_STANDOFF_MM = {
     "electrolytic_small": 1.5, "electrolytic_medium": 1.5,
-    "electrolytic_large": 1.5, "ceramic": 1.0,
+    "electrolytic_large": 1.5, "ceramic": 1.0, "film": 1.0,
     "resistor": 1.0, "diode": 1.0, "led": 1.0,
     "to92": 2.0, "to220": 2.5,
 }
@@ -88,22 +94,19 @@ def _profile(component: dict) -> str | None:
         return "to220"
     if package.startswith("to92"):
         return "to92"
-    if kind == "def-cap-polarized":
-        # Capacitance is only a heuristic. Voltage rating/series can make
-        # an apparently small capacitor substantially larger.
-        value = str(component.get("value") or "")
-        match = re.search(r"([\d.]+)\s*(?:[uµμ]f|microfarad)", value, re.I)
-        try:
-            uf = float(match.group(1)) if match else None
-        except (ValueError, OverflowError):
-            uf = None
-        if uf is not None and math.isfinite(uf) and uf >= 470:
+    cap = capacitor_body_spec(component)
+    if cap is not None:
+        if cap["package"] == "cap-ceramic":
+            return "ceramic"
+        if cap["package"] == "cap-film":
+            return "film"
+        uf = (capacitance_farads(component.get("value")) or 0) * 1e6
+        if uf >= 470:
             return "electrolytic_large"
-        if uf is not None and uf >= 47:
+        if uf >= 47:
             return "electrolytic_medium"
         return "electrolytic_small"
     return {
-        "def-capacitor": "ceramic",
         "def-resistor": "resistor",
         "def-diode": "diode",
         "def-zener": "diode",
@@ -115,8 +118,12 @@ def _profile(component: dict) -> str | None:
     }.get(kind)
 
 
-def _body(profile: str, pins: list[dict]) -> dict:
+def _body(profile: str, pins: list[dict],
+          cap_spec: dict | None = None) -> dict:
     shape, major, minor, height = PROFILES[profile]
+    if cap_spec is not None:
+        shape = cap_spec["shape"]
+        major, minor = cap_spec["major_mm"], cap_spec["minor_mm"]
     cx = sum(pin["x_mm"] for pin in pins) / len(pins)
     cy = sum(pin["y_mm"] for pin in pins) / len(pins)
     if shape == "circle":
@@ -256,12 +263,12 @@ def build_assumed_geometry(project: dict) -> dict:
         # generic assumed envelope from the actual source footprint data.
         # Its geometry remains conditional and must be measured before build.
         if profile:
-            body = [_body(profile, pins)]
+            body = [_body(profile, pins, capacitor_body_spec(part))]
         else:
             profile = "footprint_envelope"
             body = [_footprint_envelope(definition, pins)]
         artwork_proxies = _artwork_proxies(definition)
-        reasons = []
+        reasons = capacitor_contract_notes(part)
         if profile == "footprint_envelope":
             reasons.append("body_extents_from_footprint_not_measured")
         if body:
@@ -272,6 +279,7 @@ def build_assumed_geometry(project: dict) -> dict:
             "id": cid, "defId": did, "label": str(part.get("label") or ""),
             "status": "ASSUMED_UNVERIFIED" if body else "UNVERIFIED",
             "package_hint": str(part.get("package") or ""),
+            "render_package": resolved_capacitor_package(part),
             "profile": profile,
             "pins": pins, "body_solids": body,
             "artwork_proxies": artwork_proxies,
