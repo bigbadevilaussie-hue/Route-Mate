@@ -158,6 +158,7 @@ def solve_with_feedback(
             routed = route_copper(
                 candidate, quick_mode=True, vertical_only=False,
                 route_order=route_order, quick_backtracks=quick_backtracks,
+                cancelled=cancelled,
             )
         if routed["status"] == "CANCELLED" or (
             cancelled is not None and cancelled()
