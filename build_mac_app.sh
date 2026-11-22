@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Route-Mate for macOS on the target Mac, using its existing icon.
+# Build Route-Mate for macOS using the existing, previously tested .icns icon.
 # Run from the Route-Mate repository. Never modifies the source checkout except
 # for ignored build/ and dist/ directories.
 set -euo pipefail
@@ -7,8 +7,7 @@ cd "$(dirname "$0")"
 ROOT="$PWD"
 PYTHON="${PYTHON:-python3}"
 NAME="Route-Mate"
-ICON="$ROOT/icon/RouteMate-original.png"
-ICONS="$ROOT/build/mac-icon"
+ICON="$ROOT/icon/RouteMate.icns"
 APP="$ROOT/dist/$NAME.app"
 DEST="$HOME/Desktop/$NAME.app"
 
@@ -32,16 +31,6 @@ fi
   echo "ERROR: PySide6 missing. Install: $PYTHON -m pip install -r requirements-gui.txt" >&2
   exit 1
 }
-command -v sips >/dev/null
-command -v iconutil >/dev/null
-
-mkdir -p "$ICONS.iconset"
-for entry in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" "128 128x128" "256 128x128@2x" "256 256x256" "512 256x256@2x" "512 512x512" "1024 512x512@2x"; do
-  read -r px name <<<"$entry"
-  sips -s format png -z "$px" "$px" "$ICON" --out "$ICONS.iconset/icon_$name.png" >/dev/null
-done
-iconutil -c icns "$ICONS.iconset" -o "$ICONS.icns"
-
 # Resolve the already-built standalone renderer at BUILD time, not at app launch.
 # Only the compiled renderer output is copied, not Karl's source checkout.
 command -v git >/dev/null || { echo "ERROR: Git needed for build-time renderer preparation." >&2; exit 1; }
@@ -61,7 +50,8 @@ chmod +x "$RUNTIME/node"
 "$PYTHON" -m PyInstaller \
   --noconfirm --clean --windowed --onedir \
   --name "$NAME" \
-  --icon "$ICONS.icns" \
+  --icon "$ICON" \
+  --paths "$ROOT" \
   --add-data "VERSION:." \
   --add-data "icon/RouteMate-original.png:icon" \
   --add-data "$RUNTIME/standalone-renderer:renderer-runtime/standalone-renderer" \
@@ -78,5 +68,5 @@ ditto "$APP" "$DEST"
 echo
 echo "BUILT: $DEST"
 echo "Double-click Route-Mate.app on your Desktop."
-echo "Bundled standalone renderer and Node; no system Git/Node needed at runtime."
+echo "Renderer and Node are included; runtime portability must still be checked."
 echo "NOTE: First launch and actual solve must be verified on this Mac."
