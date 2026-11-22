@@ -33,6 +33,28 @@ class GuiSolveSmokeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_gui_uses_collector_geometry_profile_and_records_pipeline_handoff(self):
+        """Shared assumptions must reach GUI pipeline without entering solver input."""
+        from collector_geometry import build_assumed_geometry
+        fixture = json.loads((ROOT / "benchmarks/audio/audio10wires38cuts.json").read_text())
+        original = copy.deepcopy(fixture)
+        stage = SimpleNamespace(report={}, options={})
+        window = RouteMateWindow()
+        try:
+            built = window._record_assumed_geometry(fixture, stage=stage)
+            self.assertEqual(built, build_assumed_geometry(fixture))
+            self.assertEqual(stage.report["assumed_geometry"], built)
+            self.assertEqual(stage.options["geometry_status"], "ASSUMED_UNVERIFIED")
+            self.assertEqual(stage.options["geometry_preset"], "standard-through-hole-v1")
+            parts = {p["label"]: p for p in built["components"]}
+            self.assertEqual(parts["C4"]["profile"], "electrolytic_small")
+            self.assertEqual(parts["C7"]["profile"], "electrolytic_small")
+            self.assertEqual(parts["C4"]["body_solids"][0]["radius_mm"], 2.5)
+            self.assertNotIn("physicalClearance", fixture)
+            self.assertEqual(fixture, original)
+        finally:
+            window.close()
+
     def test_new_project_picker_uses_user_folder_not_app_bundle(self):
         from gui.main import default_project_directory
         window = RouteMateWindow()
