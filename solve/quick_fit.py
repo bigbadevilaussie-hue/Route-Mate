@@ -281,7 +281,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                 (int(pin["row"]), int(pin["col"])) for pin in pins
             ]
             entry = body_entries.get(cid)
-            if entry is not None:
+            if body_gap_mm and entry is not None:
                 installed = _installed_shape(component, definition, entry)
                 if installed is not None:
                     nominal_bodies[cid] = installed
@@ -378,7 +378,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                 continue
             local_body = None
             entry = body_entries.get(item["id"])
-            if entry is not None:
+            if body_gap_mm and entry is not None:
                 local_body = _nominal_local_body(
                     component, item["definition"], entry, rotation
                 )
@@ -432,20 +432,22 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                     # One free hole defaults to one grid pitch of nominal
                     # body separation. Lock anchors remain unchanged, and a
                     # compact retry remains available when spacing cannot fit.
-                    body = (_nominal_shift(local_body, origin_r, origin_c, PITCH_MM)
-                            if local_body is not None else None)
-                    candidate_pins = [{
-                        "row": origin_r + int(p["row"]),
-                        "col": origin_c + int(p["col"]),
-                    } for p in local_pins]
-                    # Prefer the requested nominal gap, but never make
-                    # assumed package dimensions a new electrical hard rule.
-                    # A tight candidate remains eligible if its strip/net
-                    # routing topology is substantially better.
-                    spacing_penalty = int(bool(body_gap_mm) and _nominal_body_rejects(
-                        body, candidate_pins, nominal_bodies, nominal_pins,
-                        body_gap_mm, pad_margin_mm, PITCH_MM,
-                    ))
+                    body = None
+                    spacing_penalty = 0
+                    if body_gap_mm:
+                        body = (_nominal_shift(
+                            local_body, origin_r, origin_c, PITCH_MM
+                        ) if local_body is not None else None)
+                        candidate_pins = [{
+                            "row": origin_r + int(p["row"]),
+                            "col": origin_c + int(p["col"]),
+                        } for p in local_pins]
+                        # Nominal bodies affect preference only, not net
+                        # legality. Compact fallback pays no geometry cost.
+                        spacing_penalty = int(_nominal_body_rejects(
+                            body, candidate_pins, nominal_bodies, nominal_pins,
+                            body_gap_mm, pad_margin_mm, PITCH_MM,
+                        ))
                     corridor_cost = sum(1 for r, _ in cells if r in corridor_rows)
                     pins = [{
                         "id": str(p.get("id", "")),
