@@ -36,12 +36,25 @@ fi
 command -v git >/dev/null || { echo "ERROR: Git needed for build-time renderer preparation." >&2; exit 1; }
 command -v node >/dev/null || { echo "ERROR: Node.js needed for build-time packaging." >&2; exit 1; }
 RENDER_CLI="$("$PYTHON" -c 'from render.standalone_bridge import ensure_renderer; print(ensure_renderer())')"
-RENDER_DIR="$(dirname "$RENDER_CLI")"
+# CLI lives under dist/standalone-renderer/; its parent modules live in dist/data,
+# dist/components, dist/utils, and dist/types. Copy the entire compiled dist tree.
+RENDER_DIST="$(dirname "$(dirname "$RENDER_CLI")")"
+for required in \
+  "standalone-renderer/cli.js" \
+  "standalone-renderer/render.js" \
+  "data/defaultComponents.js" \
+  "components/stripboard/boardLayout.js" \
+  "utils/resolveComponentDef.js"; do
+  if [[ ! -f "$RENDER_DIST/$required" ]]; then
+    echo "ERROR: Compiled renderer is missing $required" >&2
+    exit 1
+  fi
+done
 NODE_BIN="$(command -v node)"
 RUNTIME="$ROOT/build/renderer-runtime"
 mkdir -p "$RUNTIME"
-rm -rf "$RUNTIME/standalone-renderer"
-ditto "$RENDER_DIR" "$RUNTIME/standalone-renderer"
+rm -rf "$RUNTIME/dist"
+ditto "$RENDER_DIST" "$RUNTIME/dist"
 cp "$NODE_BIN" "$RUNTIME/node"
 chmod +x "$RUNTIME/node"
 "$RUNTIME/node" --version >/dev/null
@@ -54,7 +67,7 @@ chmod +x "$RUNTIME/node"
   --paths "$ROOT" \
   --add-data "VERSION:." \
   --add-data "icon/RouteMate-original.png:icon" \
-  --add-data "$RUNTIME/standalone-renderer:renderer-runtime/standalone-renderer" \
+  --add-data "$RUNTIME/dist:renderer-runtime/dist" \
   --add-binary "$RUNTIME/node:renderer-runtime" \
   --collect-submodules solve \
   --collect-submodules pipeline \
