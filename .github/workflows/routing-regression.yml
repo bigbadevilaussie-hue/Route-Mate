@@ -67,6 +67,41 @@ jobs:
           Path("/tmp/routemate-solved-moto-copper.svg").write_text(copper)
           print("GUI_RENDER=PASS TOP_BYTES=%d COPPER_BYTES=%d" % (len(top), len(copper)))
           PY
+      - name: Capture actual Route-Mate 1.38 board GUI
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from PySide6.QtWidgets import QApplication
+          from gui.main import RouteMateWindow, GUI_VERSION
+          app = QApplication([])
+          window = RouteMateWindow()
+          window.project = json.loads(Path("benchmarks/moto/moto.json").read_text())
+          window.project_path = Path("benchmarks/moto/moto.json")
+          window.project_summary.setText("MOTO · 44 components · 35 nets")
+          window._top_svg = Path("/tmp/routemate-solved-moto-top.svg").read_text()
+          window._copper_svg = Path("/tmp/routemate-solved-moto-copper.svg").read_text()
+          window._show_board(window._top_svg)
+          window._set_board_summary(
+              "Electrical PASS · 48 cuts · 38 jumpers · physical certification pending",
+              level="pass",
+          )
+          window.checklist.update_states({key: "done" for key, _ in window.checklist.STAGES})
+          window.resize(1440, 850)
+          window.show()
+          app.processEvents()
+          target = Path("/tmp/route-mate-gui-v1.38.png")
+          assert window.grab().save(str(target))
+          assert target.stat().st_size > 25000
+          print(f"GUI_PREVIEW=PASS VERSION={GUI_VERSION} FILE={target}")
+          window.close()
+          PY
+      - name: Publish desktop GUI preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-mate-v1-38-gui-preview
+          path: /tmp/route-mate-gui-v1.38.png
+          if-no-files-found: error
       - name: Publish solved board-side SVGs
         uses: actions/upload-artifact@v4
         with:
