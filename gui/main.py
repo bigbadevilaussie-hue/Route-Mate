@@ -714,13 +714,22 @@ class RouteMateWindow(QMainWindow):
             self.project_path = path
             self.pipeline_run = None
             self._solved_verified = False
-            self.solve_action.setEnabled(True)
+            self._quick_source = None
+            self.solve_action.setEnabled(False)
             self.save_solved_action.setEnabled(False)
             self.checklist.reset()
             self.presolve_constraints = {}
             self._top_svg = top_svg
             self._copper_svg = copper_svg
             self._show_board(top_svg if self._board_side == "top" else copper_svg)
+            self.project_summary.setText(
+                f"{path.name}\n{len(project.get('components', []))} components · "
+                f"{len(project.get('nets', []))} nets"
+            )
+            self._set_board_summary(
+                "Saved layout preview · no new verification performed",
+                level="neutral",
+            )
             self.log_line(f"[RENDER JSON] {path}")
             self.log_line("[RENDER JSON] Displayed saved layout; no collector, tests or solver run.")
             # Historic routed JSON may be electrically sound yet contain
@@ -734,6 +743,10 @@ class RouteMateWindow(QMainWindow):
                 self.statusBar().showMessage("Saved layout loaded; jumper clearance UNVERIFIED.")
             else:
                 if audit["status"] == "FAIL":
+                    self._set_board_summary(
+                        f"UNSAFE saved layout · {len(audit['errors'])} jumper/geometry issues",
+                        level="failed",
+                    )
                     self.log_line(
                         f"[RENDER JSON][UNSAFE] {len(audit['errors'])} jumper geometry issue(s)."
                     )
@@ -749,6 +762,10 @@ class RouteMateWindow(QMainWindow):
                         "run Solve Board again; see the log for details.",
                     )
                 else:
+                    self._set_board_summary(
+                        "Saved layout · grid artwork check clear · electrical status unverified",
+                        level="neutral",
+                    )
                     self.log_line(
                         "[RENDER JSON] Grid artwork checks clear; measured package/cut access NOT certified."
                     )
@@ -928,6 +945,7 @@ class RouteMateWindow(QMainWindow):
 
         # Use approved locks as the immutable Quick Solve input.
         self._quick_source = copy.deepcopy(self.project)
+        self.review_locks_action.setEnabled(True)
         self.solve_board()
 
     def review_locks(self):
@@ -951,29 +969,25 @@ class RouteMateWindow(QMainWindow):
         self.project = source
         self._solved_verified = False
         self.save_solved_action.setEnabled(False)
-        from pipeline import PipelineRun
         if self.project_path is not None:
-            # Reviewing constraints starts a fresh pipeline run rather than
-            # editing an already-verified result's immutable history.
-            self.pipeline_run = PipelineRun.create(self.project_path, source)
+            # Recompute input milestones for the newly reviewed source.
+            self._restart_quick_pipeline(source, include_constraints=False)
         preview, _ = self._render_component_side(source)
         self._show_board(preview)
         self._ask_lock_settings(placed)
 
-    def _restart_quick_pipeline(self, source: dict[str, Any]):
+    def _restart_quick_pipeline(self, source: dict[str, Any], *, include_constraints=True):
         """Re-run lightweight input checks when repeating a Quick Solve."""
         if self.project_path is None:
             return
         from pipeline import (
             PipelineRun, electrical_sanity_stage_result,
-            presolve_stage_result,
+            presolve_stage_result, project_import_stage_result,
         )
         from prepare.sanity.electrical import run_electrical_sanity
         self.pipeline_run = PipelineRun.create(self.project_path, source)
-        self._record_project_stage(
-            "IN.project_import", "gui.quicksolve", {"source": "approved locked layout"},
-            snapshot=source,
-        )
+        result, findings = project_import_stage_result(source, source)
+        self._record_pipeline_result(result, findings)
         sanity = run_electrical_sanity(source)
         result, findings = electrical_sanity_stage_result(source, sanity)
         self._record_pipeline_result(result, findings)
@@ -982,11 +996,12 @@ class RouteMateWindow(QMainWindow):
                              "; ".join(sanity.get("errors", [])[:4]))
         result, findings = presolve_stage_result(source)
         self._record_pipeline_result(result, findings)
-        self._record_project_stage(
-            "PREPARE.constraints", "gui.lock_dialog",
-            {"constraints": copy.deepcopy(self.presolve_constraints)},
-            snapshot=source,
-        )
+        if include_constraints:
+            self._record_project_stage(
+                "PREPARE.constraints", "gui.lock_dialog",
+                {"constraints": copy.deepcopy(self.presolve_constraints)},
+                snapshot=source,
+            )
 
     def solve_board(self):
         """Bounded Quick Solve from preserved input, honoring hard locks."""
@@ -1045,6 +1060,7 @@ class RouteMateWindow(QMainWindow):
         self.load_action.setEnabled(False)
         self.render_action.setEnabled(False)
         self.log_line("[QUICK SOLVE] Routing-aware placement with exact locks and edge constraints...")
+        self._set_board_summary("Quick Solve in progress · preserving approved locks", project=source, level="working")
         self.statusBar().showMessage("Quick Solve running — the board remains responsive.")
         self._solver_worker = SolveWorker(self._solve_input, self)
         self._solver_worker.completed.connect(self._solve_completed)
@@ -1057,6 +1073,11 @@ class RouteMateWindow(QMainWindow):
         status = outcome.get("status", "FAILED")
         self.log_line(f"[SOLVE] {status} — {outcome.get('attempts_used', 0)} placement attempt(s).")
         if status != "ROUTED":
+            self._set_board_summary(
+                f"{status} · no verified board found in the search budget",
+                level="failed",
+            )
+            self.sidebar_tabs.setCurrentIndex(1)
             for error in outcome.get("errors", []):
                 self.log_line("[SOLVE][ERROR] " + str(error))
             failure = outcome.get("best_failure")
@@ -1126,6 +1147,13 @@ class RouteMateWindow(QMainWindow):
 
         self.project = solved
         counts = verification["counts"]
+        self._set_board_summary(
+            f"Electrical PASS · {len(solved['board']['cuts'])} cuts · "
+            f"{len(solved['board']['wires'])} jumpers · "
+            f"{outcome['attempts_used']} placement attempt(s) · physical sign-off pending",
+            level="pass",
+        )
+        self.sidebar_tabs.setCurrentIndex(0)
         self.log_line(
             f"[ROUTING] ROUTED: {len(solved['board']['cuts'])} cuts, "
             f"{len(solved['board']['wires'])} jumpers; "
@@ -1158,6 +1186,8 @@ class RouteMateWindow(QMainWindow):
 
     def _solve_crashed(self, message: str):
         self.log_line("[SOLVE][ERROR] " + message)
+        self._set_board_summary("Quick Solve error — see Activity", level="failed")
+        self.sidebar_tabs.setCurrentIndex(1)
         self.statusBar().showMessage("Solve error; previous preview retained.")
         QMessageBox.warning(self, "Solve failed", message.splitlines()[-1])
 
@@ -1383,8 +1413,14 @@ class RouteMateWindow(QMainWindow):
             self.project = project
             self.project_path = path
             self._solved_verified = False
+            self._quick_source = None
             self.solve_action.setEnabled(True)
             self.save_solved_action.setEnabled(False)
+            self.project_summary.setText(
+                f"{path.name}\n{len(project['components'])} components · "
+                f"{len(project['nets'])} nets"
+            )
+            self._set_board_summary("Imported · reviewing placement constraints", project=project)
             top_svg, renderer_log = self._render_component_side(project)
             self._show_board(top_svg)
             self.log_line("[RENDER] Existing component-side layout rendered with alternating row bands.")
