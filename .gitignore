@@ -22,3 +22,8 @@ venv/
 # PyInstaller build artefacts
 /build/
 /dist/
+
+# Local test timing and solve profiling reports
+/profile_results/
+/test_timings.json
+/test_timings.log
