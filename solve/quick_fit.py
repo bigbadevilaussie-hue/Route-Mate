@@ -97,6 +97,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
     blocked: set[tuple[int, int]] = set()
     net_points: dict[str, list[tuple[int, int]]] = {}
     initial_pin_records: list[tuple[int, int, str, str]] = []
+    transistor_pads: set[tuple[int, int]] = set()
     centres: list[tuple[int, int]] = []
     centre_row_sum = centre_col_sum = 0
     net_score = links_scored = 0
@@ -172,6 +173,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                     row, col = int(pin["row"]), int(pin["col"])
                     initial_pin_records.append((row, col, nid, f"{label}.{pin.get('id')}"))
                     net_points.setdefault(nid, []).append((row, col))
+                    if str(component.get("defId")) in {"def-npn", "def-pmos"}:
+                        transistor_pads.add((row, col))
         except (TypeError, ValueError, KeyError) as exc:
             errors.append(f"{label}: invalid locked footprint: {exc}")
     if errors:
@@ -295,18 +298,19 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                                                 f"{item['label']}.{pin['id']}"))
                     if candidate_conflicts(pin_records, placed_holes):
                         continue
-                    # The old one-hole pin gap may electrically isolate nets
-                    # but leaves nowhere to land a vertical jumper alongside
-                    # a transistor/module's physical body. This is a
-                    # conservative *placement search* constraint, not a claim
-                    # that all closer placements are electrically illegal.
-                    #
-                    # Keep two unused copper holes between different-net
-                    # component pads so a net can escape around nearby artwork.
+                    # Three-pin transistor artwork encloses its middle pad.
+                    # Keep two holes' separation from different-net pads around
+                    # a transistor so its middle pin can escape laterally.
+                    # Other component types retain the frozen-model adjacent
+                    # cut rule; a blanket extra gap breaks AUDIO placements.
+                    transistor_candidate = str(component.get("defId")) in {
+                        "def-npn", "def-pmos",
+                    }
                     if any(
                         existing_net != net
                         for row, col, net, _ref in pin_records
                         for dc in (-2, 2)
+                        if transistor_candidate or (row, col + dc) in transistor_pads
                         for existing_net, _existing_ref
                         in placed_holes.get((row, col + dc), ())
                     ):
@@ -379,6 +383,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
         blocked.update(_expanded(found["cells"], clearance))
         for row, col, net, ref in found["pin_records"]:
             placed_holes.setdefault((row, col), []).append((net, ref))
+            if str(component.get("defId")) in {"def-npn", "def-pmos"}:
+                transistor_pads.add((row, col))
         centres.append(found["centre"])
         centre_row_sum += found["centre"][0]
         centre_col_sum += found["centre"][1]
