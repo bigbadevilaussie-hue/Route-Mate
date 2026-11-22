@@ -14,7 +14,7 @@ from __future__ import annotations
 import copy
 import heapq
 from collections import Counter, defaultdict
-from typing import Any
+from typing import Any, Callable
 
 from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from placement_policy import is_off_board_component
@@ -121,6 +121,7 @@ def _route_net(
     historical: dict[int, float],
     present: float,
     expansions_left: list[int],
+    cancelled: Callable[[], bool] | None = None,
 ) -> tuple[dict | None, str | None]:
     nodes = {terminals[0]}
     tree = {terminals[0]}
@@ -141,6 +142,10 @@ def _route_net(
             if cost > distance.get(state, float("inf")):
                 continue
             expansions_left[0] -= 1
+            # Cooperative cancellation roughly every 256 heap expansions.
+            # Never emit a partial route, cuts, or falsely verified board.
+            if cancelled is not None and expansions_left[0] % 256 == 0 and cancelled():
+                return None, "CANCELLED"
             if expansions_left[0] < 0:
                 return None, "EXPANSION_BUDGET"
             hole, arrived_by_jump = divmod(state, 2)
@@ -241,6 +246,7 @@ def route_holes(
     *,
     iterations: int = 24,
     expansion_budget: int = 600000,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Route a clean placed board with negotiated hole ownership.
 
@@ -279,8 +285,12 @@ def route_holes(
     shared_ends: list[int] = []
     first_failure = None
     for attempt in range(iterations):
+        if cancelled is not None and cancelled():
+            return _result("CANCELLED", project, ["Quick Solve stopped by user."])
         failed = False
         for net in names:
+            if cancelled is not None and cancelled():
+                return _result("CANCELLED", project, ["Quick Solve stopped by user."])
             previous = trees.get(net)
             if previous:
                 for hole in previous["nodes"]:
@@ -289,8 +299,10 @@ def route_holes(
                     used_ends[hole].discard(net)
             routed, reason = _route_net(
                 net, nets[net], rows, cols, pin_net, vreach, claim,
-                used_ends, history, present, budget,
+                used_ends, history, present, budget, cancelled,
             )
+            if reason == "CANCELLED":
+                return _result("CANCELLED", project, ["Quick Solve stopped by user."])
             if routed is None:
                 failed = True
                 first_failure = {"net": net, "reason": reason}
