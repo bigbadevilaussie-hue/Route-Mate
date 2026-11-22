@@ -61,7 +61,7 @@ def solve_with_feedback(
             if isinstance(c, dict) and not is_off_board_component(c)
         ))
 
-    def relocation(candidate, target, variant):
+    def relocation(candidate, target, variant, spacing):
         trial = copy.deepcopy(candidate)
         prior = next(
             (c for c in candidate.get("components", [])
@@ -83,7 +83,7 @@ def solve_with_feedback(
                 c["locked"] = True
         fit = quick_fit(trial, clearance=clearance, placement_variant=variant,
                         forbidden_anchors=forbidden,
-                        body_spacing_holes=body_spacing_holes)
+                        body_spacing_holes=spacing)
         if fit.get("status") != "PLACED":
             return None
         result = fit["project"]
@@ -117,23 +117,31 @@ def solve_with_feedback(
             })
 
     for variant in range(attempts):
+        # Prefer the one-hole nominal arrangement first. If it cannot be
+        # routed, alternate compact searches within the SAME 24-attempt
+        # budget; never lose the old electrically verified fallback.
+        attempt_spacing = (
+            body_spacing_holes if variant % 2 == 0
+            else max(0, body_spacing_holes - 1)
+        )
         if cancelled is not None and cancelled():
             return stopped()
         attempt_started = perf_counter()
         if repairs:
             previous, target = repairs.pop(0)
-            repaired = relocation(previous, target, variant)
+            repaired = relocation(previous, target, variant, attempt_spacing)
             fit = repaired if repaired else {"status": "NO_FIT_FOUND", "errors": ["relocation failed"]}
         else:
             fit = quick_fit(
                 project, clearance=clearance, placement_variant=variant,
-                body_spacing_holes=body_spacing_holes,
+                body_spacing_holes=attempt_spacing,
             )
         if cancelled is not None and cancelled():
             return stopped()
         if fit["status"] != "PLACED":
             history.append({
-                "variant": variant, "placement": fit["status"],
+                "variant": variant, "body_spacing_preference": attempt_spacing,
+                "placement": fit["status"],
                 "routing": "NOT_ATTEMPTED",
                 "error": (fit.get("errors") or [None])[0],
             })
@@ -143,7 +151,8 @@ def solve_with_feedback(
         candidate = copy.deepcopy(fit["project"])
         key = placement_key(candidate)
         if key in seen:
-            history.append({"variant": variant, "placement": "DUPLICATE", "routing": "NOT_ATTEMPTED"})
+            history.append({"variant": variant, "body_spacing_preference": attempt_spacing,
+                            "placement": "DUPLICATE", "routing": "NOT_ATTEMPTED"})
             report_progress(attempt_started)
             continue
         seen.add(key)
@@ -155,8 +164,10 @@ def solve_with_feedback(
         )
         if router == "hole_graph" and not (candidate["board"].get("cuts") or candidate["board"].get("wires")):
             routed = route_holes(
-                candidate, iterations=hole_iterations,
-                expansion_budget=hole_expansion_budget,
+                candidate, iterations=(min(hole_iterations, 12)
+                                       if attempt_spacing else hole_iterations),
+                expansion_budget=(min(hole_expansion_budget, 180000)
+                                  if attempt_spacing else hole_expansion_budget),
                 cancelled=cancelled,
             )
         else:
@@ -174,6 +185,7 @@ def solve_with_feedback(
                   and (routed.get("verification") or {}).get("status") == "PASS")
         history.append({
             "variant": variant, "placement": "PLACED",
+            "body_spacing_preference": attempt_spacing,
             "routing": routed["status"],
             "hole_search": routed.get("hole_search"),
             "cuts": routed.get("cuts_added", 0),
@@ -182,14 +194,26 @@ def solve_with_feedback(
         })
         report_progress(attempt_started)
         if passed:
+            placement_report = dict(fit.get("report", {}))
+            placement_report["body_spacing_requested"] = body_spacing_holes
+            placement_report["body_spacing_preference"] = attempt_spacing
+            warnings = list(fit.get("warnings", [])) + list(
+                routed.get("warnings", [])
+            )
+            if attempt_spacing < body_spacing_holes:
+                warnings.append(
+                    "The one-hole nominal body-spacing preference did not "
+                    "produce the selected electrically verified route; "
+                    "a compact placement was used instead. Actual package "
+                    "dimensions remain unmeasured."
+                )
             return {
                 "status": "ROUTED", "project": routed["project"],
                 "verification": routed["verification"],
                 "placement_variant": variant,
-                "placement_report": fit.get("report", {}),
+                "placement_report": placement_report,
                 "attempts_used": len(history), "history": history,
-                "warnings": list(fit.get("warnings", []))
-                            + list(routed.get("warnings", [])),
+                "warnings": warnings,
             }
 
         # Prioritize movable components attached to nets mentioned by router errors.
