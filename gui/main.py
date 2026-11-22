@@ -752,12 +752,17 @@ class RouteMateWindow(QMainWindow):
             model = document["geometry"]
         self._assumed_geometry = document if document is not None else model
         if stage is not None:
-            stage.report["assumed_geometry"] = copy.deepcopy(model)
+            # The pipeline stores a checksum-bound reference, not another
+            # mutable copy of the geometry sidecar. Unit-level in-memory
+            # callers without a source path retain an inline fallback.
             if document is not None:
                 from geometry_sidecar import sidecar_path
                 stage.report["assumed_geometry_sidecar"] = str(sidecar_path(path))
                 stage.report["assumed_geometry_project_sha256"] = document["project_sha256"]
                 stage.report["assumed_geometry_sha256"] = document["geometry_sha256"]
+                stage.report["assumed_geometry_component_count"] = model["component_count"]
+            else:
+                stage.report["assumed_geometry"] = copy.deepcopy(model)
             stage.options["geometry_preset"] = model["preset"]
             stage.options["geometry_status"] = "ASSUMED_UNVERIFIED"
         assumed = sum(x["status"] == "ASSUMED_UNVERIFIED" for x in model["components"])
