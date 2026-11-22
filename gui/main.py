@@ -564,6 +564,7 @@ class RouteMateWindow(QMainWindow):
         self._solve_done = 0
         self._solve_budget = 24
         self._solve_found = 0
+        self._worker_time_stats = {}
         self._solve_clock = QTimer(self)
         self._solve_clock.setInterval(500)
         self._solve_clock.timeout.connect(self._update_solve_clock)
@@ -1536,6 +1537,7 @@ class RouteMateWindow(QMainWindow):
         self._solve_done = 0
         self._solve_budget = 24
         self._solve_found = 0
+        self._worker_time_stats = {}
         self.solve_progress.setRange(0, 24)
         self.solve_progress.setValue(0)
         self.solve_activity.setText("Searching placements → routing → independent verification")
@@ -1610,7 +1612,29 @@ class RouteMateWindow(QMainWindow):
         if self._solve_started is None:
             return
         elapsed = max(0.0, perf_counter() - self._solve_started)
-        if self._solve_done:
+        if self._worker_time_stats:
+            # Parallel jobs do not finish in total-attempt order. The
+            # slowest worker's unfinished share determines wall-clock ETA;
+            # dividing global elapsed by global completed is misleading.
+            rates = [s["seconds"] / s["done"] for s in self._worker_time_stats.values()
+                     if s["done"] > 0]
+            fallback_rate = max(rates) if rates else None
+            estimates = []
+            for stats in self._worker_time_stats.values():
+                if stats["finished"]:
+                    continue
+                remaining_slots = max(0, stats["budget"] - stats["done"])
+                rate = (stats["seconds"] / stats["done"] if stats["done"]
+                        else fallback_rate)
+                if rate is not None:
+                    estimates.append(remaining_slots * rate)
+            if estimates:
+                remaining = self._clock_text(max(estimates)) + " (approx., slowest worker)"
+            elif fallback_rate is None and self._solve_done < self._solve_budget:
+                remaining = "calibrating from each worker"
+            else:
+                remaining = "0m 00s (workers finished)"
+        elif self._solve_done:
             estimate = elapsed / self._solve_done * max(0, self._solve_budget - self._solve_done)
             remaining = self._clock_text(estimate) + " (approx., full budget)"
         else:
@@ -1634,6 +1658,20 @@ class RouteMateWindow(QMainWindow):
             self.solve_progress.setValue(self._solve_done)
             worker = int(attempt.get("worker", 1))
             workers = int(attempt.get("workers", self._recommended_workers))
+            stats = self._worker_time_stats.setdefault(worker, {
+                "done": 0, "budget": max(1, (self._solve_budget + workers - 1) // workers),
+                "seconds": 0.0, "finished": False,
+            })
+            if attempt.get("worker_budget") is not None:
+                stats["budget"] = int(attempt["worker_budget"])
+            if attempt.get("worker_completed") is not None:
+                stats["done"] = max(stats["done"], int(attempt["worker_completed"]))
+            elif not attempt.get("worker_finished"):
+                stats["done"] += 1
+            if attempt.get("worker_finished"):
+                stats["finished"] = True
+            else:
+                stats["seconds"] += max(0.0, float(attempt.get("seconds", 0.0)))
             last = attempt.get("last") or {}
             self.solve_activity.setText(
                 f"Worker {worker}/{workers}: {last.get('placement', 'placing')} "
