@@ -85,6 +85,10 @@ jobs:
           Path("/tmp/routemate-solved-moto-copper.svg").write_text(copper)
           print("GUI_RENDER=PASS TOP_BYTES=%d COPPER_BYTES=%d" % (len(top), len(copper)))
           PY
+      - name: Audit actual production capacitor SVG shapes against collector v3
+        run: |
+          python tools/audit_capacitor_renderer.py benchmarks/moto/motomix.json
+          python tools/audit_capacitor_renderer.py benchmarks/audio/audio.json
       - name: Capture actual Route-Mate 1.38 board GUI
         run: |
           python - <<'PY'
