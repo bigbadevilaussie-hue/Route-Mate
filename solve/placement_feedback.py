@@ -116,17 +116,19 @@ def solve_with_feedback(
                 "last": dict(history[-1]),
             })
 
+    # Short explicit budgets retain the original per-variant relocation
+    # semantics. Full GUI/benchmark budgets add a single nominal-spacing
+    # scout before reverting to the proven compact search sequence.
+    use_scout = body_spacing_holes > 0 and attempts >= 8
     for variant in range(attempts):
-        # First candidate uses one-hole nominal body spacing. If it cannot
-        # yield a verified route, resume the ORIGINAL compact feedback
-        # sequence from variant 0, with its own relocation queue. This
-        # preserves proven AUDIO/MOTO routing behaviour within 24 attempts.
-        scouting = body_spacing_holes > 0 and variant == 0
-        attempt_spacing = body_spacing_holes if scouting else 0
-        search_variant = (
-            variant if body_spacing_holes == 0 or scouting else variant - 1
+        scouting = use_scout and variant == 0
+        attempt_spacing = (
+            body_spacing_holes if not use_scout or scouting else 0
         )
-        if variant == 1 and body_spacing_holes > 0:
+        search_variant = (
+            variant if not use_scout or scouting else variant - 1
+        )
+        if variant == 1 and use_scout:
             repairs.clear()
         if cancelled is not None and cancelled():
             return stopped()
