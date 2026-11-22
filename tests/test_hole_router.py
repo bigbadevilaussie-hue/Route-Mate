@@ -52,6 +52,38 @@ class HoleRouterTests(unittest.TestCase):
         self.assertEqual(result["project"], snapshot)
         self.assertEqual(placed, snapshot)
 
+    def test_same_net_pin_can_host_jumper_landing(self):
+        """Pin-bank escapes must not be excluded from vertical graph edges."""
+        tiny = {
+            "board": {"rows": 4, "cols": 5, "cuts": [], "wires": []},
+            "componentDefs": [{
+                "id": "one", "width": 1, "height": 1,
+                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                "bodyCells": [],
+            }],
+            "components": [
+                {"id": "A", "defId": "one", "boardPos": {"row": 0, "col": 0}},
+                {"id": "B", "defId": "one", "boardPos": {"row": 2, "col": 0}},
+                {"id": "C", "defId": "one", "boardPos": {"row": 0, "col": 1}},
+                {"id": "D", "defId": "one", "boardPos": {"row": 2, "col": 1}},
+            ],
+            "netAssignments": [
+                {"componentId": "A", "pinId": "1", "netId": "BUS"},
+                {"componentId": "B", "pinId": "1", "netId": "BUS"},
+                {"componentId": "C", "pinId": "1", "netId": "X"},
+                {"componentId": "D", "pinId": "1", "netId": "Y"},
+            ],
+        }
+        result = route_holes(tiny, iterations=4)
+        self.assertEqual(result["status"], "ROUTED", result.get("errors"))
+        self.assertEqual(verify_project(result["project"])["status"], "PASS")
+        self.assertTrue(any(
+            {tuple(w[p][k] for k in ("row", "col")) for p in ("from", "to")}
+            == {(0, 0), (2, 0)}
+            for w in result["project"]["board"]["wires"]
+        ))
+
+
     def test_shared_hole_different_nets_is_invalid(self):
         placed = self.witness()
         first = placed["netAssignments"][0]
