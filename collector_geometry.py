@@ -142,6 +142,28 @@ def _body(profile: str, pins: list[dict]) -> dict:
     }
 
 
+def _artwork_proxies(definition: dict) -> list[dict[str, Any]]:
+    """Soft bounding box of footprint bodyCells; never a hard body solid."""
+    cells = definition.get("bodyCells") or []
+    if not cells:
+        return []
+    rows, cols = [], []
+    for cell in cells:
+        if not isinstance(cell, dict):
+            raise ValueError("footprint bodyCells contains non-object")
+        rows.append(_finite(cell.get("row"), "body cell row"))
+        cols.append(_finite(cell.get("col"), "body cell col"))
+    return [{
+        "shape": "rectangle",
+        "x_min_mm": round((min(cols) - 0.5) * PITCH_MM, 6),
+        "x_max_mm": round((max(cols) + 0.5) * PITCH_MM, 6),
+        "y_min_mm": round((min(rows) - 0.5) * PITCH_MM, 6),
+        "y_max_mm": round((max(rows) + 0.5) * PITCH_MM, 6),
+        "source": "footprint_bodyCells_proxy",
+        "routing_role": "ADVISORY_ONLY",
+    }]
+
+
 def build_assumed_geometry(project: dict) -> dict:
     """Build an advisory sidecar without mutating the exported project."""
     if not isinstance(project, dict):
@@ -181,6 +203,7 @@ def build_assumed_geometry(project: dict) -> dict:
             continue
         profile = _profile(part)
         body = [_body(profile, pins)] if profile else []
+        artwork_proxies = _artwork_proxies(definition)
         reasons = []
         if not profile:
             reasons.append("no_standard_body_profile")
@@ -194,6 +217,7 @@ def build_assumed_geometry(project: dict) -> dict:
             "package_hint": str(part.get("package") or ""),
             "profile": profile,
             "pins": pins, "body_solids": body,
+            "artwork_proxies": artwork_proxies,
             "notes": reasons,
             "frame": "unrotated_footprint_local_mm",
             "off_board": bool(part.get("offBoard") or part.get("boardExcluded")),
