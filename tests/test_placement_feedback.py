@@ -10,7 +10,7 @@ class PlacementFeedbackTests(unittest.TestCase):
     def setUp(self):
         self.source = {"board": {"rows": 4, "cols": 8, "cuts": [], "wires": []}, "components": []}
 
-    @patch("solve.placement_feedback.route_copper")
+    @patch("solve.placement_feedback.route_holes")
     @patch("solve.placement_feedback.quick_fit")
     def test_failed_net_triggers_relocation(self, fit, route):
         source = copy.deepcopy(self.source)
@@ -43,7 +43,7 @@ class PlacementFeedbackTests(unittest.TestCase):
         self.assertNotIn("boardPos", repair_input["components"][0])
         self.assertTrue(repair_input["components"][1]["locked"])
 
-    @patch("solve.placement_feedback.route_copper")
+    @patch("solve.placement_feedback.route_holes")
     @patch("solve.placement_feedback.quick_fit")
     def test_retries_failed_route_then_accepts_verified_route(self, fit, route):
         first = copy.deepcopy(self.source)
@@ -65,7 +65,7 @@ class PlacementFeedbackTests(unittest.TestCase):
         self.assertEqual(route.call_count, 2)
         self.assertEqual(self.source["board"]["wires"], [])
 
-    @patch("solve.placement_feedback.route_copper")
+    @patch("solve.placement_feedback.route_holes")
     @patch("solve.placement_feedback.quick_fit")
     def test_rejects_unverified_route(self, fit, route):
         fit.return_value = {"status": "PLACED", "project": copy.deepcopy(self.source)}
@@ -74,7 +74,7 @@ class PlacementFeedbackTests(unittest.TestCase):
         result = solve_with_feedback(self.source, attempts=1)
         self.assertEqual(result["status"], "ROUTING_FAILED")
 
-    @patch("solve.placement_feedback.route_copper")
+    @patch("solve.placement_feedback.route_holes")
     @patch("solve.placement_feedback.quick_fit")
     def test_does_not_route_failed_placement(self, fit, route):
         fit.return_value = {"status": "NO_FIT_FOUND", "errors": ["no fit"]}
