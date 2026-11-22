@@ -582,7 +582,38 @@ class RouteMateWindow(QMainWindow):
             self._show_board(top_svg if self._board_side == "top" else copper_svg)
             self.log_line(f"[RENDER JSON] {path}")
             self.log_line("[RENDER JSON] Displayed saved layout; no collector, tests or solver run.")
-            self.statusBar().showMessage(f"Rendered JSON: {path.name}")
+            # Historic routed JSON may be electrically sound yet contain
+            # jumpers drawn directly through a capacitor or other body.
+            # Never present those saved results without a safety warning.
+            from solve.quick_rules import quick_audit
+            try:
+                audit = quick_audit(project)
+            except (ValueError, TypeError, KeyError) as audit_exc:
+                self.log_line(f"[RENDER JSON][UNVERIFIED] Jumper audit unavailable: {audit_exc}")
+                self.statusBar().showMessage("Saved layout loaded; jumper clearance UNVERIFIED.")
+            else:
+                if audit["status"] == "FAIL":
+                    self.log_line(
+                        f"[RENDER JSON][UNSAFE] {len(audit['errors'])} jumper geometry issue(s)."
+                    )
+                    for issue in audit["errors"][:25]:
+                        self.log_line("[RENDER JSON][UNSAFE] " + issue)
+                    self.statusBar().showMessage(
+                        "UNSAFE saved layout: jumpers intersect components/pads. Re-solve original JSON."
+                    )
+                    QMessageBox.warning(
+                        self, "Unsafe saved routing",
+                        f"{len(audit['errors'])} jumper collision/geometry issue(s) found. "
+                        "Do not build this saved board. Load the original circuit JSON and "
+                        "run Solve Board again; see the log for details.",
+                    )
+                else:
+                    self.log_line(
+                        "[RENDER JSON] Grid artwork checks clear; measured package/cut access NOT certified."
+                    )
+                    self.statusBar().showMessage(
+                        f"Rendered JSON: {path.name} — grid checks clear, physical certification pending."
+                    )
         except Exception as exc:
             self.log_line(f"[RENDER JSON][ERROR] {type(exc).__name__}: {exc}")
             QMessageBox.warning(self, "Could not render JSON", str(exc))
