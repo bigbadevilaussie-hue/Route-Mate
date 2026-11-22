@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import tempfile
 from pathlib import Path
 import time
 import unittest
@@ -29,6 +30,41 @@ class GuiSolveSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_old_obstructed_saved_board_is_flagged_unsafe(self):
+        """Render JSON must not silently endorse the old cap-crossing board."""
+        layout = {
+            "board": {
+                "rows": 12, "cols": 25, "cuts": [],
+                "wires": [{
+                    "id": "W-OLD",
+                    "from": {"row": 2, "col": 12},
+                    "to": {"row": 5, "col": 12},
+                }],
+            },
+            "componentDefs": [],
+            "components": [{
+                "id": "C1", "label": "C1", "defId": "def-cap-polarized",
+                "boardPos": {"row": 2, "col": 12}, "rotation": 0,
+            }],
+            "nets": [], "netAssignments": [],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "old-moto-unsafe.json"
+            path.write_text(json.dumps(layout))
+            window = RouteMateWindow()
+            try:
+                with patch("gui.main.QFileDialog.getOpenFileName",
+                           return_value=(str(path), "Project JSON (*.json)")):
+                    with patch("render.standalone_bridge.render_project_data",
+                               return_value=(SVG, SVG, "test")):
+                        with patch("gui.main.QMessageBox.warning") as popup:
+                            window.render_json()
+                self.assertTrue(popup.called)
+                self.assertIn("[RENDER JSON][UNSAFE]", window.log.toPlainText())
+                self.assertFalse(window.save_solved_action.isEnabled())
+            finally:
+                window.close()
 
     def test_moto_worker_updates_both_board_sides(self):
         window = RouteMateWindow()
