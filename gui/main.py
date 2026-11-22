@@ -789,24 +789,45 @@ class RouteMateWindow(QMainWindow):
                 self.statusBar().showMessage("Saved layout loaded; jumper clearance UNVERIFIED.")
             else:
                 if audit["status"] == "FAIL":
-                    self._set_board_summary(
-                        f"UNSAFE saved layout · {len(audit['errors'])} jumper/geometry issues",
-                        level="failed",
+                    # A 2D artwork overlap is not proof of 3D interference.
+                    # Keep genuine electrical/landing-hole failures distinct.
+                    unverified_only = all(
+                        ("artwork/keepout" in issue
+                         or "FAIL_UNVERIFIED" in issue
+                         or "CONDITIONAL" in issue)
+                        for issue in audit["errors"]
                     )
+                    label = "UNVERIFIED" if unverified_only else "UNSAFE"
+                    summary = (
+                        f"{label} saved layout · {len(audit['errors'])} geometry finding(s)"
+                    )
+                    self._set_board_summary(summary, level="neutral" if unverified_only else "failed")
                     self.log_line(
-                        f"[RENDER JSON][UNSAFE] {len(audit['errors'])} jumper geometry issue(s)."
+                        f"[RENDER JSON][{label}] {len(audit['errors'])} geometry finding(s)."
                     )
                     for issue in audit["errors"][:25]:
-                        self.log_line("[RENDER JSON][UNSAFE] " + issue)
-                    self.statusBar().showMessage(
-                        "UNSAFE saved layout: jumpers intersect components/pads. Re-solve original JSON."
-                    )
-                    QMessageBox.warning(
-                        self, "Unsafe saved routing",
-                        f"{len(audit['errors'])} jumper collision/geometry issue(s) found. "
-                        "Do not build this saved board. Load the original circuit JSON and "
-                        "run Solve Board again; see the log for details.",
-                    )
+                        self.log_line(f"[RENDER JSON][{label}] " + issue)
+                    if unverified_only:
+                        self.statusBar().showMessage(
+                            "Saved layout: artwork overlap / clearance UNVERIFIED, not a proven collision."
+                        )
+                        QMessageBox.warning(
+                            self, "Saved routing clearance unverified",
+                            f"{len(audit['errors'])} artwork or clearance finding(s). "
+                            "These do not prove physical interference. Verify the actual "
+                            "wire insulation, lead positions and mounted body clearance "
+                            "before construction; see Activity for details.",
+                        )
+                    else:
+                        self.statusBar().showMessage(
+                            "UNSAFE saved layout: hard geometry issues found; review Activity."
+                        )
+                        QMessageBox.warning(
+                            self, "Unsafe saved routing",
+                            f"{len(audit['errors'])} jumper geometry issue(s). "
+                            "Do not build without correcting and verifying the layout; "
+                            "see Activity for details.",
+                        )
                 else:
                     self._set_board_summary(
                         "Saved layout · grid artwork check clear · electrical status unverified",
