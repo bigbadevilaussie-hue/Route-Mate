@@ -43,8 +43,12 @@ def quick_audit(project):
     defs = dict(BUILTIN_DEFS)
     defs.update({str(d["id"]): d for d in project.get("componentDefs", [])
                  if isinstance(d, dict) and d.get("id")})
+    # Explicit 2.5D geometry supersedes footprint-cell projections; avoid
+    # imposing an unrelated flat 2D occupancy veto after clearance succeeds.
+    from .wire_keepout import _physical_contract
+    physical_mode = _physical_contract(project) is not None
     bodies = []
-    for component in project.get("components", []):
+    for component in ([] if physical_mode else project.get("components", [])):
         if not isinstance(component, dict) or is_off_board_component(component):
             continue
         if not isinstance(component.get("boardPos"), dict):
