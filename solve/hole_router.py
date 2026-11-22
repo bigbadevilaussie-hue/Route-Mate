@@ -180,7 +180,8 @@ def _route_net(
                     predecessor[next_state] = (state, jump)
                     heapq.heappush(heap, (candidate, next_state))
         if hit is None:
-            return None, "UNREACHABLE"
+            missing = sorted((h // cols, h % cols) for h in remaining)
+            return None, f"UNREACHABLE remaining terminals {missing[:12]}"
         cursor = hit
         path_nodes = {cursor // 2}
         path_wires = []
