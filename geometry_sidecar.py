@@ -148,10 +148,9 @@ def _installed_shape(part: dict, definition: dict, entry: dict) -> dict | None:
     shape.update({
         "id": str(part["id"]), "z_min_mm": raw["assumed_z_min_mm"],
         "z_max_mm": raw["assumed_z_max_mm"],
-        # An assumption is a user-selected *design hypothesis*, never measured.
-        # The independent engines return CONDITIONAL where the hypothesis
-        # permits an under-body path; physically uncertified until measured.
-        "z_min_source": "user_declared",
+        # Preserve collector provenance exactly; independent engines treat
+        # assumed standoff as CONDITIONAL, not user-declared or measured.
+        "z_min_source": "assumed_standard",
     })
     return shape
 
