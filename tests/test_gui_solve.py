@@ -234,8 +234,9 @@ class GuiSolveSmokeTests(unittest.TestCase):
                                    return_value=(str(path), "Project JSON (*.json)")):
                             with patch("render.standalone_bridge.render_project_data",
                                        return_value=(SVG, SVG, "test")):
-                                with patch("gui.main.QMessageBox.warning"):
+                                with patch("gui.main.QMessageBox.warning") as warning:
                                     window.render_json()
+                        self.assertFalse(warning.called, "Valid assumed WR should not show legacy warning popup")
                         log = window.log.toPlainText()
                         self.assertIn("[2.5D][ASSUMED_CLEARANCE_PASS]", log)
                         self.assertIn("[RENDER JSON][ELECTRICAL][PASS]", log)
