@@ -8,6 +8,69 @@ from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from .quick_fit import quick_fit
 
 
+def edge_slide_positions(project: dict[str, Any]) -> list[dict[str, Any]]:
+    """Enumerate EVERY legal edge-parallel anchor for each Edge+Slide lock.
+
+    Uses the same rotated footprint bounds and edge selection as Quick Fit.
+    The perpendicular coordinate is fixed ON the selected board edge. The
+    parallel axis is scanned once per position, nearest saved hint first.
+    No heuristic placement-variant budget may truncate this list.
+    """
+    from .quick_fit import _local_variant, edge_side
+    from placement_policy import is_off_board_component
+
+    board = project["board"]
+    rows, cols = int(board["rows"]), int(board["cols"])
+    defs = dict(BUILTIN_DEFS)
+    defs.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                 if isinstance(d, dict) and d.get("id")})
+    result = []
+    for part in project.get("components", []):
+        if not isinstance(part, dict) or is_off_board_component(part):
+            continue
+        if not (part.get("locked") is True and part.get("edge") is True
+                and part.get("slide") is True):
+            continue
+        name = str(part.get("label") or part.get("id"))
+        pos = part.get("boardPos")
+        if not isinstance(pos, dict):
+            raise ValueError(f"{name}: Edge+Slide requires an original board position")
+        definition = resolve_definition(part, defs)
+        if definition is None:
+            raise ValueError(f"{name}: Edge+Slide footprint not defined")
+        side = edge_side(part, definition, rows, cols)
+        rotation = int(part.get("rotation", 0) or 0) % 360
+        _cells, _pins, min_r, min_c, height, width = _local_variant(
+            part, definition, rotation
+        )
+        if height > rows or width > cols:
+            candidates = []
+        elif side in ("top", "bottom"):
+            top = 0 if side == "top" else rows - height
+            candidates = [
+                {"row": top - min_r, "col": left - min_c}
+                for left in range(cols - width + 1)
+            ]
+        else:
+            left = 0 if side == "left" else cols - width
+            candidates = [
+                {"row": top - min_r, "col": left - min_c}
+                for top in range(rows - height + 1)
+            ]
+        axis = "col" if side in ("top", "bottom") else "row"
+        # Original position first, then nearest neighbours. Preserve all
+        # possible positions without duplicates, including both boundaries.
+        candidates.sort(key=lambda p: (
+            abs(p[axis] - int(pos[axis])), p[axis]
+        ))
+        result.append({
+            "id": str(part["id"]), "label": name, "edge": side,
+            "rotation": rotation, "original": copy.deepcopy(pos),
+            "positions": candidates,
+        })
+    return result
+
+
 def slide_fit(project: dict[str, Any], component_id: str, edge: str,
               clearance: int = 1) -> dict[str, Any]:
     """Try each in-bounds edge-parallel position as a temporary full lock.
