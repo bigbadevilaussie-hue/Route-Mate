@@ -64,11 +64,11 @@ class PortfolioPolicyTests(unittest.TestCase):
 
     def test_two_verified_distinct_results_choose_fewer_contacts(self):
         first, second = layout(1), layout(3)
-        with patch("solve.placement_feedback.quick_fit") as fit, \\
-             patch("solve.placement_feedback.route_holes") as route, \\
-             patch("solve.verify.verify_project", return_value={"status": "PASS"}), \\
-             patch("solve.quick_rules.quick_audit", return_value={"status": "PASS"}), \\
-             patch("solve.quality_audit.audit_project", return_value={"status": "PASS"}), \\
+        with patch("solve.placement_feedback.quick_fit") as fit, \
+             patch("solve.placement_feedback.route_holes") as route, \
+             patch("solve.verify.verify_project", return_value={"status": "PASS"}), \
+             patch("solve.quick_rules.quick_audit", return_value={"status": "PASS"}), \
+             patch("solve.quality_audit.audit_project", return_value={"status": "PASS"}), \
              patch("solve.solution_quality.candidate_quality") as quality:
             fit.side_effect = [
                 {"status": "PLACED", "project": copy.deepcopy(first)},
@@ -93,11 +93,11 @@ class PortfolioPolicyTests(unittest.TestCase):
         self.assertEqual(result["attempts_used"], 2)
 
     def test_if_only_one_solution_exists_it_is_retained(self):
-        with patch("solve.placement_feedback.quick_fit") as fit, \\
-             patch("solve.placement_feedback.route_holes") as route, \\
-             patch("solve.verify.verify_project", return_value={"status": "PASS"}), \\
-             patch("solve.quick_rules.quick_audit", return_value={"status": "PASS"}), \\
-             patch("solve.quality_audit.audit_project", return_value={"status": "PASS"}), \\
+        with patch("solve.placement_feedback.quick_fit") as fit, \
+             patch("solve.placement_feedback.route_holes") as route, \
+             patch("solve.verify.verify_project", return_value={"status": "PASS"}), \
+             patch("solve.quick_rules.quick_audit", return_value={"status": "PASS"}), \
+             patch("solve.quality_audit.audit_project", return_value={"status": "PASS"}), \
              patch("solve.solution_quality.candidate_quality",
                    return_value={"signature": "one", "rank": (0,)}):
             fit.side_effect = [
