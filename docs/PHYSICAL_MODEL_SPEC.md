@@ -1,7 +1,7 @@
 # Route-Mate Physical Model Specification
 
-**Version:** 1.0  
-**Status:** LOCKED — DESIGN FREEZE  
+**Version:** 1.0 (base), amended by v1.1 for insulated-wire geometry  
+**Status:** LOCKED — DESIGN FREEZE; see [approved v1.1 amendment](PHYSICAL_MODEL_25D_AMENDMENT.md)  
 **Authority:** Normative single source of truth for physical stripboard behaviour.
 
 > **Implementation hold:** Do not extend or optimise the v1.21 endpoint/Manhattan router. Do not implement against older routing assumptions. Any code, test, GUI status, renderer or documentation that conflicts with this specification is superseded and must be brought into line.
@@ -41,6 +41,8 @@ A cut is legal only when it is physically accessible:
 - The independent physical verifier must reject inaccessible cuts.
 
 Accessibility is a legality test, not an optimisation penalty. The exact clearance geometry must be defined and tested before implementation relies on it; until then, the solver must not claim physical verification PASS for cut accessibility.
+
+> **Amendment v1.1:** For insulated-wire mode, the explicit 2.5D clearance contract in [PHYSICAL_MODEL_25D_AMENDMENT.md](PHYSICAL_MODEL_25D_AMENDMENT.md) supersedes the 2D body-intersection rule in §3.4 and the deferral of insulated-wire mode in §10. All other hard requirements remain in force.
 
 ## 3. Jumpers
 
