@@ -79,6 +79,31 @@ class SavedWitnessSidecarTests(unittest.TestCase):
         )
         self.assertEqual(shape["z_min_source"], "assumed_standard")
 
+    def test_wire_ending_on_occupied_pin_in_nonsymmetric_grid_is_legal(self):
+        """Endpoint allowance uses (row,col), never the transposed (col,row)."""
+        from geometry_sidecar import make_document
+        project = {
+            "board": {"rows": 12, "cols": 12, "cuts": [], "wires": [{
+                "id": "W", "from": {"row": 6, "col": 2},
+                "to": {"row": 8, "col": 2},
+            }]},
+            "componentDefs": [{
+                "id": "pad", "width": 1, "height": 1,
+                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                "bodyCells": [],
+            }],
+            "components": [{
+                "id": "P", "label": "P", "defId": "pad",
+                "boardPos": {"row": 6, "col": 2}, "rotation": 0,
+            }],
+        }
+        report = assess_saved_board(project, make_document(project))
+        self.assertEqual(report["counts"]["FAIL_PROVEN"], 0, report)
+        self.assertFalse(any(
+            finding["reason"] == "occupied_hole"
+            for finding in report["findings"]
+        ), report)
+
     def test_intermediate_occupied_pin_cannot_pass_assumed_geometry(self):
         from geometry_sidecar import make_document
         project = {
