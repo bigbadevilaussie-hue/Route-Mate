@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from solve.clearance_25d import classify_jumper, outline_distance
+from solve.clearance_25d_verify import verify_jumper_25d
 
 FIXTURES = Path(__file__).parent / "fixtures" / "clearance_25d_golden.json"
 
@@ -17,6 +18,9 @@ class Clearance25DGoldenTests(unittest.TestCase):
                 original = json.dumps(case, sort_keys=True)
                 actual = classify_jumper(case)
                 self.assertEqual(actual["verdict"], case["expected"], actual)
+                independent = verify_jumper_25d(case)
+                self.assertEqual(independent["verdict"], case["expected"], independent)
+                self.assertEqual(independent["findings"], actual["findings"])
                 self.assertEqual(json.dumps(case, sort_keys=True), original)
 
     def test_unknown_standoff_not_reported_as_proven_collision(self):
