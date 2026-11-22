@@ -1276,10 +1276,8 @@ class RouteMateWindow(QMainWindow):
         solved = outcome["project"]
         # Compute sidecar-backed advisory geometry for the ACTUAL solved
         # placement. Do not overwrite the source project's collector sidecar.
-        from geometry_sidecar import load_or_create, assess_saved_board
-        geometry_document = load_or_create(
-            solved, self.project_path or Path("unsaved-project.json"), persist=False
-        )
+        from geometry_sidecar import make_document, assess_saved_board
+        geometry_document = make_document(solved)
         geometry_assessment = assess_saved_board(solved, geometry_document)
         self._assumed_geometry = geometry_document
         self.log_line(
