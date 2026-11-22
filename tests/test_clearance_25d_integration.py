@@ -63,6 +63,17 @@ class ExplicitClearanceTests(unittest.TestCase):
         self.assertEqual(quick_audit(project)["status"], "FAIL")
         self.assertEqual(audit_project(project)["status"], "FAIL")
 
+    def test_router_graph_admits_measured_gap_but_blocks_unknown(self):
+        from solve.hole_router import _static
+        project = sample()
+        _, cols, _, _, _, reachable = _static(project)
+        self.assertIn((3 * cols + 13, 1), reachable[2 * cols + 13])
+        project["physicalClearance"]["body_solids"][0].update(
+            z_min_mm=0, z_min_source="default_flush"
+        )
+        _, cols, _, _, _, reachable = _static(project)
+        self.assertNotIn((3 * cols + 13, 1), reachable[2 * cols + 13])
+
     def test_declaration_is_required_before_disabling_legacy_checks(self):
         project = sample()
         del project["physicalClearance"]["complete"]
