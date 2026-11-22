@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import multiprocessing as mp
 from pathlib import Path
 
 from placement_policy import is_off_board_component
@@ -43,8 +44,32 @@ if __name__ == "__main__":
     parser.add_argument("--attempts", type=int, default=24)
     parser.add_argument("--backtracks", type=int, default=2)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--timeout", type=int, default=90)
     args = parser.parse_args()
-    result = run(args.attempts, args.backtracks)
+    if args.timeout < 1:
+        parser.error("--timeout must be positive")
+    queue = mp.Queue()
+    def worker(queue, attempts, backtracks):
+        try:
+            result = run(attempts, backtracks)
+            queue.put({k: v for k, v in result.items() if k != "project"})
+        except Exception as exc:
+            queue.put({"status": "EXCEPTION", "error": str(exc), "attempts_used": 0})
+    process = mp.Process(target=worker, args=(queue, args.attempts, args.backtracks))
+    process.start()
+    process.join(args.timeout)
+    if process.is_alive():
+        process.terminate()
+        process.join(5)
+        if process.is_alive():
+            process.kill()
+            process.join()
+        print(f"STATUS=TIMEOUT LIMIT_SECONDS={args.timeout}")
+        raise SystemExit(124)
+    if queue.empty():
+        print(f"STATUS=PROCESS_EXITED EXIT_CODE={process.exitcode}")
+        raise SystemExit(1)
+    result = queue.get()
     print(f"STATUS={result['status']} ATTEMPTS={result['attempts_used']}")
     if result["status"] == "ROUTED":
         print(f"VERIFICATION={result['verification'].get('status')} VARIANT={result['placement_variant']}")
