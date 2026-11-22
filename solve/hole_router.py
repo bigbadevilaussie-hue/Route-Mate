@@ -153,12 +153,17 @@ def _route_net(
                 neighbours.append((hole - 1, False, 0))
             if col + 1 < cols:
                 neighbours.append((hole + 1, False, 0))
-            if not arrived_by_jump and hole not in ends:
+            if (not arrived_by_jump and hole not in ends
+                    and pin_net.get(hole) != "__UNASSIGNED_PAD__"):
                 neighbours.extend((target, True, length) for target, length in vreach.get(hole, ())
                                   if target not in ends)
             for other, jump, length in neighbours:
                 if other in pin_net and pin_net[other] != net:
-                    continue
+                    # Copper can pass an electrically unassigned pin; its
+                    # hole is still forbidden as a jumper landing and any
+                    # intermediate pin on a wire span is always forbidden.
+                    if pin_net[other] != "__UNASSIGNED_PAD__" or jump:
+                        continue
                 if jump:
                     # Also exclude wires that traverse *intermediate* pad holes,
                     # not merely incompatible jumper endpoints.
