@@ -16,6 +16,9 @@ from typing import Any
 
 
 UPSTREAM = "https://github.com/bigbadevilaussie-hue/stripboard-optimiser.git"
+# Pinned source and compiled dist audited with both nominal capacitor classes.
+# A stale user cache must not silently change the on-board package artwork.
+UPSTREAM_COMMIT = "7477431ff3939c4a51026852e4390d44299151c1"
 CACHE = Path.home() / ".cache" / "route-mate" / "stripboard-optimiser"
 SPARSE_PATH = "src/frontend/standalone-renderer/dist"
 CLI = CACHE / SPARSE_PATH / "standalone-renderer" / "cli.js"
@@ -381,6 +384,27 @@ def ensure_renderer() -> Path:
         ])
         if result.returncode:
             raise RuntimeError("Could not fetch production renderer:\n" + result.stdout)
+    version = _run(["git", "rev-parse", "HEAD"], cwd=CACHE)
+    if version.returncode:
+        raise RuntimeError("Could not read cached renderer version:\n" + version.stdout)
+    if version.stdout.strip() != UPSTREAM_COMMIT:
+        fetched = _run(
+            ["git", "fetch", "--depth", "1", "origin", UPSTREAM_COMMIT], cwd=CACHE,
+        )
+        if fetched.returncode:
+            raise RuntimeError(
+                "Cached renderer version differs from the audited release and "
+                "the pinned renderer could not be fetched:\n" + fetched.stdout
+            )
+        checked = _run(
+            ["git", "-c", "advice.detachedHead=false", "checkout",
+             "--detach", UPSTREAM_COMMIT],
+            cwd=CACHE,
+        )
+        if checked.returncode:
+            raise RuntimeError(
+                "Could not check out audited production renderer:\n" + checked.stdout
+            )
     result = _run(["git", "sparse-checkout", "set", SPARSE_PATH], cwd=CACHE)
     if result.returncode:
         raise RuntimeError("Could not prepare production renderer:\n" + result.stdout)
