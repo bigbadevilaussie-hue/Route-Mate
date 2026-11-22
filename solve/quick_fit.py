@@ -22,6 +22,73 @@ def _expanded(cells: set[tuple[int, int]], clearance: int) -> set[tuple[int, int
     }
 
 
+def _nominal_shift(shape: dict, row: int, col: int, pitch: float) -> dict:
+    """Translate one local assumed body without modifying its provenance."""
+    solid = dict(shape)
+    dx, dy = col * pitch, row * pitch
+    if solid["shape"] == "circle":
+        x, y = solid["center_mm"]
+        solid["center_mm"] = [x + dx, y + dy]
+    else:
+        solid["x_min_mm"] += dx
+        solid["x_max_mm"] += dx
+        solid["y_min_mm"] += dy
+        solid["y_max_mm"] += dy
+    return solid
+
+
+def _nominal_local_body(component: dict, definition: dict, entry: dict,
+                        rotation: int) -> dict | None:
+    """Use the exact same installed transform as the collector sidecar."""
+    from geometry_sidecar import _installed_shape
+
+    probe = dict(component)
+    pos = component.get("boardPos")
+    end = component.get("flexibleEndPos")
+    probe["boardPos"] = {"row": 0, "col": 0}
+    probe["rotation"] = rotation
+    if isinstance(pos, dict) and isinstance(end, dict):
+        probe["flexibleEndPos"] = {
+            "row": int(end["row"]) - int(pos["row"]),
+            "col": int(end["col"]) - int(pos["col"]),
+        }
+    else:
+        probe.pop("flexibleEndPos", None)
+    return _installed_shape(probe, definition, entry)
+
+
+def _nominal_body_rejects(
+    candidate: dict | None,
+    candidate_pins: list[dict],
+    existing_bodies: dict[str, dict],
+    existing_pins: dict[str, list[tuple[int, int]]],
+    body_gap_mm: float,
+    pad_margin_mm: float,
+    pitch: float,
+) -> bool:
+    """Screen proposed positions using assumed bodies and FOREIGN pin holes.
+
+    A component may have pads beneath its OWN envelope; that is intentional.
+    Only cross-component body or solder-access proximity is screened.
+    """
+    from geometry_sidecar import _nominal_body_gap, _point_nominal_body_gap
+
+    for cid, solid in existing_bodies.items():
+        if candidate is not None and _nominal_body_gap(candidate, solid) < body_gap_mm:
+            return True
+        if any(_point_nominal_body_gap(
+            int(pin["col"]) * pitch, int(pin["row"]) * pitch, solid
+        ) < pad_margin_mm for pin in candidate_pins):
+            return True
+    if candidate is not None:
+        for holes in existing_pins.values():
+            if any(_point_nominal_body_gap(
+                col * pitch, row * pitch, candidate
+            ) < pad_margin_mm for row, col in holes):
+                return True
+    return False
+
+
 def _local_variant(component: dict, definition: dict, rotation: int):
     probe = dict(component)
     probe["boardPos"] = {"row": 0, "col": 0}
@@ -113,7 +180,9 @@ def _variant_rank(variant, *parts):
     return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big")
 
 
-def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, placement_variant=0, forbidden_anchors=None):
+def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
+             placement_variant=0, forbidden_anchors=None, *, body_gap_mm=0.0,
+             body_entries=None):
     result = copy.deepcopy(project)
     components = result["components"]
     by_id = {str(c.get("id")): c for c in components if isinstance(c, dict)}
@@ -134,6 +203,16 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
     centre_row_sum = centre_col_sum = 0
     net_score = links_scored = 0
     errors = []
+    from collector_geometry import CLEARANCE, PITCH_MM
+    from geometry_sidecar import _installed_shape
+    # Every nominal body comes from the same collector entry as the sidecar.
+    # Avoid rebuilding the geometry model inside the 24-variant search.
+    body_entries = body_entries or {}
+    nominal_bodies: dict[str, dict] = {}
+    nominal_pins: dict[str, list[tuple[int, int]]] = {}
+    pad_margin_mm = (CLEARANCE["lead_radius_mm"]
+                     + CLEARANCE["lead_margin_mm"]
+                     + CLEARANCE["min_clearance_mm"])
 
     for component in components:
         if not isinstance(component, dict):
@@ -151,6 +230,9 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                     errors.append(f"{ref}: lead hole {(row, col)} outside board")
                     continue
                 initial_pin_records.append((row, col, net, ref))
+                nominal_pins.setdefault(str(component.get("id")), []).append(
+                    (row, col)
+                )
                 occupied.add((row, col))
                 blocked.add((row, col))
                 net_points.setdefault(net, []).append((row, col))
@@ -194,6 +276,15 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                 continue
             occupied.update(cells)
             blocked.update(_expanded(cells, clearance))
+            cid = str(component.get("id"))
+            nominal_pins[cid] = [
+                (int(pin["row"]), int(pin["col"])) for pin in pins
+            ]
+            entry = body_entries.get(cid)
+            if entry is not None:
+                installed = _installed_shape(component, definition, entry)
+                if installed is not None:
+                    nominal_bodies[cid] = installed
             pos = component["boardPos"]
             h, w = int(definition.get("height", 1)), int(definition.get("width", 1))
             if int(component.get("rotation", 0) or 0) % 360 in (90, 270):
@@ -285,6 +376,12 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                 break
             if height > rows or width > cols:
                 continue
+            local_body = None
+            entry = body_entries.get(item["id"])
+            if entry is not None:
+                local_body = _nominal_local_body(
+                    component, item["definition"], entry, rotation
+                )
             # Opposed multi-row pin banks must have a copper escape lane
             # outside their pins, rather than sitting flush against an edge.
             cols_for_row = {}
@@ -331,6 +428,20 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                         continue
                     cells = {(origin_r + r, origin_c + c) for r, c in shape}
                     if blocked.intersection(cells):
+                        continue
+                    # One free hole defaults to one grid pitch of nominal
+                    # body separation. Lock anchors remain unchanged, and a
+                    # compact retry remains available when spacing cannot fit.
+                    body = (_nominal_shift(local_body, origin_r, origin_c, PITCH_MM)
+                            if local_body is not None else None)
+                    candidate_pins = [{
+                        "row": origin_r + int(p["row"]),
+                        "col": origin_c + int(p["col"]),
+                    } for p in local_pins]
+                    if body_gap_mm and _nominal_body_rejects(
+                        body, candidate_pins, nominal_bodies, nominal_pins,
+                        body_gap_mm, pad_margin_mm, PITCH_MM,
+                    ):
                         continue
                     corridor_cost = sum(1 for r, _ in cells if r in corridor_rows)
                     pins = [{
@@ -403,6 +514,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                             "pin_records": pin_records,
                             "centre": (centre_r2, centre_c2),
                             "net_score": candidate_net_score, "links": candidate_links,
+                            "nominal_body": body,
                         }
         if found is None:
             if not errors:
@@ -424,6 +536,11 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
             component.pop("flexibleEndPos", None)
         occupied.update(found["cells"])
         blocked.update(_expanded(found["cells"], clearance))
+        if found["nominal_body"] is not None:
+            nominal_bodies[item["id"]] = found["nominal_body"]
+        nominal_pins[item["id"]] = [
+            (int(p["row"]), int(p["col"])) for p in found["pins"]
+        ]
         for row, col, net, ref in found["pin_records"]:
             placed_holes.setdefault((row, col), []).append((net, ref))
         centres.append(found["centre"])
@@ -553,7 +670,9 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
     return placed
 
 
-def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant: int = 0, forbidden_anchors=None) -> dict[str, Any]:
+def quick_fit(project: dict[str, Any], clearance: int = 1, *,
+              placement_variant: int = 0, forbidden_anchors=None,
+              body_spacing_holes: int = 1) -> dict[str, Any]:
     """Place components with deterministic net-aware scoring; never mutate input."""
     source = copy.deepcopy(project) if isinstance(project, dict) else {}
     if not isinstance(project, dict):
@@ -568,6 +687,9 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
     if type(clearance) is not int or clearance < 0:
         return _failure("CONSTRAINT_CONFLICT", source,
                         ["clearance must be a non-negative integer"])
+    if type(body_spacing_holes) is not int or body_spacing_holes not in (0, 1, 2):
+        return _failure("CONSTRAINT_CONFLICT", source,
+                        ["body_spacing_holes must be 0 (compact), 1 (normal), or 2 (extra room)"])
     try:
         rows, cols = int(board["rows"]), int(board["cols"])
         if rows < 1 or cols < 1:
@@ -678,44 +800,67 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
             net_degrees[nid] = net_degrees.get(nid, 0) + 1
             pending_by_id[cid]["degree"] += 1
 
+    from collector_geometry import PITCH_MM, build_assumed_geometry
+    from geometry_sidecar import inspect_assumed_contacts
+    profile_entries = {
+        str(entry["id"]): entry
+        for entry in build_assumed_geometry(source)["components"]
+    }
     requested, last_errors = clearance, []
-    for used in range(requested, -1, -1):
-        placed_project, errors, net_score, links = _attempt(
-            source, rows, cols, used, definitions, pending, pin_nets, placement_variant, forbidden_anchors
-        )
-        if placed_project is None:
-            last_errors = errors
-            continue
-        try:
-            termination_pads = _allocate_offboard_pads(
-                placed_project, definitions, pin_nets, rows, cols
+    # Preserve the nominal body-spacing preference before reducing footprint
+    # grid clearance; compact is an explicit, reported fallback, never a
+    # silent declaration that the two bodies physically fit.
+    for body_used in range(body_spacing_holes, -1, -1):
+        for used in range(requested, -1, -1):
+            placed_project, errors, net_score, links = _attempt(
+                source, rows, cols, used, definitions, pending, pin_nets,
+                placement_variant, forbidden_anchors,
+                body_gap_mm=body_used * PITCH_MM,
+                body_entries=profile_entries,
             )
-        except (ValueError, TypeError, KeyError) as exc:
-            last_errors = [str(exc)]
-            continue
-        placed = sum(1 for c in placed_project["components"]
-                     if isinstance(c, dict) and not is_off_board_component(c)
-                     and isinstance(c.get("boardPos"), dict))
-        excluded = sum(1 for c in placed_project["components"]
-                       if isinstance(c, dict) and is_off_board_component(c))
-        warnings = []
-        if used < requested:
-            warnings.append(
-                f"requested {requested}-hole clearance could not fit all components; "
-                f"complete placement used {used}-hole clearance"
-            )
-        return {
-            "status": "PLACED", "project": placed_project, "errors": [],
-            "warnings": warnings, "placed": placed, "excluded": excluded,
-            "report": {
-                "board": {"rows": rows, "cols": cols},
-                "clearance_requested": requested, "clearance_used": used,
-                "net_distance_score": net_score, "net_links_scored": links,
-                "off_board_pads_allocated": termination_pads,
-                "search": "deterministic greedy net-aware placement",
-                "placement_variant": placement_variant,
-            },
-        }
+            if placed_project is None:
+                last_errors = errors
+                continue
+            try:
+                termination_pads = _allocate_offboard_pads(
+                    placed_project, definitions, pin_nets, rows, cols
+                )
+            except (ValueError, TypeError, KeyError) as exc:
+                last_errors = [str(exc)]
+                continue
+            placed = sum(1 for c in placed_project["components"]
+                         if isinstance(c, dict) and not is_off_board_component(c)
+                         and isinstance(c.get("boardPos"), dict))
+            excluded = sum(1 for c in placed_project["components"]
+                           if isinstance(c, dict) and is_off_board_component(c))
+            warnings = []
+            if used < requested:
+                warnings.append(
+                    f"requested {requested}-hole footprint clearance could not fit all "
+                    f"components; complete placement used {used}-hole clearance"
+                )
+            if body_used < body_spacing_holes:
+                warnings.append(
+                    f"requested {body_spacing_holes}-hole nominal body spacing could "
+                    f"not fit a complete placement; used {body_used}-hole spacing. "
+                    "Assumed dimensions are not measured."
+                )
+            contacts = inspect_assumed_contacts(placed_project)
+            return {
+                "status": "PLACED", "project": placed_project, "errors": [],
+                "warnings": warnings, "placed": placed, "excluded": excluded,
+                "report": {
+                    "board": {"rows": rows, "cols": cols},
+                    "clearance_requested": requested, "clearance_used": used,
+                    "body_spacing_requested": body_spacing_holes,
+                    "body_spacing_used": body_used,
+                    "nominal_contact_count": len(contacts),
+                    "net_distance_score": net_score, "net_links_scored": links,
+                    "off_board_pads_allocated": termination_pads,
+                    "search": "deterministic greedy net-aware placement with nominal body spacing",
+                    "placement_variant": placement_variant,
+                },
+            }
     conflict = any(
         "fixed edge anchor does not touch" in error
         for error in last_errors
@@ -725,7 +870,8 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
     result["report"] = {
         "board": {"rows": rows, "cols": cols},
         "clearance_requested": requested,
-        "search": "deterministic greedy net-aware placement",
+        "body_spacing_requested": body_spacing_holes,
+        "search": "deterministic greedy net-aware placement with nominal body spacing",
         "note": "NO_FIT_FOUND is not proof that the board is physically impossible",
     }
     return result
