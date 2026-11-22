@@ -12,6 +12,7 @@ from .quick_fit import is_off_board_component
 
 from .quick_fit import quick_fit
 from .route import route_copper
+from .hole_router import route_holes
 
 
 def solve_with_feedback(
@@ -21,6 +22,9 @@ def solve_with_feedback(
     clearance: int = 1,
     route_order: str = "constrained",
     quick_backtracks: int = 2,
+    router: str = "hole_graph",
+    hole_iterations: int = 24,
+    hole_expansion_budget: int = 600000,
 ) -> dict[str, Any]:
     """Try diversified placements and route each one.
 
@@ -34,6 +38,8 @@ def solve_with_feedback(
         raise ValueError("attempts must be between 1 and 100")
     if not 0 <= quick_backtracks <= 32:
         raise ValueError("quick_backtracks must be between 0 and 32")
+    if router not in ("hole_graph", "legacy"):
+        raise ValueError("router must be hole_graph or legacy")
 
     history: list[dict[str, Any]] = []
     repairs = []
@@ -103,15 +109,23 @@ def solve_with_feedback(
         candidate["board"]["wires"] = copy.deepcopy(
             project.get("board", {}).get("wires", [])
         )
-        routed = route_copper(
-            candidate, quick_mode=True, vertical_only=False,
-            route_order=route_order, quick_backtracks=quick_backtracks,
-        )
+        if router == "hole_graph" and not (candidate["board"].get("cuts") or candidate["board"].get("wires")):
+            routed = route_holes(
+                candidate, iterations=hole_iterations,
+                expansion_budget=hole_expansion_budget,
+            )
+        else:
+            # Never discard existing manual cuts or wires.
+            routed = route_copper(
+                candidate, quick_mode=True, vertical_only=False,
+                route_order=route_order, quick_backtracks=quick_backtracks,
+            )
         passed = (routed["status"] == "ROUTED"
                   and (routed.get("verification") or {}).get("status") == "PASS")
         history.append({
             "variant": variant, "placement": "PLACED",
             "routing": routed["status"],
+            "hole_search": routed.get("hole_search"),
             "cuts": routed.get("cuts_added", 0),
             "wires": routed.get("wires_added", 0),
             "error": (routed.get("errors") or [None])[0],
