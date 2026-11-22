@@ -18,12 +18,17 @@ from solve.placement_feedback import solve_with_feedback
 def load_project(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data.get("pipeline"), dict):
+        # A pre-solve state has no SOLVE.route stage. Its top-level project
+        # is the latest saved snapshot, including approved lock constraints.
+        source = data.get("project")
+        if isinstance(source, dict) and isinstance(source.get("board"), dict) and isinstance(source.get("components"), list):
+            return source
+        # A completed state may instead provide a snapshot in its solve report.
         stages = data["pipeline"].get("stages", {})
-        record = stages.get("SOLVE.route", {})
-        source = record.get("report", {}).get("result", {}).get("project")
-        if not isinstance(source, dict):
-            raise ValueError("state file has no SOLVE.route report.result.project")
-        return source
+        source = stages.get("SOLVE.route", {}).get("report", {}).get("result", {}).get("project")
+        if isinstance(source, dict) and isinstance(source.get("board"), dict) and isinstance(source.get("components"), list):
+            return source
+        raise ValueError("state file has no usable board/components project snapshot")
     return data
 
 
