@@ -8,7 +8,7 @@ measured envelopes and cut-tool access remain unverified.
 from __future__ import annotations
 
 import copy
-from typing import Any
+from typing import Any, Callable
 
 from placement_policy import is_off_board_component
 from .placement_feedback import solve_with_feedback
@@ -20,6 +20,7 @@ from .quality_audit import audit_project
 def solve_for_display(
     project: dict[str, Any], *, attempts: int = 24,
     clearance: int = 1,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Return verified solved board plus stage-adapter-compatible reports.
 
@@ -31,7 +32,7 @@ def solve_for_display(
     source = copy.deepcopy(project)
     outcome = solve_with_feedback(
         source, attempts=attempts, clearance=clearance,
-        quick_backtracks=0, router="hole_graph",
+        quick_backtracks=0, router="hole_graph", progress=progress,
     )
     if outcome["status"] != "ROUTED" or not isinstance(outcome.get("project"), dict):
         return {
