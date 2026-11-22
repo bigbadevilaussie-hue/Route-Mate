@@ -840,6 +840,37 @@ class RouteMateWindow(QMainWindow):
                               + ", ".join(geometry_audit["unknown_bodies"]))
             self.log_line("[2.5D] ASSUMED only; pad/access checks and actual "
                           "installed dimensions are NOT physically certified.")
+            # A saved board gets the same independent copper/net verifier used
+            # by Quick Solve. A nominal clearance result cannot mask a short.
+            from solve.verify import verify_project
+            electrical = verify_project(project)
+            networks = electrical["counts"]["nets_checked"]
+            electrical_ok = electrical["status"] == "PASS" and networks > 0
+            electrical_label = (
+                "PASS" if electrical_ok else
+                "FAIL" if electrical["status"] == "FAIL" else "UNVERIFIED"
+            )
+            self.log_line(
+                f"[RENDER JSON][ELECTRICAL][{electrical_label}] "
+                f"{networks} nets | "
+                f"{electrical['counts']['short_groups']} shorts | "
+                f"{electrical['counts']['open_nets']} opens."
+            )
+            for finding in electrical.get("errors", [])[:20]:
+                self.log_line("[RENDER JSON][ELECTRICAL][FAIL] " + finding)
+            if electrical["status"] == "FAIL":
+                self._set_board_summary(
+                    "Saved layout electrical FAIL · see Activity", level="failed"
+                )
+                self.statusBar().showMessage(
+                    "Saved routing failed independent electrical verification."
+                )
+                QMessageBox.warning(
+                    self, "Saved routing electrically unsafe",
+                    "The saved layout failed independent copper/net verification. "
+                    "See Activity for shorts, open nets or invalid pads.",
+                )
+                return
             # Historic routed JSON may be electrically sound yet contain
             # jumpers drawn directly through a capacitor or other body.
             # Never present those saved results without a safety warning.
@@ -866,7 +897,9 @@ class RouteMateWindow(QMainWindow):
                     label = ("ARTWORK_ONLY" if assumed_clear else
                              "UNVERIFIED" if unverified_only else "UNSAFE")
                     summary = (
-                        "Assumed 2.5D clearance PASS · measured clearance UNVERIFIED"
+                        ("Electrical PASS · assumed 2.5D PASS · measured UNVERIFIED"
+                         if electrical_ok else
+                         "Assumed 2.5D PASS · electrical status UNVERIFIED")
                         if assumed_clear else
                         f"{geometry_audit['status']} saved layout · "
                         "2.5D assumptions not sufficient"
@@ -892,8 +925,8 @@ class RouteMateWindow(QMainWindow):
                             "construction approval are implied."
                         )
                         self.statusBar().showMessage(
-                            "Saved layout: assumed 2.5D clearance PASS; "
-                            "physical sign-off and cut access still unverified."
+                            "Saved layout: " + ("electrical PASS; " if electrical_ok else "") +
+                            "assumed 2.5D clearance PASS; physical sign-off unverified."
                         )
                     elif unverified_only:
                         self.statusBar().showMessage(
@@ -919,7 +952,8 @@ class RouteMateWindow(QMainWindow):
                 else:
                     status = geometry_audit["status"]
                     self._set_board_summary(
-                        ("Assumed 2.5D clearance PASS · physical sign-off pending"
+                        (("Electrical PASS · " if electrical_ok else "")
+                         + "assumed 2.5D PASS · physical sign-off pending"
                          if status == "ASSUMED_CLEARANCE_PASS"
                          else f"{status} saved layout · physical sign-off pending"),
                         level="neutral",
