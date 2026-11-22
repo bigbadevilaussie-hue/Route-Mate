@@ -235,8 +235,7 @@ def assess_saved_board(project: dict, document: dict) -> dict:
             {**pin,
              "allowed_endpoint": (
                  (round(pin["center_mm"][1] / PITCH),
-                  round(pin["center_mm"][0] / PITCH)) in
-                 {(col, row) for row, col in endpoints}
+                  round(pin["center_mm"][0] / PITCH)) in endpoints
              )}
             for pin in pin_records
         ]
