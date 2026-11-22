@@ -408,7 +408,8 @@ class WorkflowChecklist(QWidget):
             self.lock_warning.show()
         elif edge:
             self.lock_warning.setText(
-                "Edge lock detected — placement is constrained to the board edge."
+                "Edge lock detected — Quick Solve may take longer because "
+                "placement is constrained to the board edge."
             )
             self.lock_warning.show()
         else:
