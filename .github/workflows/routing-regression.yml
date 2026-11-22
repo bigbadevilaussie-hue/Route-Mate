@@ -1,7 +1,7 @@
 name: Routing regression
 on:
   push:
-    branches: [fix/routing-aware-placement]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 jobs:
@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Multicore portfolio and two-candidate regression
+        run: python -m unittest discover -s tests -p 'test_parallel_quick.py' -v
       - name: Placement-feedback regression
         run: python -m unittest discover -s tests -p 'test_placement_feedback.py' -v
       - name: Karl AUDIO hole-graph regression
@@ -89,7 +91,7 @@ jobs:
         run: |
           python tools/audit_capacitor_renderer.py benchmarks/moto/motomix.json
           python tools/audit_capacitor_renderer.py benchmarks/audio/audio.json
-      - name: Capture actual Route-Mate 1.40 board GUI
+      - name: Capture actual Route-Mate 1.41 board GUI
         run: |
           python - <<'PY'
           import json
@@ -112,7 +114,7 @@ jobs:
           window.resize(1440, 850)
           window.show()
           app.processEvents()
-          target = Path("/tmp/route-mate-gui-v1.40.png")
+          target = Path("/tmp/route-mate-gui-v1.41.png")
           assert window.grab().save(str(target))
           assert target.stat().st_size > 25000
           print(f"GUI_PREVIEW=PASS VERSION={GUI_VERSION} FILE={target}")
@@ -121,8 +123,8 @@ jobs:
       - name: Publish desktop GUI preview
         uses: actions/upload-artifact@v4
         with:
-          name: route-mate-v1-40-gui-preview
-          path: /tmp/route-mate-gui-v1.40.png
+          name: route-mate-v1-41-gui-preview
+          path: /tmp/route-mate-gui-v1.41.png
           if-no-files-found: error
       - name: Publish solved board-side SVGs
         uses: actions/upload-artifact@v4
