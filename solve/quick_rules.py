@@ -63,6 +63,10 @@ def quick_audit(project):
         if err:
             errors.append(f'{wire.get("id", i)}: {err}')
         seen.append((a, b))
+    # Independent cross-check using the same conservative artwork keepouts
+    # that the router should have excluded before choosing any jumper.
+    from .wire_keepout import wire_keepout_errors
+    errors.extend(wire_keepout_errors(project))
     if diagonal * 10 > len(wires):
         errors.append(f"diagonal quota exceeded: {diagonal}/{len(wires)} (maximum 10%)")
     return {"status": "FAIL" if errors else "GRID_CLEARANCE_ONLY",
