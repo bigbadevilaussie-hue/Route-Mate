@@ -142,6 +142,9 @@ class PortfolioPolicyTests(unittest.TestCase):
         self.assertEqual(result["project"]["components"][1]["boardPos"],
                          {"row": 1, "col": 6})
         self.assertEqual(result["attempts_used"], 3)
+        self.assertEqual(len(result["candidate_summaries"]), 2)
+        self.assertEqual(result["candidate_summaries"][0]["nominal_contacts"], 0)
+        self.assertEqual(result["candidate_summaries"][1]["nominal_contacts"], 4)
         self.assertEqual(result["history"][2]["repair_target"], "C1")
         retry_input = fit.call_args_list[2].args[0]["components"]
         self.assertNotIn("boardPos", retry_input[1])
