@@ -132,7 +132,10 @@ def verify_jumper_25d(case: dict) -> dict:
             continue
         limit = outer_radius + lead_margin + float(lead["radius_mm"])
         if _point_line_distance(p, start, end) < limit - EPS_MM:
-            record("FAIL_PROVEN", "lead_clearance", lead.get("id", ""))
+            if lead.get("source") == "assumed_standard":
+                record("FAIL_UNVERIFIED", "assumed_lead_clearance", lead.get("id", ""))
+            else:
+                record("FAIL_PROVEN", "lead_clearance", lead.get("id", ""))
 
     for solid in case.get("body_solids", []):
         threshold = outer_radius + clearance
