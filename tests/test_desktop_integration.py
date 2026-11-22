@@ -11,6 +11,7 @@ from solve.desktop_integration import solve_for_display
 from solve.verify import verify_project
 from solve.quick_rules import quick_audit
 from solve.quality_audit import audit_project
+from solve.wire_keepout import wire_keepout_errors
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,6 +29,7 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertEqual(verify_project(result["project"])["status"], "PASS")
         self.assertNotEqual(quick_audit(result["project"])["status"], "FAIL")
         self.assertEqual(audit_project(result["project"])["status"], "PASS")
+        self.assertEqual(wire_keepout_errors(result["project"]), [])
         self.assertEqual(result["placement"]["project"]["board"]["cuts"], [])
         self.assertEqual(result["placement"]["project"]["board"]["wires"], [])
         self.assertGreater(len(result["project"]["board"]["cuts"]), 0)
