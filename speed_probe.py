@@ -96,6 +96,37 @@ def calibrated_repeats(name: str, seconds: float) -> int:
     return max(1, min(2500, round(seconds / (TASKS * per))))
 
 
+
+def probe_worker_scaling(seconds: float = 1.0) -> dict:
+    """Short startup probe. Identical synthetic mixed work for 1..4 workers.
+
+    Includes process startup overhead. This only *recommends* concurrency;
+    it does not execute Route-Mate solves or predict their exact duration.
+    """
+    count = os.cpu_count() or 1
+    workers_to_try = [w for w in (1, 2, 3, 4) if w <= count]
+    repeats = calibrated_repeats("mixed", seconds)
+    workload = [("mixed", seed, repeats) for seed in range(TASKS)]
+    timings = {}
+    checksums = set()
+    for workers in workers_to_try:
+        started = perf_counter()
+        with ProcessPoolExecutor(
+            max_workers=workers, mp_context=get_context("spawn")
+        ) as pool:
+            results = list(pool.map(task, workload, chunksize=1))
+        timings[workers] = perf_counter() - started
+        checksums.add(sum(results) & MASK)
+    if len(checksums) != 1:
+        raise RuntimeError("inconsistent worker-probe results")
+    return {
+        "recommended_workers": min(timings, key=timings.get),
+        "timings": timings,
+        "logical_cpus": count,
+        "pattern": "synthetic mixed routing",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Longer routing-like CPU scaling probe: 1, 2, 3, 4 workers"
