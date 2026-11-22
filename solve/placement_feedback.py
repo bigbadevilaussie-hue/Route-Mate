@@ -249,7 +249,7 @@ def solve_with_feedback(
             if (electrical["status"] == "PASS"
                     and grid["status"] != "FAIL"
                     and physical["status"] == "PASS"):
-                quality = candidate_quality(routed["project"])
+                quality = candidate_quality(routed["project"], audit_report=physical)
                 if quality["signature"] not in verified_signatures:
                     verified_signatures.add(quality["signature"])
                     verified_results.append((accepted, quality))
