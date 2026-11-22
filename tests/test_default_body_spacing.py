@@ -56,6 +56,23 @@ class DefaultBodySpacingTests(unittest.TestCase):
         )
         self.assertEqual(project, original, "Quick Fit mutated its source")
 
+    def test_nominal_clearance_outweighs_nearby_net_preference(self):
+        # A shared net tempts the greedy placer to put two capacitor cans
+        # adjacent, but Normal spacing must rank an available clean site first.
+        project = board(8, 18, [
+            capacitor("C1", row=3, col=2, locked=True),
+            capacitor("C2"),
+        ])
+        project["nets"] = [{"id": "N", "name": "N"}]
+        project["netAssignments"] = [
+            {"componentId": "C1", "pinId": "1", "netId": "N"},
+            {"componentId": "C2", "pinId": "1", "netId": "N"},
+        ]
+        result = quick_fit(project, body_spacing_holes=1)
+        self.assertEqual(result["status"], "PLACED", result.get("errors"))
+        self.assertEqual(result["report"]["nominal_contact_count"], 0)
+        self.assertEqual(inspect_assumed_contacts(result["project"]), [])
+
     def test_report_compact_fallback_when_one_hole_cannot_fit(self):
         project = board(2, 5, [capacitor("C1"), capacitor("C2")])
         original = copy.deepcopy(project)
