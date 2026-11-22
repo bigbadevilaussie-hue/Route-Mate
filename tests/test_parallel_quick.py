@@ -83,6 +83,10 @@ class PortfolioPolicyTests(unittest.TestCase):
         self.assertEqual(choose_workers(4, 4), 4)
         self.assertEqual(choose_workers(4, 3), 3)
         self.assertEqual(choose_workers(3, 2), 2)
+        # On the user's near-tied startup probe 3=0.27, 4=0.29,
+        # pick four real CPU processes to reduce expensive-tail latency.
+        self.assertEqual(choose_workers(3, 4, {3: 0.27, 4: 0.29}), 4)
+        self.assertEqual(choose_workers(3, 4, {3: 0.27, 4: 0.50}), 3)
 
     def test_worker_uses_real_shared_solver_entry_point(self):
         calls = []
@@ -98,12 +102,56 @@ class PortfolioPolicyTests(unittest.TestCase):
         self.assertEqual(solve.call_args.kwargs["attempts"], 6)
         self.assertEqual(solve.call_args.kwargs["variant_offset"], 11)
         self.assertEqual(solve.call_args.kwargs["body_spacing_holes"], 2)
+        self.assertEqual(solve.call_args.kwargs["hole_expansion_budget"], 180000)
+        self.assertNotIn("prefer_spacing_variants", solve.call_args.kwargs)
         # For spacing OFF there is no scout, hence no shift.
         with patch("solve.desktop_integration.solve_for_display",
                    return_value={"status": "ROUTING_FAILED"}) as compact:
             _process_job(layout(1), 6, 12, 0, 3, Queue(), Flag())
         self.assertEqual(compact.call_args.kwargs["variant_offset"], 12)
         self.assertEqual(solve.call_args.kwargs["solutions_target"], 2)
+
+    def test_parallel_worker_actually_explores_selected_spacing(self):
+        class Queue:
+            def put(self, value):
+                pass
+        class Flag:
+            def is_set(self):
+                return False
+        # With 3 workers, worker 2 explores Normal/Wider; worker 3
+        # remains a bounded compact fallback. Four workers have two
+        # spacing explorers; first worker preserves full-budget compact.
+        for total, index, spaced, bounded in (
+            (3, 0, False, False),
+            (3, 1, True, True),
+            (3, 2, False, True),
+            (4, 2, True, True),
+            (4, 3, False, True),
+        ):
+            with self.subTest(workers=total, index=index):
+                with patch("solve.desktop_integration.solve_for_display",
+                           return_value={"status": "ROUTING_FAILED"}) as solve:
+                    _process_job(layout(1), 6, index * 6, 2, index,
+                                 Queue(), Flag(), worker_count=total)
+                options = solve.call_args.kwargs
+                self.assertEqual(options.get("prefer_spacing_variants", False),
+                                 spaced)
+                self.assertEqual(options.get("hole_expansion_budget", 600000),
+                                 180000 if bounded else 600000)
+
+    def test_requested_spacing_can_be_used_across_entire_variant_range(self):
+        with patch("solve.placement_feedback.quick_fit") as fit:
+            fit.return_value = {"status": "NO_FIT_FOUND", "errors": ["no fit"]}
+            out = solve_with_feedback(
+                layout(1), attempts=3, variant_offset=8,
+                body_spacing_holes=2, solutions_target=2,
+                prefer_spacing_variants=True,
+            )
+        self.assertEqual(out["status"], "ROUTING_FAILED")
+        self.assertEqual([call.kwargs["body_spacing_holes"]
+                          for call in fit.call_args_list], [2, 2, 2])
+        self.assertEqual([call.kwargs["placement_variant"]
+                          for call in fit.call_args_list], [8, 9, 10])
 
     def test_variant_offset_is_passed_into_quick_fit(self):
         with patch("solve.placement_feedback.quick_fit") as fit:
