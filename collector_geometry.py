@@ -37,6 +37,13 @@ PROFILES = {
     "to220": ("rectangle", 10.0, 4.5, 3.0),
 }
 # Height tuple member is nominal body height, not clearance to board.
+# Installation standoffs are intentionally fixed assumptions, NOT measurements.
+ASSUMED_STANDOFF_MM = {
+    "electrolytic_small": 1.5, "electrolytic_medium": 1.5,
+    "electrolytic_large": 1.5, "ceramic": 1.0,
+    "resistor": 1.0, "diode": 1.0, "led": 1.0,
+    "to92": 2.0, "to220": 2.5,
+}
 
 
 def _finite(value: Any, what: str, minimum: float = 0.0) -> float:
@@ -123,11 +130,13 @@ def _body(profile: str, pins: list[dict]) -> dict:
             "y_min_mm": round(cy - h / 2, 6),
             "y_max_mm": round(cy + h / 2, 6),
         }
-    # These are intentionally *not* given z_min_mm: a nominal package does
-    # not determine the installed part's actual standoff.
+    standoff = ASSUMED_STANDOFF_MM[profile]
     return {
-        **solid, "body_height_mm": height, "standoff_mm": None,
-        "installation_clearance": "unknown",
+        **solid, "body_height_mm": height,
+        "assumed_standoff_mm": standoff,
+        "assumed_z_min_mm": standoff,
+        "assumed_z_max_mm": round(standoff + height, 6),
+        "installation_clearance": "CONDITIONAL_ASSUMED",
         "provenance": {"kind": "assumed_standard", "preset": PRESET_VERSION,
                        "profile": profile},
     }
@@ -176,7 +185,7 @@ def build_assumed_geometry(project: dict) -> dict:
         if not profile:
             reasons.append("no_standard_body_profile")
         if body:
-            reasons.append("standoff_unknown")
+            reasons.append("installed_standoff_is_assumed_not_measured")
         if isinstance(override, dict) and "bodyCells" in override:
             reasons.append("footprint_bodyCells_are_not_measured_solids")
         entries.append({
@@ -202,6 +211,7 @@ def build_assumed_geometry(project: dict) -> dict:
         "policy": {
             "routing_use": "advisory_only_until_placement_transforms_and_spec_amendment",
             "physical_verification": "NOT_BUILD_READY",
+            "assumed_standoff": "CONDITIONAL_ASSUMED_NOT_VERIFIED",
             "unknown_standoff": "FAIL_UNVERIFIED",
             "intermediate_occupied_holes": "HARD_BLOCK",
             "artwork": "NOT_HARD_BODY",
