@@ -1,8 +1,8 @@
 """Independent 2.5D physical clearance verdict implementation.
 
 Does NOT use the router's classify_jumper or its gap-map decisions.
-Shares only the documented outline-distance geometry primitive and tolerance;
-independently applies the normative standoff, lead and thermal rules.
+Recomputes circle, polygon, lead and body decisions independently. Only the
+published numerical tolerance is shared with the router implementation.
 """
 from __future__ import annotations
 
