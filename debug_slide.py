@@ -105,18 +105,27 @@ def main() -> None:
     side = edge_side(original, definition, rows, cols)
     rotation = int(original.get("rotation", 0) or 0) % 360
     cells, pins, min_r, min_c, height, width = _local_variant(original, definition, rotation)
-    if height > rows or width > cols:
-        parser.error("footprint cannot fit entirely on the board; this diagnostic requires on-board cells")
-    # Align the whole footprint to the chosen board edge. Each successive
-    # trial changes only its free (row or column) coordinate by exactly 1.
+    # Edge+Slide preserves the original coordinate perpendicular to its
+    # selected edge, including intentional body overhang. Only the parallel
+    # coordinate may vary. Electrical pins must remain inside the board.
+    fixed_row = int(original["boardPos"]["row"])
+    fixed_col = int(original["boardPos"]["col"])
     if side in ("left", "right"):
-        fixed = -min_c if side == "left" else cols - width - min_c
-        positions = [(r - min_r, fixed) for r in range(rows - height + 1)]
-        old_axis = int(original["boardPos"]["row"]) + min_r
+        if height > rows:
+            parser.error("footprint is too tall to slide along this edge")
+        positions = [(r - min_r, fixed_col) for r in range(rows - height + 1)]
+        old_axis = fixed_row + min_r
     else:
-        fixed = -min_r if side == "top" else rows - height - min_r
-        positions = [(fixed, c - min_c) for c in range(cols - width + 1)]
-        old_axis = int(original["boardPos"]["col"]) + min_c
+        if width > cols:
+            parser.error("footprint is too wide to slide along this edge")
+        positions = [(fixed_row, c - min_c) for c in range(cols - width + 1)]
+        old_axis = fixed_col + min_c
+    if any(
+        not (0 <= fixed_row + int(pin["row"]) < rows and
+             0 <= fixed_col + int(pin["col"]) < cols)
+        for pin in pins
+    ):
+        parser.error("saved Edge+Slide position has electrical pins outside the board")
     if not positions:
         parser.error("no positions on selected edge")
     start = max(0, min(old_axis, len(positions) - 1))
