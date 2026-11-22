@@ -438,11 +438,14 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                         "row": origin_r + int(p["row"]),
                         "col": origin_c + int(p["col"]),
                     } for p in local_pins]
-                    if body_gap_mm and _nominal_body_rejects(
+                    # Prefer the requested nominal gap, but never make
+                    # assumed package dimensions a new electrical hard rule.
+                    # A tight candidate remains eligible if its strip/net
+                    # routing topology is substantially better.
+                    spacing_penalty = int(bool(body_gap_mm) and _nominal_body_rejects(
                         body, candidate_pins, nominal_bodies, nominal_pins,
                         body_gap_mm, pad_margin_mm, PITCH_MM,
-                    ):
-                        continue
+                    ))
                     corridor_cost = sum(1 for r, _ in cells if r in corridor_rows)
                     pins = [{
                         "id": str(p.get("id", "")),
@@ -497,7 +500,8 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                     # direct vertical jumper (subject to subsequent clearance).
                     # Keep clearance and different-net adjacency as hard checks.
                     topology_score = (-same_strip_links, -shared_column_links,
-                                      candidate_net_score, routing_cost, compact)
+                                      spacing_penalty, candidate_net_score,
+                                      routing_cost, compact)
                     score = (
                         (routing_cost, topology_score) if placement_variant == 1
                         else (corridor_cost, topology_score) if placement_variant == 100
@@ -807,10 +811,9 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *,
         for entry in build_assumed_geometry(source)["components"]
     }
     requested, last_errors = clearance, []
-    # Preserve the nominal body-spacing preference before reducing footprint
-    # grid clearance; compact is an explicit, reported fallback, never a
-    # silent declaration that the two bodies physically fit.
-    for body_used in range(body_spacing_holes, -1, -1):
+    # The nominal gap is a scoring preference, not a hard exclusion.
+    # Keep tight electrically routable candidates in the search as fallback.
+    for body_used in (body_spacing_holes,):
         for used in range(requested, -1, -1):
             placed_project, errors, net_score, links = _attempt(
                 source, rows, cols, used, definitions, pending, pin_nets,
@@ -839,13 +842,31 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *,
                     f"requested {requested}-hole footprint clearance could not fit all "
                     f"components; complete placement used {used}-hole clearance"
                 )
-            if body_used < body_spacing_holes:
-                warnings.append(
-                    f"requested {body_spacing_holes}-hole nominal body spacing could "
-                    f"not fit a complete placement; used {body_used}-hole spacing. "
-                    "Assumed dimensions are not measured."
-                )
             contacts = inspect_assumed_contacts(placed_project)
+            # Report actual nominal body separation, not just what the
+            # placement heuristic requested. A preference never certifies fit.
+            from geometry_sidecar import (
+                assumed_body_pad_keepouts, _nominal_body_gap,
+            )
+            solids = assumed_body_pad_keepouts(placed_project)
+            closest_gap = min(
+                (_nominal_body_gap(a, b)
+                 for i, a in enumerate(solids)
+                 for b in solids[i + 1:]),
+                default=float("inf"),
+            )
+            achieved = (min(body_spacing_holes, max(
+                0, int((closest_gap + 1e-7) / PITCH_MM),
+            )) if body_spacing_holes else 0)
+            if contacts:
+                achieved = 0
+            if achieved < body_spacing_holes:
+                warnings.append(
+                    f"{body_spacing_holes}-hole nominal body spacing is a default "
+                    f"preference; achieved {achieved}-hole separation for this "
+                    "electrically routable placement. Assumed body sizes are "
+                    "not measured; inspect red contact warnings if present."
+                )
             return {
                 "status": "PLACED", "project": placed_project, "errors": [],
                 "warnings": warnings, "placed": placed, "excluded": excluded,
@@ -853,7 +874,8 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *,
                     "board": {"rows": rows, "cols": cols},
                     "clearance_requested": requested, "clearance_used": used,
                     "body_spacing_requested": body_spacing_holes,
-                    "body_spacing_used": body_used,
+                    "body_spacing_used": achieved,
+                    "body_spacing_preference": body_used,
                     "nominal_contact_count": len(contacts),
                     "net_distance_score": net_score, "net_links_scored": links,
                     "off_board_pads_allocated": termination_pads,
