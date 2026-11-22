@@ -49,6 +49,33 @@ class Gui141ControlsTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_parallel_eta_tracks_slowest_unfinished_worker(self):
+        window = RouteMateWindow()
+        try:
+            window._solve_started = perf_counter() - 5.0
+            window._solve_budget = 24
+            window._solve_attempted({
+                "mode": "parallel", "worker": 1, "workers": 3,
+                "completed": 4, "budget": 24,
+                "worker_completed": 4, "worker_budget": 8,
+                "seconds": 1.0, "solutions_found": 0,
+                "last": {"placement": "PLACED", "routing": "ROUTING_FAILED"},
+            })
+            window._solve_attempted({
+                "mode": "parallel", "worker": 2, "workers": 3,
+                "completed": 5, "budget": 24,
+                "worker_completed": 1, "worker_budget": 8,
+                "seconds": 12.0, "solutions_found": 0,
+                "last": {"placement": "PLACED", "routing": "BUDGET_EXHAUSTED"},
+            })
+            # The 12-second/attempt worker has seven remaining attempts.
+            # Averaging 5 global completions would hide that long tail.
+            self.assertIn("1m 24s", window.solve_eta.text())
+            self.assertIn("slowest worker", window.solve_eta.text())
+        finally:
+            window._solve_started = None
+            window.close()
+
     def test_probe_selects_four_and_parallel_progress_shows_candidate_count(self):
         window = RouteMateWindow()
         try:
