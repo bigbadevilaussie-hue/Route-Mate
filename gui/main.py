@@ -1778,6 +1778,18 @@ class RouteMateWindow(QMainWindow):
                 f"fixed budget {portfolio.get('attempts_budget')}. "
                 "Provisional quality is not physical sign-off."
             )
+            for index, candidate in enumerate(portfolio.get("candidate_summaries", []), 1):
+                score = candidate.get("provisional_score")
+                self.log_line(
+                    f"[QUALITY][CANDIDATE {index}] "
+                    f"variant={candidate.get('placement_variant')} · "
+                    f"score={float(score):.1f}/100 · "
+                    f"contacts={candidate.get('nominal_contacts')} · "
+                    f"overhangs={candidate.get('nominal_board_overhangs')} · "
+                    f"cuts={candidate.get('cuts')} · wires={candidate.get('wires')}"
+                    if score is not None else
+                    f"[QUALITY][CANDIDATE {index}] score unavailable"
+                )
             if portfolio.get("worker_pids"):
                 self.log_line(
                     f"[MULTICORE] Real solver process IDs: {portfolio['worker_pids']}"
