@@ -56,7 +56,8 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
         visited = []
         emitted = []
 
-        def fake_solve(trial, *, attempts, clearance, progress=None, cancelled=None):
+        def fake_solve(trial, *, attempts, clearance, body_spacing_holes=1, progress=None, cancelled=None):
+            self.assertEqual(body_spacing_holes, 1)
             self.assertEqual(attempts, 24)
             self.assertFalse(trial["components"][0]["slide"])
             position = trial["components"][0]["boardPos"]["col"]
@@ -128,7 +129,8 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
         updates = []
         visited = []
 
-        def simulate(trial, *, attempts, clearance, progress=None, cancelled=None):
+        def simulate(trial, *, attempts, clearance, body_spacing_holes=1, progress=None, cancelled=None):
+            self.assertEqual(body_spacing_holes, 1)
             self.assertEqual(attempts, 24)
             col = trial["components"][0]["boardPos"]["col"]
             visited.append(col)
