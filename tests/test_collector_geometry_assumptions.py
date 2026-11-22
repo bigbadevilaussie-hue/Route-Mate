@@ -101,7 +101,7 @@ class CollectorGeometryTests(unittest.TestCase):
             geometry_file = out / "physical_geometry.json"
             manifest = json.loads((out / "manifest.json").read_text())
             sidecar = json.loads(geometry_file.read_text())
-            self.assertEqual(manifest["physical_geometry_sidecar"], str(geometry_file))
+            self.assertEqual(Path(manifest["physical_geometry_sidecar"]).resolve(), geometry_file.resolve())
             self.assertEqual(
                 manifest["physical_geometry_sidecar_sha256"],
                 hashlib.sha256(geometry_file.read_bytes()).hexdigest(),
