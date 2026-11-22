@@ -34,6 +34,34 @@ def _hash(value: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _collector_campaign_geometry(project: dict, source_path: str | Path):
+    """Read collector's actual campaign sidecar, if one belongs to this file.
+
+    Normal campaign path: <output>/projects/<id>.json with
+    <output>/physical_geometry.json and <output>/manifest.json. Check the
+    source project identifier and sidecar digest before trusting it.
+    """
+    project_file = Path(source_path)
+    if project_file.parent.name != "projects":
+        return None
+    root = project_file.parent.parent
+    physical = root / "physical_geometry.json"
+    manifest_file = root / "manifest.json"
+    if not physical.exists() or not manifest_file.exists():
+        return None
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    if Path(manifest.get("campaign_project", "")).resolve() != project_file.resolve():
+        return None
+    raw = physical.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != manifest.get("physical_geometry_sidecar_sha256"):
+        raise ValueError("collector campaign geometry sidecar SHA-256 mismatch")
+    model = json.loads(raw)
+    expected = build_assumed_geometry(project)
+    if model != expected:
+        raise ValueError("collector campaign geometry sidecar differs from project or preset")
+    return model
+
+
 def load_or_create(project: dict, source_path: str | Path, *, persist=True) -> dict:
     """Fail closed on an out-of-date sidecar; never silently accept stale geometry.
 
@@ -41,7 +69,8 @@ def load_or_create(project: dict, source_path: str | Path, *, persist=True) -> d
     If the project changed, rebuild from the collector's authoritative presets.
     """
     dest = sidecar_path(source_path)
-    expected = build_assumed_geometry(project)
+    campaign_model = _collector_campaign_geometry(project, source_path)
+    expected = campaign_model if campaign_model is not None else build_assumed_geometry(project)
     signature = _hash(project)
     if dest.exists():
         existing = json.loads(dest.read_text(encoding="utf-8"))
@@ -55,6 +84,8 @@ def load_or_create(project: dict, source_path: str | Path, *, persist=True) -> d
         "project_sha256": signature,
         "geometry_sha256": _hash(expected),
         "geometry": expected,
+        "geometry_origin": ("collector_campaign" if campaign_model is not None
+                            else "collector_profile_generated_for_gui"),
     }
     if persist:
         tmp = dest.with_name(dest.name + ".tmp")
