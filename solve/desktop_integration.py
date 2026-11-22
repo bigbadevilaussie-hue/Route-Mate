@@ -163,6 +163,8 @@ def _solve_one_position(
         "history": outcome.get("history", []),
         "placement_variant": outcome["placement_variant"],
         "placement_report": outcome.get("placement_report", {}),
+        "quality_retry": outcome.get("quality_retry", {}),
+        "selection_metrics": outcome.get("selection_metrics"),
         "attempts_used": outcome["attempts_used"],
         "warnings": routing["warnings"],
     }
