@@ -19,7 +19,7 @@ def sample():
         }]},
         "components": [{
             "id": "C1", "label": "C1", "defId": "def-cap-polarized",
-            "boardPos": {"row": 2, "col": 12}, "rotation": 0,
+            "boardPos": {"row": 2, "col": 12}, "rotation": 0, "locked": True,
         }],
         "componentDefs": [],
         "netAssignments": [],
@@ -79,6 +79,12 @@ class ExplicitClearanceTests(unittest.TestCase):
         del project["physicalClearance"]["complete"]
         with self.assertRaisesRegex(ValueError, "complete=true"):
             wire_keepout_errors(project)
+
+    def test_movable_component_cannot_use_stale_absolute_geometry(self):
+        project = sample()
+        project["components"][0]["locked"] = False
+        with self.assertRaisesRegex(ValueError, "component-relative"):
+            vertical_gap_keepouts(project, 10, 20)
 
     def test_legacy_mode_remains_conservative(self):
         project = sample()
