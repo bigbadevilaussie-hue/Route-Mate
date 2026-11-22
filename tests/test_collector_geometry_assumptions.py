@@ -61,6 +61,7 @@ class CollectorGeometryTests(unittest.TestCase):
         self.assertEqual(obj["pins"][1]["x_mm"], 7.62)
         self.assertEqual(obj["status"], "UNVERIFIED")
         self.assertEqual(obj["body_solids"], [])
+        self.assertEqual(obj["artwork_proxies"][0]["routing_role"], "ADVISORY_ONLY")
         self.assertEqual(result["unverified_count"], 1)
 
     def test_unknown_footprint_stays_unknown(self):
