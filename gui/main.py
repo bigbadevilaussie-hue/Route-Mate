@@ -839,7 +839,48 @@ class RouteMateWindow(QMainWindow):
             "collector profile active for reporting; solver still enforces "
             "legacy artwork and occupied-pad keepouts."
         )
+        # Renderer receives the identical resolved package ID, making a
+        # mis-selected ceramic/electrolytic traceable at import and solve.
+        for entry in model["components"]:
+            package = entry.get("render_package")
+            if package:
+                self.log_line(
+                    f"[CAPACITOR][PACKAGE] {entry['label']}: "
+                    f"renderer={package} collector={entry['profile']} "
+                    f"source={entry.get('package_hint') or 'default'}"
+                )
+                for note in entry.get("notes", []):
+                    if "symbol_with_" in note or "unrecognised_capacitor" in note:
+                        self.log_line(
+                            f"[CAPACITOR][WARNING] {entry['label']}: {note}"
+                        )
         return model
+
+    def _log_assumed_contacts(self, report: dict, *, stage: str):
+        """Nominal proximity warnings, not measured collision verdicts."""
+        contacts = report.get("contact_findings", [])
+        if not contacts:
+            self.log_line(f"[CONTACT][{stage}][ASSUMED_CLEAR] "
+                          "No nominal body/body or foreign-pad contact flagged.")
+            return 0
+        self.log_line(
+            f"[CONTACT][{stage}][ASSUMED_RISK] {len(contacts)} "
+            "nominal body/pad contact(s) marked RED on both board sides. "
+            "Dimensions are ASSUMED, not certified physical collisions."
+        )
+        for issue in contacts[:100]:
+            position = issue.get("pad")
+            detail = (f" pad=({position['row']},{position['col']})"
+                      if position is not None else "")
+            self.log_line(
+                f"[CONTACT][ASSUMED_RISK] {issue['kind']}: "
+                + " / ".join(issue["components"])
+                + f" gap={issue['gap_mm']} mm{detail}"
+            )
+        if len(contacts) > 100:
+            self.log_line(f"[CONTACT] {len(contacts)-100} additional findings "
+                          "remain in sidecar report.")
+        return len(contacts)
 
     def render_json(self):
         """Open a board JSON and display its saved layout without running the pipeline."""
@@ -893,6 +934,9 @@ class RouteMateWindow(QMainWindow):
             self._record_assumed_geometry(project)
             from geometry_sidecar import assess_saved_board, sidecar_path
             geometry_audit = assess_saved_board(project, self._assumed_geometry)
+            contact_count = self._log_assumed_contacts(
+                geometry_audit, stage="RENDER_JSON"
+            )
             self.log_line(f"[2.5D][{geometry_audit['status']}] "
                           f"Profile={geometry_audit['profile']} | "
                           f"source={sidecar_path(path)} | "
@@ -1030,6 +1074,16 @@ class RouteMateWindow(QMainWindow):
                     )
                     self.statusBar().showMessage(
                         f"Rendered JSON: {path.name} — {status}; physical sign-off pending."
+                    )
+                if contact_count and (audit["status"] != "FAIL" or unverified_only):
+                    self._set_board_summary(
+                        f"Electrical {electrical_label} · {contact_count} nominal "
+                        "body/pad contacts marked RED · physical fit UNVERIFIED",
+                        level="neutral",
+                    )
+                    self.statusBar().showMessage(
+                        f"{contact_count} assumed body/pad contacts marked red; "
+                        "inspect Activity and check installed dimensions."
                     )
         except Exception as exc:
             self.log_line(f"[RENDER JSON][ERROR] {type(exc).__name__}: {exc}")
