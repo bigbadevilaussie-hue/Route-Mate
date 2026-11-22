@@ -42,6 +42,15 @@ class AssumedStandardProvenanceTests(unittest.TestCase):
         case["body_solids"][0]["z_min_source"] = "measured"
         self.check_both(case, "FAIL_PROVEN", "body_clearance")
 
+    def test_nominal_lead_conflict_is_not_proven(self):
+        case = self.case(1.5)
+        case["body_solids"] = []
+        case["leads"] = [{
+            "id": "L", "center_mm": [0, 5], "radius_mm": 0.35,
+            "source": "assumed_standard",
+        }]
+        self.check_both(case, "FAIL_UNVERIFIED", "assumed_lead_clearance")
+
     def test_no_mutation(self):
         case = self.case(1.5)
         before = copy.deepcopy(case)
