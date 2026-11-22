@@ -372,11 +372,26 @@ class WorkflowChecklist(QWidget):
         self.percent.setText(f"{round(100 * complete / len(self.STAGES))}%")
 
 
-class SolveWorker(QThread):
-    """Run the shared solver off the Qt event loop; emit only finished results."""
+class StartupSpeedProbe(QThread):
+    """Non-blocking short CPU benchmark; advisory only (not a solver worker)."""
 
     completed = Signal(object)
     crashed = Signal(str)
+
+    def run(self):
+        try:
+            from speed_probe import probe_worker_scaling
+            self.completed.emit(probe_worker_scaling(seconds=1.0))
+        except Exception as exc:
+            self.crashed.emit(str(exc))
+
+
+class SolveWorker(QThread):
+    """Run the shared solver off the Qt event loop; report finished attempts."""
+
+    completed = Signal(object)
+    crashed = Signal(str)
+    attempted = Signal(object)
 
     def __init__(self, project: dict[str, Any], parent=None):
         super().__init__(parent)
@@ -385,7 +400,9 @@ class SolveWorker(QThread):
     def run(self):
         try:
             from solve.desktop_integration import solve_for_display
-            self.completed.emit(solve_for_display(self.project, attempts=24))
+            self.completed.emit(solve_for_display(
+                self.project, attempts=24, progress=self.attempted.emit,
+            ))
         except Exception:
             self.crashed.emit(traceback.format_exc())
 
@@ -404,6 +421,9 @@ class RouteMateWindow(QMainWindow):
         self._copper_svg = None
         self._board_side = "top"
         self._solver_worker = None
+        self._speed_probe_worker = None
+        self._recommended_workers = 1
+        self._solve_attempt_seconds = []
         self._solve_input = None
         self._solved_verified = False
         self._quick_source = None  # Locked pre-route project; never a previously solved layout.
@@ -577,6 +597,12 @@ class RouteMateWindow(QMainWindow):
         self.log_line(f"Route-Mate {GUI_VERSION} — desktop Quick Solve")
         self.log_line("Workflow: Import → Netlist → Footprints → Locks → Quick Solve → Electrical check.")
         self.log_line("Engine: locked placement + routing feedback + independent electrical and grid checks; measured cut access remains unverified.")
+        # Advisory benchmark runs asynchronously, never blocks the startup UI.
+        self.log_line("[SPEED] Calibrating 1–4 worker capacity in the background (advisory only)...")
+        self._speed_probe_worker = StartupSpeedProbe(self)
+        self._speed_probe_worker.completed.connect(self._speed_probe_completed)
+        self._speed_probe_worker.crashed.connect(self._speed_probe_failed)
+        self._speed_probe_worker.start()
 
     def _set_board_summary(self, message: str, *, project: dict | None = None,
                            level: str = "neutral"):
@@ -1075,11 +1101,48 @@ class RouteMateWindow(QMainWindow):
         self.log_line("[QUICK SOLVE] Routing-aware placement with exact locks and edge constraints...")
         self._set_board_summary("Quick Solve in progress · preserving approved locks", project=source, level="working")
         self.statusBar().showMessage("Quick Solve running — the board remains responsive.")
+        self._solve_attempt_seconds = []
         self._solver_worker = SolveWorker(self._solve_input, self)
+        self._solver_worker.attempted.connect(self._solve_attempted)
         self._solver_worker.completed.connect(self._solve_completed)
         self._solver_worker.crashed.connect(self._solve_crashed)
         self._solver_worker.finished.connect(self._solve_finished)
         self._solver_worker.start()
+
+    def _speed_probe_completed(self, report: dict[str, Any]):
+        self._recommended_workers = int(report["recommended_workers"])
+        times = report["timings"]
+        timings = ", ".join(f"{workers}w={seconds:.2f}s" for workers, seconds in times.items())
+        self.log_line(
+            f"[SPEED] Startup mixed-load probe: {timings}; "
+            f"recommended={self._recommended_workers} worker(s). "
+            "Current Quick Solve remains single-worker."
+        )
+        self._speed_probe_worker = None
+
+    def _speed_probe_failed(self, error: str):
+        self.log_line(f"[SPEED][UNAVAILABLE] Startup probe: {error}; solver unaffected.")
+        self._speed_probe_worker = None
+
+    def _solve_attempted(self, attempt: dict[str, Any]):
+        completed = int(attempt["completed"])
+        budget = int(attempt["budget"])
+        seconds = float(attempt["seconds"])
+        self._solve_attempt_seconds.append(seconds)
+        average = sum(self._solve_attempt_seconds) / len(self._solve_attempt_seconds)
+        remaining = max(0, budget - completed)
+        maximum_seconds = round(average * remaining)
+        self.statusBar().showMessage(
+            f"Quick Solve {completed}/{budget} attempts · last {seconds:.1f}s · "
+            f"up to ~{maximum_seconds}s if all remaining attempts run "
+            "(estimate, single worker)."
+        )
+        last = attempt.get("last", {})
+        self.log_line(
+            f"[SOLVE][ATTEMPT {completed}/{budget}] "
+            f"placement={last.get('placement')} routing={last.get('routing')} "
+            f"time={seconds:.2f}s · remaining-budget estimate ~{maximum_seconds}s"
+        )
 
     def _solve_completed(self, outcome: dict[str, Any]):
         """On the GUI thread, accept only a verified board and redraw it."""
@@ -1451,6 +1514,11 @@ class RouteMateWindow(QMainWindow):
         if self._solver_worker is not None and self._solver_worker.isRunning():
             event.ignore()
             self.statusBar().showMessage("A bounded board solve is active; close after it finishes.")
+            return
+        if self._speed_probe_worker is not None and self._speed_probe_worker.isRunning():
+            # A brief active benchmark must exit before Qt destroys its QThread.
+            event.ignore()
+            self.statusBar().showMessage("Startup speed calibration is finishing; close after it completes.")
             return
         event.accept()
 
