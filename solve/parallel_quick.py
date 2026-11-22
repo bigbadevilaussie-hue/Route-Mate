@@ -177,7 +177,7 @@ def solve_parallel_for_display(
     for result in verified:
         signatures.update(result.get("solution_signatures") or
                           [solution_signature(result["project"])])
-        ranked.append((candidate_quality(result["project"])["rank"], result))
+        ranked.append((candidate_quality(result["project"], audit_report=result.get("physical_audit"))["rank"], result))
     portfolio = {
         "workers": len(plan), "attempts_budget": attempts,
         "attempts_used": total_used, "target": 2,
