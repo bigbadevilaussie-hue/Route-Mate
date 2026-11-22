@@ -10,7 +10,7 @@ import copy
 import hashlib
 from bisect import bisect_left
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 from placement_policy import is_off_board_component
 from board_geometry import BUILTIN_DEFS, BoardGrid, component_geometry, resolve_definition
@@ -201,12 +201,22 @@ def _new_wire_id(existing: list[dict], serial: int) -> tuple[str, int]:
 
 def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool = False,
                  route_order: str = "alphabetical", quick_backtracks: int = 0,
-                 _quick_attempt: int = 0) -> dict[str, Any]:
+                 _quick_attempt: int = 0,
+                 cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
     """Add cuts and jumpers to a placed project, then run the independent verifier.
 
     Existing cuts and wires are preserved. The source project is never mutated.
     Returns ROUTED only when solve.verify.verify_project reports PASS.\n    vertical_only requires every new jumper to share a column; it is not\n    a substitute for physical clearance or accessibility verification.
     """
+    def cancelled_output():
+        return {
+            "status": "CANCELLED", "project": copy.deepcopy(project),
+            "errors": ["Quick Solve stopped by user."], "warnings": [],
+            "cuts_added": 0, "wires_added": 0, "verification": None,
+        }
+
+    if cancelled is not None and cancelled():
+        return cancelled_output()
     if quick_backtracks < 0 or quick_backtracks > 32:
         raise ValueError("quick_backtracks must be between 0 and 32")
     if quick_backtracks and not quick_mode:
@@ -217,10 +227,15 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
         # another deterministic route ordering and endpoint preference.
         attempts = []
         for trial in range(quick_backtracks + 1):
+            if cancelled is not None and cancelled():
+                return cancelled_output()
             outcome = route_copper(
                 project, vertical_only=vertical_only, quick_mode=True,
                 route_order=route_order, _quick_attempt=trial,
+                cancelled=cancelled,
             )
+            if outcome["status"] == "CANCELLED":
+                return outcome
             attempts.append({
                 "trial": trial, "status": outcome["status"],
                 "error": (outcome.get("errors") or [None])[0],
@@ -542,6 +557,8 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
     # Reserve a bridge for one net only; never reuse it for another net.
     reserved_bridges: set[tuple[int, int]] = set()
     for net in net_order:
+        if cancelled is not None and cancelled():
+            return cancelled_output()
         roots = net_roots[net]
         if len(roots) < 2:
             continue
@@ -553,6 +570,8 @@ def route_copper(project: Any, *, vertical_only: bool = False, quick_mode: bool 
         }
         remaining = set(roots[1:])
         while remaining:
+            if cancelled is not None and cancelled():
+                return cancelled_output()
             best_choice = None
             for root in sorted(remaining):
                 candidate = nearest_link(connected_rows, holes_by_root[root])
