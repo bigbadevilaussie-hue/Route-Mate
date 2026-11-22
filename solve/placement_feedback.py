@@ -297,7 +297,6 @@ def solve_with_feedback(
             # Already meets the quality and contact limits; no extra work.
             # An improved verified candidate can also end the retry early.
             if not needs_improvement or improvement_attempts == 0:
-                verified_best = selection if not needs_improvement else verified_best
                 break
             continue
 
