@@ -23,6 +23,7 @@ def _solve_one_position(
     body_spacing_holes: int = 1,
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    variant_offset: int = 0, solutions_target: int = 1,
 ) -> dict[str, Any]:
     """Return verified solved board plus stage-adapter-compatible reports.
 
@@ -32,11 +33,16 @@ def _solve_one_position(
     rather than deleting them.
     """
     source = copy.deepcopy(project)
+    extras = {}
+    if variant_offset:
+        extras["variant_offset"] = variant_offset
+    if solutions_target != 1:
+        extras["solutions_target"] = solutions_target
     outcome = solve_with_feedback(
         source, attempts=attempts, clearance=clearance,
         body_spacing_holes=body_spacing_holes,
         quick_backtracks=0, router="hole_graph", progress=progress,
-        cancelled=cancelled,
+        cancelled=cancelled, **extras,
     )
     if outcome["status"] != "ROUTED" or not isinstance(outcome.get("project"), dict):
         return {
@@ -165,6 +171,9 @@ def _solve_one_position(
         "placement_report": outcome.get("placement_report", {}),
         "attempts_used": outcome["attempts_used"],
         "warnings": routing["warnings"],
+        "solutions_found": outcome.get("solutions_found", 1),
+        "solution_signatures": outcome.get("solution_signatures", []),
+        "quality_selection": outcome.get("quality_selection"),
     }
 
 
@@ -174,6 +183,7 @@ def solve_for_display(
     body_spacing_holes: int = 1,
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    variant_offset: int = 0, solutions_target: int = 1,
 ) -> dict[str, Any]:
     """GUI solve: try all Edge+Slide positions, stopping at first verified fit.
 
@@ -212,11 +222,16 @@ def solve_for_display(
             "status": "CONSTRAINT_CONFLICT", "project": None,
             "attempts_used": 0, "history": [], "errors": [str(exc)],
         }
+    extras = {}
+    if variant_offset:
+        extras["variant_offset"] = variant_offset
+    if solutions_target != 1:
+        extras["solutions_target"] = solutions_target
     if not sliders:
         return _solve_one_position(
             project, attempts=attempts, clearance=clearance,
             body_spacing_holes=body_spacing_holes,
-            progress=progress, cancelled=cancelled,
+            progress=progress, cancelled=cancelled, **extras,
         )
 
     total = prod(len(s["positions"]) for s in sliders)
@@ -292,7 +307,7 @@ def solve_for_display(
         result = _solve_one_position(
             trial, attempts=attempts, clearance=clearance,
             body_spacing_holes=body_spacing_holes,
-            progress=variant_progress, cancelled=cancelled,
+            progress=variant_progress, cancelled=cancelled, **extras,
         )
         variants_checked += result.get("attempts_used", len(result.get("history") or []))
         if result["status"] == "CANCELLED" or was_cancelled():
