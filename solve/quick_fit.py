@@ -56,6 +56,30 @@ def _local_variant(component: dict, definition: dict, rotation: int):
     return cells, pins, min_r, min_c, height, width
 
 
+def edge_side(component: dict, definition: dict, rows: int, cols: int) -> str:
+    """Select the original edge for a sliding lock, even from an interior hint.
+
+    Existing edge contact wins. Otherwise choose the nearest board boundary
+    to the saved physical footprint; ties follow top, bottom, left, right.
+    """
+    if not isinstance(component.get("boardPos"), dict):
+        raise ValueError("sliding anchor has no board position")
+    pins, body = component_geometry(component, definition)
+    cells = [(int(p["row"]), int(p["col"])) for p in pins]
+    cells.extend((int(r), int(c)) for r, c in body)
+    if not cells:
+        raise ValueError("sliding anchor has no footprint cells")
+    rr = [r for r, _ in cells]
+    cc = [c for _, c in cells]
+    distances = (
+        ("top", abs(min(rr))),
+        ("bottom", abs(rows - 1 - max(rr))),
+        ("left", abs(min(cc))),
+        ("right", abs(cols - 1 - max(cc))),
+    )
+    return min(distances, key=lambda pair: pair[1])[0]
+
+
 def _failure(status: str, project: dict, errors: list[str]) -> dict[str, Any]:
     return {
         "status": status, "project": project, "errors": errors, "warnings": [],
@@ -163,14 +187,6 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                 not (0 <= r < rows and 0 <= c < cols) for r, c in cells
             ):
                 errors.append(f"{label}: locked footprint has pads/body outside the board")
-                continue
-            if component.get("edge") and not (
-                min(r for r, c in cells) <= 0
-                or max(r for r, c in cells) >= rows - 1
-                or min(c for r, c in cells) <= 0
-                or max(c for r, c in cells) >= cols - 1
-            ):
-                errors.append(f"{label}: fixed edge anchor does not touch any board edge")
                 continue
             cells = {(r, c) for r, c in cells if 0 <= r < rows and 0 <= c < cols}
             if occupied.intersection(cells):
@@ -571,24 +587,10 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
             continue
         slide_side = None
         if component.get("locked") and component.get("slide") and component.get("edge"):
-            pos = component["boardPos"]
-            rotation = int(component.get("rotation", 0) or 0) % 360
             try:
-                cells, _pins, _r, _c, _h, _w = _local_variant(component, definition, rotation)
-                rr = [int(pos["row"]) + r for r, _ in cells]
-                cc = [int(pos["col"]) + c for _, c in cells]
-                if min(rr) == 0:
-                    slide_side = "top"
-                elif max(rr) == rows - 1:
-                    slide_side = "bottom"
-                elif min(cc) == 0:
-                    slide_side = "left"
-                elif max(cc) == cols - 1:
-                    slide_side = "right"
-            except (KeyError, ValueError, TypeError):
-                pass
-            if slide_side is None:
-                geometry_errors.append(f"{label}: sliding anchor must already touch a board edge")
+                slide_side = edge_side(component, definition, rows, cols)
+            except (KeyError, ValueError, TypeError) as exc:
+                geometry_errors.append(f"{label}: invalid sliding anchor: {exc}")
                 continue
         # Already-positioned absolute locks remain fixed obstacles.
         if component.get("locked") is True and not (
