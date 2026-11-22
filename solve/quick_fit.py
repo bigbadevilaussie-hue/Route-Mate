@@ -429,25 +429,10 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                     cells = {(origin_r + r, origin_c + c) for r, c in shape}
                     if blocked.intersection(cells):
                         continue
-                    # One free hole defaults to one grid pitch of nominal
-                    # body separation. Lock anchors remain unchanged, and a
-                    # compact retry remains available when spacing cannot fit.
-                    body = None
-                    spacing_penalty = 0
-                    if body_gap_mm:
-                        body = (_nominal_shift(
-                            local_body, origin_r, origin_c, PITCH_MM
-                        ) if local_body is not None else None)
-                        candidate_pins = [{
-                            "row": origin_r + int(p["row"]),
-                            "col": origin_c + int(p["col"]),
-                        } for p in local_pins]
-                        # Nominal bodies affect preference only, not net
-                        # legality. Compact fallback pays no geometry cost.
-                        spacing_penalty = int(_nominal_body_rejects(
-                            body, candidate_pins, nominal_bodies, nominal_pins,
-                            body_gap_mm, pad_margin_mm, PITCH_MM,
-                        ))
+                    # Delay nominal body checks until a candidate is capable
+                    # of beating the current best *even with zero penalty*.
+                    # Most hole/rotation candidates then avoid expensive 2.5D
+                    # shape comparisons entirely.
                     corridor_cost = sum(1 for r, _ in cells if r in corridor_rows)
                     pins = [{
                         "id": str(p.get("id", "")),
@@ -501,18 +486,52 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                     # same-row pins may share copper; same-column pins admit a
                     # direct vertical jumper (subject to subsequent clearance).
                     # Keep clearance and different-net adjacency as hard checks.
-                    topology_score = (-same_strip_links, -shared_column_links,
-                                      spacing_penalty, candidate_net_score,
-                                      routing_cost, compact)
-                    score = (
-                        (routing_cost, topology_score) if placement_variant == 1
-                        else (corridor_cost, topology_score) if placement_variant == 100
-                        else topology_score,
+                    tie_score = (
                         abs(centre_r2 - (rows - 1)) + abs(centre_c2 - (cols - 1)),
                         (_variant_rank(placement_variant, item["id"], top, left, rotation)
                          if placement_variant >= 2 else top),
                         left, rotation_index,
                     )
+                    optimistic_topology = (
+                        -same_strip_links, -shared_column_links, 0,
+                        candidate_net_score, routing_cost, compact,
+                    )
+                    optimistic_score = (
+                        (routing_cost, optimistic_topology) if placement_variant == 1
+                        else (corridor_cost, optimistic_topology)
+                        if placement_variant == 100 else optimistic_topology,
+                        *tie_score,
+                    )
+                    if found is not None and optimistic_score >= found["score"]:
+                        continue
+                    body = None
+                    spacing_penalty = 0
+                    if body_gap_mm:
+                        body = (_nominal_shift(
+                            local_body, origin_r, origin_c, PITCH_MM
+                        ) if local_body is not None else None)
+                        candidate_pins = [{
+                            "row": origin_r + int(p["row"]),
+                            "col": origin_c + int(p["col"]),
+                        } for p in local_pins]
+                        spacing_penalty = int(_nominal_body_rejects(
+                            body, candidate_pins, nominal_bodies, nominal_pins,
+                            body_gap_mm, pad_margin_mm, PITCH_MM,
+                        ))
+                    if spacing_penalty:
+                        actual_topology = (
+                            -same_strip_links, -shared_column_links,
+                            spacing_penalty, candidate_net_score,
+                            routing_cost, compact,
+                        )
+                        score = (
+                            (routing_cost, actual_topology) if placement_variant == 1
+                            else (corridor_cost, actual_topology)
+                            if placement_variant == 100 else actual_topology,
+                            *tie_score,
+                        )
+                    else:
+                        score = optimistic_score
                     if found is None or score < found["score"]:
                         found = {
                             "score": score, "row": origin_r, "col": origin_c,
