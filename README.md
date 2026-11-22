@@ -17,7 +17,7 @@ Route-Mate uses Karl's Circuit Designer exports as input. The schematic editor s
 
 ## Current development status (2026-11-21)
 
-- **Version:** `1.36` (`VERSION` file). PRE-SOLVE topology analysis was committed in `81d94cb`; its ESP32 regression test in `2a6b46e`; Quick Fit hint-based scoring in `84879d8`; version bump in `7113b7b`.
+- **Version:** `1.39` (`VERSION` file). Capacitor collector/render parity, nominal red body/pad contact diagnostics, and optional extra-room retry recommendation are included. Physical clearance remains uncertified.
 - **Validation:** user-reported local iMac run: `python3 -m unittest discover -s tests -p "test_*.py" -v` — **213 tests, OK**, 7.545 seconds. This is not a CI verification or proof of physical buildability. The default `python3 -m unittest discover -v` found zero tests; explicitly specify `-s tests`.
 - **Moto ESP32:** the custom 6×9 footprint has 18 pins in two columns and 36 interior body cells. PRE-SOLVE detects its dual-row topology and reports four body-obstructed vertical jumper columns at 0°. This is generic footprint analysis, not a special-case rotation ban.
 - **Still missing:** Quick Fit hints are soft scoring only. The router does not yet guarantee whole-path top-side jumper/body clearance, alternative legal routing or independent physical PASS. Under-board copper and top-side jumper geometry must remain distinct. Unknown measured package envelopes and access dimensions cannot be inferred from logical body cells.
