@@ -15,6 +15,8 @@ jobs:
           python-version: '3.13'
       - name: Multicore portfolio and two-candidate regression
         run: python -m unittest discover -s tests -p 'test_parallel_quick.py' -v
+      - name: Prove three separate Quick Solve processes
+        run: python tools/smoke_process_pool.py
       - name: Placement-feedback regression
         run: python -m unittest discover -s tests -p 'test_placement_feedback.py' -v
       - name: Karl AUDIO hole-graph regression
