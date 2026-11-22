@@ -6604,13 +6604,7 @@
   "board": {
     "rows": 99,
     "cols": 500,
-    "cuts": [
-      {
-        "row": 13,
-        "col": 49,
-        "kind": "between"
-      }
-    ],
+    "cuts": [],
     "wires": [],
     "lockedRows": true,
     "lockedCols": false
