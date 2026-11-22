@@ -45,6 +45,48 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertEqual(result["physical_audit"]["status"], "PASS")
         self.assertGreater(len(result["project"]["board"]["wires"]), 0)
 
+    def test_locked_component_displacement_is_rejected_before_auditing(self):
+        original = {
+            "board": {"rows": 6, "cols": 8, "cuts": [], "wires": []},
+            "componentDefs": [{"id": "pad", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "FIX", "defId": "pad",
+                            "locked": True, "boardPos": {"row": 2, "col": 3},
+                            "rotation": 0}],
+            "netAssignments": [],
+        }
+        moved = copy.deepcopy(original)
+        moved["components"][0]["boardPos"]["col"] = 4
+        result = {"status": "ROUTED", "project": moved,
+                  "placement_variant": 0, "attempts_used": 1}
+        with patch("solve.desktop_integration.solve_with_feedback", return_value=result):
+            outcome = solve_for_display(original, attempts=1)
+        self.assertEqual(outcome["status"], "LOCK_CONSTRAINT_FAILED")
+        self.assertIsNone(outcome["project"])
+        self.assertIn("changed board position", outcome["errors"][0])
+
+    def test_locked_real_moto_layout_can_route_again_without_moving_parts(self):
+        original = json.loads((ROOT / "benchmarks/moto/moto.json").read_text())
+        placed = solve_for_display(original, attempts=8)
+        self.assertEqual(placed["status"], "ROUTED", placed.get("errors"))
+        fixed = copy.deepcopy(placed["project"])
+        fixed["board"]["cuts"] = []
+        fixed["board"]["wires"] = []
+        for part in fixed["components"]:
+            if isinstance(part.get("boardPos"), dict) and not part.get("offBoard"):
+                part["locked"] = True
+        saved = copy.deepcopy(fixed)
+        routed = solve_for_display(fixed, attempts=2)
+        self.assertEqual(routed["status"], "ROUTED", routed.get("errors"))
+        self.assertEqual(routed["verification"]["status"], "PASS")
+        self.assertEqual(fixed, saved)
+        for before, after in zip(saved["components"], routed["project"]["components"]):
+            if before.get("locked"):
+                self.assertEqual(after["boardPos"], before["boardPos"])
+                self.assertEqual(after.get("rotation"), before.get("rotation"))
+        self.assertEqual(routed["grid_audit"]["status"], "GRID_CLEARANCE_ONLY")
+
     def test_failed_solve_is_never_returned_as_displayable_board(self):
         source = {"board": {"rows": 2, "cols": 3}, "components": []}
         outcome = {"status": "ROUTING_FAILED", "project": None,
