@@ -204,6 +204,7 @@ class LockDialog(QDialog):
         self.locked.toggled.connect(self._update_constraint_controls)
         self.unlocked.toggled.connect(self._update_constraint_controls)
         self.edge.toggled.connect(self._update_constraint_controls)
+        self.slide.toggled.connect(self._update_constraint_controls)
         layout.addWidget(self.locked)
         layout.addWidget(self.unlocked)
         layout.addWidget(self.edge)
@@ -211,6 +212,15 @@ class LockDialog(QDialog):
         hint = QLabel("Fixed = exact position. Edge + Slide = may move only along the same edge.\nMovable = auto-place while keeping all electrical connections.")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+        self.search_notice = QLabel(
+            "Edge+Slide can take much longer: up to 24 Quick Solve "
+            "attempts at each legal position, stopping at the first verified route."
+        )
+        self.search_notice.setWordWrap(True)
+        self.search_notice.setStyleSheet(
+            "color: #92400e; font-size: 12px; font-weight: 600;"
+        )
+        layout.addWidget(self.search_notice)
         self._update_constraint_controls()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -221,6 +231,9 @@ class LockDialog(QDialog):
         keep = self.locked.isChecked()
         self.edge.setEnabled(keep)
         self.slide.setEnabled(keep and self.edge.isChecked())
+        self.search_notice.setVisible(
+            keep and self.edge.isChecked() and self.slide.isChecked()
+        )
         if not (keep and self.edge.isChecked()):
             self.slide.setChecked(False)
 
@@ -353,6 +366,19 @@ class WorkflowChecklist(QWidget):
             row.addWidget(label, 1)
             layout.addLayout(row)
             self.rows[key] = mark
+        self.lock_summary = QLabel("Fixed locked: 0   |   Edge locked: 0   |   Edge+Slide: 0")
+        self.lock_summary.setWordWrap(True)
+        self.lock_summary.setStyleSheet(
+            "font-size: 11px; font-weight: 600; color: #24476b;"
+        )
+        layout.addWidget(self.lock_summary)
+        self.lock_warning = QLabel("")
+        self.lock_warning.setWordWrap(True)
+        self.lock_warning.setStyleSheet(
+            "font-size: 11px; font-weight: 700; color: #92400e;"
+        )
+        self.lock_warning.hide()
+        layout.addWidget(self.lock_warning)
         note = QLabel("Electrical completion ≠ build-ready physical clearance")
         note.setWordWrap(True)
         note.setStyleSheet("font-size: 10px; color: #697586;")
@@ -361,6 +387,32 @@ class WorkflowChecklist(QWidget):
 
     def reset(self):
         self.update_states({})
+        self.set_lock_summary(0, 0, 0)
+
+    def set_lock_summary(self, fixed: int, edge: int, slide: int,
+                         positions: int | None = None, attempts: int = 24):
+        self.lock_summary.setText(
+            f"Fixed locked: {fixed}   |   Edge locked: {edge}   |   Edge+Slide: {slide}"
+        )
+        if slide:
+            detail = (
+                f"{positions} positions × {attempts} attempts = "
+                f"up to {positions * attempts:,} solves"
+                if positions is not None else
+                f"up to {attempts} solves per legal edge position"
+            )
+            self.lock_warning.setText(
+                f"Edge+Slide detected — Quick Solve will take much longer. "
+                f"{detail}. Stops at first verified route."
+            )
+            self.lock_warning.show()
+        elif edge:
+            self.lock_warning.setText(
+                "Edge lock detected — placement is constrained to the board edge."
+            )
+            self.lock_warning.show()
+        else:
+            self.lock_warning.hide()
 
     def update_states(self, states):
         complete = 0
@@ -1085,6 +1137,33 @@ class RouteMateWindow(QMainWindow):
             self._record_pipeline_result(stage_result, findings)
         return result.returncode == 0
 
+    def _update_lock_summary(self, project: dict | None = None):
+        """Show real fixed/edge/slide counts in the on-screen checklist."""
+        from placement_policy import is_off_board_component
+
+        source = project if project is not None else self.project
+        parts = [
+            p for p in (source or {}).get("components", [])
+            if isinstance(p, dict) and not is_off_board_component(p)
+        ]
+        fixed = sum(p.get("locked") is True and not p.get("edge", False)
+                    for p in parts)
+        edge = sum(p.get("locked") is True and p.get("edge") is True
+                   for p in parts)
+        slide = sum(p.get("locked") is True and p.get("edge") is True
+                    and p.get("slide") is True for p in parts)
+        positions = None
+        if slide:
+            try:
+                from math import prod
+                from solve.slide_fit import edge_slide_positions
+                positions = prod(len(item["positions"])
+                                 for item in edge_slide_positions(source))
+            except (ValueError, KeyError, TypeError) as exc:
+                self.log_line(f"[EDGE+SLIDE][WARNING] Cannot count positions: {exc}")
+        self.checklist.set_lock_summary(fixed, edge, slide, positions=positions)
+        return fixed, edge, slide, positions
+
     def _ask_lock_settings(self, placed: list[dict[str, Any]]):
         """Review positioned components one at a time with board highlighting."""
         self.presolve_constraints = {}
@@ -1131,11 +1210,23 @@ class RouteMateWindow(QMainWindow):
                     component["edge"] = bool(values["edge"])
                     component["slide"] = bool(values["slide"])
 
+                self._update_lock_summary(self.project)
                 preview, renderer_log = self._render_component_side(self.project)
                 self._show_board(preview)
                 if renderer_log:
                     self.log_line("[RENDER] " + renderer_log)
 
+        fixed, edge, slide, positions = self._update_lock_summary(self.project)
+        if slide:
+            self.log_line(
+                f"[EDGE+SLIDE][WARNING] Quick Solve will take much longer: "
+                f"{positions} positions × 24 attempts = "
+                f"up to {positions * 24:,} solves. "
+                "Stops at first independently verified route."
+                if positions is not None else
+                "[EDGE+SLIDE][WARNING] Quick Solve will take much longer: "
+                "up to 24 attempts per legal position."
+            )
         self.log_line(
             f"[LOCKS] {sum(v['locked'] for v in self.presolve_constraints.values())} fixed/edge anchors; "
             f"{sum(v['reposition'] for v in self.presolve_constraints.values())} movable parts."
@@ -1267,6 +1358,7 @@ class RouteMateWindow(QMainWindow):
             return
 
         self._quick_source = copy.deepcopy(source)
+        self._update_lock_summary(source)
         self._solve_input = copy.deepcopy(source)
         self._stop_requested = False
         self._solved_verified = False
@@ -1324,6 +1416,27 @@ class RouteMateWindow(QMainWindow):
     def _solve_attempted(self, attempt: dict[str, Any]):
         if self._stop_requested:
             return
+        if attempt.get("mode") == "edge_slide_variant":
+            completed = int(attempt["completed"])
+            budget = int(attempt["budget"])
+            slot = int(attempt["position_index"])
+            total = int(attempt["positions_total"])
+            variant = int(attempt["variant_index"])
+            per_position = int(attempt["variants_per_position"])
+            last = attempt.get("last", {})
+            self.statusBar().showMessage(
+                f"Edge+Slide position {slot}/{total}, "
+                f"Quick Solve attempt {variant}/{per_position}; "
+                f"up to {budget:,} total attempts, stops on verified success."
+            )
+            self.log_line(
+                f"[EDGE+SLIDE][POSITION {slot}/{total}][ATTEMPT "
+                f"{variant}/{per_position}] "
+                f"placement={last.get('placement')} "
+                f"routing={last.get('routing')} "
+                f"time={float(attempt['seconds']):.2f}s"
+            )
+            return
         completed = int(attempt["completed"])
         budget = int(attempt["budget"])
         seconds = float(attempt["seconds"])
@@ -1343,6 +1456,7 @@ class RouteMateWindow(QMainWindow):
                 f"{last.get('slide_positions')} | "
                 f"placement={last.get('placement')} routing={last.get('routing')} "
                 f"time={seconds:.2f}s"
+                f" | variants={attempt.get('last', {}).get('variants_checked')}/24"
             )
             self.statusBar().showMessage(
                 f"Edge+Slide {completed}/{budget} positions checked · "
@@ -1380,6 +1494,9 @@ class RouteMateWindow(QMainWindow):
                 f"[EDGE+SLIDE] {slide_search['components']} | "
                 f"checked {slide_search['positions_checked']}/"
                 f"{slide_search['positions_total']} position(s)"
+                + (f" | placement attempts={slide_search['variants_checked']}/"
+                   f"{slide_search['variants_budget']}"
+                   if 'variants_budget' in slide_search else "")
                 + (f" | selected={slide_search['selected']}"
                    if slide_search.get("selected") else "")
             )
