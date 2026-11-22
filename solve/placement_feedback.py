@@ -27,6 +27,7 @@ def solve_with_feedback(
     hole_iterations: int = 24,
     hole_expansion_budget: int = 600000,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Try diversified placements and route each one.
 
@@ -95,6 +96,13 @@ def solve_with_feedback(
     best: dict[str, Any] | None = None
     best_rank: tuple[int, int, int] | None = None
 
+    def stopped():
+        return {
+            "status": "CANCELLED", "project": None,
+            "attempts_used": len(history), "history": history,
+            "errors": ["Quick Solve stopped by user."],
+        }
+
     # Report completed attempts; never present these as guaranteed ETA.
     def report_progress(started: float) -> None:
         if progress is not None:
@@ -106,6 +114,8 @@ def solve_with_feedback(
             })
 
     for variant in range(attempts):
+        if cancelled is not None and cancelled():
+            return stopped()
         attempt_started = perf_counter()
         if repairs:
             previous, target = repairs.pop(0)
@@ -113,6 +123,8 @@ def solve_with_feedback(
             fit = {"status": "PLACED", "project": repaired} if repaired else {"status": "NO_FIT_FOUND", "errors": ["relocation failed"]}
         else:
             fit = quick_fit(project, clearance=clearance, placement_variant=variant)
+        if cancelled is not None and cancelled():
+            return stopped()
         if fit["status"] != "PLACED":
             history.append({
                 "variant": variant, "placement": fit["status"],
@@ -139,6 +151,7 @@ def solve_with_feedback(
             routed = route_holes(
                 candidate, iterations=hole_iterations,
                 expansion_budget=hole_expansion_budget,
+                cancelled=cancelled,
             )
         else:
             # Never discard existing manual cuts or wires.
@@ -146,6 +159,10 @@ def solve_with_feedback(
                 candidate, quick_mode=True, vertical_only=False,
                 route_order=route_order, quick_backtracks=quick_backtracks,
             )
+        if routed["status"] == "CANCELLED" or (
+            cancelled is not None and cancelled()
+        ):
+            return stopped()
         passed = (routed["status"] == "ROUTED"
                   and (routed.get("verification") or {}).get("status") == "PASS")
         history.append({
