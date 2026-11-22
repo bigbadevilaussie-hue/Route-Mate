@@ -17,6 +17,55 @@ from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
 from placement_policy import is_off_board_component
 
 
+
+def _physical_contract(project: dict) -> dict | None:
+    """Use 2.5D geometry only when dimensions are explicitly declared complete."""
+    config = project.get("physicalClearance")
+    if config is None:
+        return None
+    if not isinstance(config, dict) or config.get("complete") is not True:
+        raise ValueError("physicalClearance requires an explicit complete=true declaration")
+    if not isinstance(config.get("settings"), dict):
+        raise ValueError("physicalClearance.settings must specify physical dimensions in mm")
+    for name in ("body_solids", "leads"):
+        if not isinstance(config.get(name), list):
+            raise ValueError(f"physicalClearance.{name} must be a list (explicitly empty if none)")
+    return config
+
+
+def _physical_gap_keepouts(project: dict, rows: int, cols: int, config: dict
+                          ) -> dict[tuple[int, int], set[str]]:
+    """Router 2.5D body-gap policy; explicit physical metadata only.
+
+    A gap is an elementary edge, not a jumper landing. Lead and pad access
+    are checked separately by the router's terminal graph and full-wire audit.
+    CONDITIONAL remains blocked pending a separately designed conditional
+    solve/report mode.
+    """
+    from .clearance_25d import classify_jumper
+    bad: dict[tuple[int, int], set[str]] = defaultdict(set)
+    for col in range(cols):
+        for row in range(rows - 1):
+            case = {
+                "jumper": {
+                    "from_mm": [2.54 * col, 2.54 * row],
+                    "to_mm": [2.54 * col, 2.54 * (row + 1)],
+                },
+                "settings": config["settings"],
+                "body_solids": config["body_solids"],
+                "leads": [],  # Endpoint/lead legality must use full jumper endpoints.
+                "thermal_zones": config.get("thermal_zones", []),
+            }
+            verdict = classify_jumper(case)
+            if verdict["verdict"] != "PASS":
+                bad[(row, col)].update(
+                    finding["item"] or finding["reason"]
+                    for finding in verdict["findings"]
+                )
+    return bad
+
+
+
 def component_keepouts(project: dict) -> list[dict[str, Any]]:
     """Collect occupancy squares and artwork-envelope shapes for each component."""
     definitions = dict(BUILTIN_DEFS)
@@ -101,6 +150,9 @@ def _hits_gap(shape: dict, row: int, col: int) -> bool:
 
 def vertical_gap_keepouts(project: dict, rows: int, cols: int) -> dict[tuple[int, int], set[str]]:
     """Map forbidden (row above gap, column) to obstructing component labels."""
+    physical = _physical_contract(project)
+    if physical is not None:
+        return _physical_gap_keepouts(project, rows, cols, physical)
     bad: dict[tuple[int, int], set[str]] = defaultdict(set)
     shapes = component_keepouts(project)
     for shape in shapes:
@@ -115,7 +167,8 @@ def wire_keepout_errors(project: dict) -> list[str]:
     """Reject routed wire centreline intersections with any component artwork."""
     board = project["board"]
     rows, cols = int(board["rows"]), int(board["cols"])
-    forbidden = vertical_gap_keepouts(project, rows, cols)
+    physical = _physical_contract(project)
+    forbidden = {} if physical is not None else vertical_gap_keepouts(project, rows, cols)
     definitions = dict(BUILTIN_DEFS)
     definitions.update({
         str(d["id"]): d for d in project.get("componentDefs", [])
@@ -149,14 +202,35 @@ def wire_keepout_errors(project: dict) -> list[str]:
             continue
         if c0 != c1 or r0 == r1:
             continue  # Other geometric invalidities handled by quick_audit.
-        hit = set()
-        for r in range(min(r0, r1), max(r0, r1)):
-            hit.update(forbidden.get((r, c0), ()))
-        if hit:
-            errors.append(
-                f"{wire.get('id', i)}: jumper crosses component artwork/keepout: "
-                + ", ".join(sorted(hit))
-            )
+        if physical is not None:
+            from .clearance_25d import classify_jumper
+            case = {
+                "jumper": {
+                    "from_mm": [c0 * 2.54, r0 * 2.54],
+                    "to_mm": [c1 * 2.54, r1 * 2.54],
+                },
+                "settings": physical["settings"],
+                "body_solids": physical["body_solids"],
+                "leads": physical["leads"],
+                "thermal_zones": physical.get("thermal_zones", []),
+            }
+            result = classify_jumper(case)
+            for finding in result["findings"]:
+                # Do not certify user-declared clearance as unconditional PASS.
+                if finding["verdict"] != "PASS":
+                    errors.append(
+                        f"{wire.get('id', i)}: {finding['verdict']}: "
+                        f"{finding['reason']}: {finding['item']}"
+                    )
+        else:
+            hit = set()
+            for r in range(min(r0, r1), max(r0, r1)):
+                hit.update(forbidden.get((r, c0), ()))
+            if hit:
+                errors.append(
+                    f"{wire.get('id', i)}: jumper crosses component artwork/keepout: "
+                    + ", ".join(sorted(hit))
+                )
         intermediate_pins = set()
         for row in range(min(r0, r1) + 1, max(r0, r1)):
             intermediate_pins.update(pin_holes.get((row, c0), ()))
