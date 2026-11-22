@@ -21,6 +21,7 @@ def _solve_one_position(
     project: dict[str, Any], *, attempts: int = 24,
     clearance: int = 1,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Return verified solved board plus stage-adapter-compatible reports.
 
@@ -33,6 +34,7 @@ def _solve_one_position(
     outcome = solve_with_feedback(
         source, attempts=attempts, clearance=clearance,
         quick_backtracks=0, router="hole_graph", progress=progress,
+        cancelled=cancelled,
     )
     if outcome["status"] != "ROUTED" or not isinstance(outcome.get("project"), dict):
         return {
@@ -163,6 +165,7 @@ def solve_for_display(
     project: dict[str, Any], *, attempts: int = 24,
     clearance: int = 1,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """GUI solve: try all Edge+Slide positions, stopping at first verified fit.
 
@@ -175,6 +178,25 @@ def solve_for_display(
     from time import perf_counter
     from .slide_fit import edge_slide_positions
 
+    def was_cancelled():
+        return cancelled is not None and cancelled()
+
+    def stopped(checked: int, total: int | None = None, summary: str = ""):
+        output = {
+            "status": "CANCELLED", "project": None,
+            "attempts_used": checked, "history": [],
+            "errors": ["Quick Solve stopped by user."],
+        }
+        if total is not None:
+            output["slide_search"] = {
+                "components": summary, "positions_checked": checked,
+                "positions_total": total,
+            }
+        return output
+
+    if was_cancelled():
+        return stopped(0)
+
     try:
         sliders = edge_slide_positions(project)
     except (KeyError, TypeError, ValueError) as exc:
@@ -185,6 +207,7 @@ def solve_for_display(
     if not sliders:
         return _solve_one_position(
             project, attempts=attempts, clearance=clearance, progress=progress,
+            cancelled=cancelled,
         )
 
     total = prod(len(s["positions"]) for s in sliders)
@@ -206,6 +229,10 @@ def solve_for_display(
     placements_fitted = 0
     last_detail = None
     for index, combo in enumerate(product(*(s["positions"] for s in sliders)), 1):
+        if was_cancelled():
+            response = stopped(index - 1, total, summary)
+            response["history"] = history
+            return response
         started = perf_counter()
         trial = copy.deepcopy(project)
         by_id = {
@@ -234,7 +261,13 @@ def solve_for_display(
 
         # One complete placement-and-routing check per edge combination.
         # The original project and its lock metadata are never mutated.
-        result = _solve_one_position(trial, attempts=1, clearance=clearance)
+        result = _solve_one_position(
+            trial, attempts=1, clearance=clearance, cancelled=cancelled,
+        )
+        if result["status"] == "CANCELLED" or was_cancelled():
+            response = stopped(index - 1, total, summary)
+            response["history"] = history
+            return response
         sub = result.get("history") or []
         detail = sub[-1] if sub else {}
         fit = detail.get("placement", result["status"])
