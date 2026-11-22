@@ -256,7 +256,14 @@ def solve_with_feedback(
             else:
                 history[-1]["independent_recheck"] = "FAILED"
             if len(verified_results) >= solutions_target:
-                break
+                # Even after two verified layouts, spend the remaining
+                # *existing* budget if the best still has poor provisional
+                # quality or too many assumed body-contact warnings.
+                best_quality = min(verified_results,
+                                   key=lambda entry: entry[1]["rank"])[1]
+                if (float(best_quality.get("provisional_score", 0)) >= 40.0
+                        and int(best_quality.get("nominal_contacts", 1000000)) <= 1):
+                    break
 
         # Prioritize movable components attached to nets mentioned by router errors.
         errors = routed.get("errors") or []
