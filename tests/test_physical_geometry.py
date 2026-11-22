@@ -192,6 +192,35 @@ class PhysicalGeometryTests(unittest.TestCase):
         self.assertTrue(physical_segment_intersects_cell(segment, cell))
 
 
+    def test_jumper_body_bounding_filter_preserves_exact_intersections(self):
+        # Distant occupancy must not prevent checking a nearer body cell.
+        pitch = HOLE_PITCH_MM
+        def cell(row, col):
+            return PhysicalCell(
+                row, col,
+                (Fraction(col) - Fraction(1, 2)) * pitch,
+                (Fraction(row) - Fraction(1, 2)) * pitch,
+                (Fraction(col) + Fraction(1, 2)) * pitch,
+                (Fraction(row) + Fraction(1, 2)) * pitch,
+            )
+        diagonal = PhysicalSegment(
+            PhysicalPoint(0 * pitch, 0 * pitch),
+            PhysicalPoint(6 * pitch, 6 * pitch),
+        )
+        distant = cell(20, 20)
+        crossing = cell(3, 3)
+        near_but_clear = cell(2, 4)
+        self.assertFalse(jumper_intersects_component(diagonal, [distant, near_but_clear]))
+        self.assertTrue(jumper_intersects_component(
+            diagonal, [distant, near_but_clear, crossing]
+        ))
+        # A segment tangent to the occupancy square still counts as a hit.
+        tangent = PhysicalSegment(
+            PhysicalPoint(0 * pitch, 0 * pitch),
+            PhysicalPoint(6 * pitch, 6 * pitch),
+        )
+        self.assertTrue(jumper_intersects_component(tangent, [cell(3, 4)]))
+
     def test_endpoint_rejects_occupied_hole_unless_explicit_landing(self):
         occupied = {(4, 12)}
         self.assertFalse(jumper_endpoint_available(self.grid, (4, 12), occupied))
