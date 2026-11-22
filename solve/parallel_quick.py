@@ -64,6 +64,7 @@ def _process_job(project: dict[str, Any], quota: int, offset: int,
             key: last.get(key) for key in (
                 "variant", "placement", "routing", "error",
                 "cuts", "wires", "slide_positions",
+                "repair_target", "body_spacing_preference",
             ) if key in last
         }
         messages.put((job_index, brief))
