@@ -4,6 +4,30 @@
 
 See [Documentation map](../README.md) and [PRE-SOLVE intelligence handoff](MODULE_IO_AND_HANDOFF_AUDIT.md) for the existing preparation terminology and sidecar boundary.
 
+## Route-Mate 1.44 — targeted nominal-clearance placement feedback
+
+The MOTOMIX 1.43 Activity log showed five independently verified boards
+but every route came from the compact process; the selected layout still
+had four MPU/MOSFET nominal contacts and a C1 board-edge overhang. The
+previous quality feedback enqueued arbitrary first component IDs rather
+than the specific parts that caused those warnings.
+
+After independent electrical/grid checks of a routed candidate, the
+bounded feedback loop now selects up to three **movable** part IDs from
+the collector's contact/overhang findings, with overhangs prioritised.
+It attempts their alternative positions with the requested nominal spacing,
+then reroutes and independently verifies each trial using its existing
+allocated attempt and routing budgets. Original fixed locks, the purchased
+board envelope, the source JSON and the last verified route remain protected.
+The code does not claim that every electrical route meets requested spacing.
+
+Activity also records the target of each clearance repair and the
+quality/contact/overhang/cut/jumper metrics of each distinct verified
+candidate. This supports diagnosis when every attempted improvement fails.
+Exact measured package envelopes, cut-tool access and physical buildability
+still require independent checking. No guaranteed MOTOMIX quality
+improvement is claimed before a real rerun.
+
 ## Route-Mate 1.43 — bounded parallel routing and honest spacing results
 
 An iMac MOTOMIX run of 1.41 was much slower with three workers (two
