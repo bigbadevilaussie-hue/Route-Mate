@@ -56,6 +56,57 @@ class GuiSolveSmokeTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_review_locks_from_solved_layout_freezes_selected_components(self):
+        """Review Locks must use displayed positions and discard old routing."""
+        source = {
+            "board": {"rows": 6, "cols": 10, "cuts": [], "wires": []},
+            "componentDefs": [{
+                "id": "one", "width": 1, "height": 1,
+                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                "bodyCells": [],
+            }],
+            "components": [
+                {"id": "KEEP", "label": "Keep", "defId": "one",
+                 "boardPos": {"row": 1, "col": 2}},
+                {"id": "MOVE", "label": "Move", "defId": "one",
+                 "boardPos": {"row": 3, "col": 6}},
+            ],
+            "nets": [], "netAssignments": [],
+        }
+        current = copy.deepcopy(source)
+        current["board"]["wires"] = [{
+            "id": "OLD", "from": {"row": 0, "col": 0},
+            "to": {"row": 2, "col": 0},
+        }]
+        original_unplaced = copy.deepcopy(source)
+        for part in original_unplaced["components"]:
+            part.pop("boardPos")
+        window = RouteMateWindow()
+        window.project = current
+        window._quick_source = original_unplaced
+        window._solved_verified = True
+        accepted = {
+            "KEEP": {"locked": True, "edge": False, "slide": False, "reposition": False},
+            "MOVE": {"locked": False, "edge": False, "slide": False, "reposition": True},
+        }
+        try:
+            with patch("gui.main.LockManagerDialog") as dialog:
+                dialog.return_value.exec.return_value = 1
+                dialog.return_value.values.return_value = accepted
+                with patch.object(window, "_render_component_side", return_value=(SVG, "")):
+                    with patch.object(window, "solve_board") as solve:
+                        window.review_locks()
+            solve.assert_called_once()
+            fixed = {c["id"]: c for c in window._quick_source["components"]}
+            self.assertEqual(fixed["KEEP"]["boardPos"], {"row": 1, "col": 2})
+            self.assertTrue(fixed["KEEP"]["locked"])
+            self.assertNotIn("boardPos", fixed["MOVE"])
+            self.assertEqual(window._quick_source["board"]["wires"], [])
+            self.assertEqual(window._quick_source["board"]["cuts"], [])
+            self.assertEqual(current["board"]["wires"][0]["id"], "OLD")
+        finally:
+            window.close()
+
     def test_repeat_quick_solve_uses_locked_input_not_old_routed_output(self):
         project = json.loads((ROOT / "benchmarks/moto/moto.json").read_text())
         locked = next(c for c in project["components"]
