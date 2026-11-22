@@ -55,15 +55,33 @@ def _static(project: dict) -> tuple[int, int, set[int], dict[int, str], dict[str
         if isinstance(d, dict) and d.get("id")
     })
     bodies: set[int] = set()
+    # Keep ALL physical pads in the graph, including unassigned connector
+    # pins and saved off-board leads. _terminals() intentionally lists only
+    # assigned pins; previously a wire could run across an unassigned pad,
+    # then fail the independent physical audit after routing had converged.
+    unconnected_pad = "__UNASSIGNED_PAD__"
     for c in project.get("components", []):
-        if not isinstance(c, dict) or is_off_board_component(c):
+        if not isinstance(c, dict):
+            continue
+        if is_off_board_component(c):
+            if c.get("boardExcluded") is True and c.get("offBoard") is not True:
+                continue
+            for point in (c.get("leads") or {}).values():
+                if isinstance(point, dict):
+                    row, col = int(point["row"]), int(point["col"])
+                    if 0 <= row < rows and 0 <= col < cols:
+                        pin_net.setdefault(row * cols + col, unconnected_pad)
             continue
         if not isinstance(c.get("boardPos"), dict):
             continue
         definition = resolve_definition(c, definitions)
         if definition is None:
             raise ValueError(f"{c.get('label') or c.get('id')}: no footprint definition")
-        _, body_cells = component_geometry(c, definition)
+        all_pins, body_cells = component_geometry(c, definition)
+        for pin in all_pins:
+            row, col = int(pin["row"]), int(pin["col"])
+            if 0 <= row < rows and 0 <= col < cols:
+                pin_net.setdefault(row * cols + col, unconnected_pad)
         for row, col in body_cells:
             if 0 <= row < rows and 0 <= col < cols:
                 bodies.add(row * cols + col)
