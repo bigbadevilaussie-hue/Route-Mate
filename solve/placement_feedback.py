@@ -15,7 +15,13 @@ from .quick_fit import quick_fit
 from .route import route_copper
 from .hole_router import route_holes
 from .render_quality import score_render
-from geometry_sidecar import inspect_assumed_contacts
+
+
+def inspect_assumed_contacts(project):
+    # Lazy import breaks geometry_sidecar -> solve.clearance_25d -> solve
+    # package initialisation cycle; also exposes an isolated test seam.
+    from geometry_sidecar import inspect_assumed_contacts as inspect
+    return inspect(project)
 
 
 def solve_with_feedback(
