@@ -11,7 +11,7 @@ from typing import Any
 
 EPS_MM = 1e-9
 RANK = {"PASS": 0, "CONDITIONAL": 1, "FAIL_UNVERIFIED": 2, "FAIL_PROVEN": 3}
-VALID_SOURCES = {"datasheet", "user_declared", "measured", "default_flush"}
+VALID_SOURCES = {"datasheet", "user_declared", "measured", "default_flush", "assumed_standard"}
 
 
 def _number(value: Any, name: str, *, minimum: float | None = None) -> float:
@@ -173,18 +173,25 @@ def classify_jumper(case: dict[str, Any]) -> dict[str, Any]:
             # Unknown standoff is NOT a proven collision.
             findings.append(_result("FAIL_UNVERIFIED", "standoff_unknown", name))
         elif wire_top + z_margin <= zmin + EPS_MM:
-            if source == "user_declared":
-                findings.append(_result("CONDITIONAL", "declared_standoff", name))
+            if source in {"user_declared", "assumed_standard"}:
+                reason = ("assumed_standoff" if source == "assumed_standard"
+                          else "declared_standoff")
+                findings.append(_result("CONDITIONAL", reason, name))
         elif lift >= zmax + z_margin - EPS_MM:
             # Lifted jumper entirely above the explicit solid.
-            if source == "user_declared":
-                findings.append(_result("CONDITIONAL", "declared_height", name))
+            if source in {"user_declared", "assumed_standard"}:
+                reason = ("assumed_height" if source == "assumed_standard"
+                          else "declared_height")
+                findings.append(_result("CONDITIONAL", reason, name))
         elif solid.get("allow_contact", False):
             if solid.get("contact_source") not in {"measured", "datasheet", "user_declared"}:
                 raise ValueError(f"{name}: contact permission requires provenance")
             findings.append(_result("CONDITIONAL", "declared_contact", name))
         else:
-            findings.append(_result("FAIL_PROVEN", "body_clearance", name))
+            if source == "assumed_standard":
+                findings.append(_result("FAIL_UNVERIFIED", "assumed_body_conflict", name))
+            else:
+                findings.append(_result("FAIL_PROVEN", "body_clearance", name))
 
     for zone in case.get("thermal_zones", []):
         if "component_temp_c" not in zone or "wire_insulation_limit_c" not in zone:
