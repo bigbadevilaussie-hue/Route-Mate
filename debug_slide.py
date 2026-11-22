@@ -17,19 +17,55 @@ from solve.placement_feedback import solve_with_feedback
 
 def load_project(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(data.get("pipeline"), dict):
-        # A pre-solve state has no SOLVE.route stage. Its top-level project
-        # is the latest saved snapshot, including approved lock constraints.
-        source = data.get("project")
-        if isinstance(source, dict) and isinstance(source.get("board"), dict) and isinstance(source.get("components"), list):
-            return source
-        # A completed state may instead provide a snapshot in its solve report.
-        stages = data["pipeline"].get("stages", {})
-        source = stages.get("SOLVE.route", {}).get("report", {}).get("result", {}).get("project")
-        if isinstance(source, dict) and isinstance(source.get("board"), dict) and isinstance(source.get("components"), list):
-            return source
-        raise ValueError("state file has no usable board/components project snapshot")
-    return data
+    if not isinstance(data.get("pipeline"), dict):
+        return data
+
+    # Sidecars contain only provenance, reports and lock choices. The
+    # canonical project itself lives in the referenced JSON file.
+    sources = data.get("sources", [])
+    reference = next(
+        (item.get("path") for item in sources
+         if isinstance(item, dict) and item.get("kind") == "project_json"
+         and isinstance(item.get("path"), str)),
+        data.get("project", {}).get("path"),
+    )
+    if not isinstance(reference, str) or not reference:
+        raise ValueError("state file has no source project path")
+    source_path = Path(reference)
+    if not source_path.is_absolute():
+        source_path = path.parent / source_path
+    from collect import validate_project
+    project = validate_project(json.loads(source_path.read_text(encoding="utf-8")))
+    project.pop("_collectWarnings", None)
+
+    stages = data["pipeline"].get("stages", {})
+    import_options = stages.get("IN.project_import", {}).get("options", {})
+    if import_options:
+        board = project["board"]
+        board.update(import_options)
+        board["rows"] = int(import_options.get("actualRows", board["rows"]))
+        board["cols"] = int(import_options.get("actualCols", board["cols"]))
+
+    constraints = stages.get("PREPARE.constraints", {}).get("report", {}).get("constraints")
+    if not isinstance(constraints, dict):
+        raise ValueError("state file has no PREPARE.constraints lock choices")
+    by_id = {
+        str(c.get("id")): c for c in project.get("components", [])
+        if isinstance(c, dict)
+    }
+    for cid, flags in constraints.items():
+        if cid not in by_id or not isinstance(flags, dict):
+            raise ValueError(f"invalid saved constraint for {cid}")
+        component = by_id[cid]
+        if flags.get("reposition"):
+            component.pop("boardPos", None)
+            component.pop("flexibleEndPos", None)
+            component["locked"] = component["edge"] = component["slide"] = False
+        else:
+            component["locked"] = bool(flags.get("locked"))
+            component["edge"] = bool(flags.get("edge"))
+            component["slide"] = bool(flags.get("slide"))
+    return project
 
 
 def main() -> None:
