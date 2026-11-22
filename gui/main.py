@@ -1715,6 +1715,10 @@ class RouteMateWindow(QMainWindow):
                 f"fixed budget {portfolio.get('attempts_budget')}. "
                 "Provisional quality is not physical sign-off."
             )
+            if portfolio.get("worker_pids"):
+                self.log_line(
+                    f"[MULTICORE] Real solver process IDs: {portfolio['worker_pids']}"
+                )
         if self._stop_requested:
             # Even if a verification result raced with the Stop click, never
             # publish a board after the user requested cancellation.
@@ -1787,6 +1791,19 @@ class RouteMateWindow(QMainWindow):
         contact_count = self._log_assumed_contacts(
             geometry_assessment, stage="SOLVED"
         )
+        selected_quality = outcome.get("quality_selection") or {}
+        provisional = selected_quality.get("provisional_score")
+        if provisional is not None:
+            found = int((outcome.get("portfolio") or {}).get("solutions_found", 1))
+            self.solve_activity.setText(
+                f"Best of {found} verified layout(s): {float(provisional):.1f}/100 "
+                f"provisional quality · {contact_count} nominal contact warnings"
+            )
+            self.log_line(
+                f"[QUALITY][SELECTED] {float(provisional):.1f}/100 provisional · "
+                f"{contact_count} nominal contacts · "
+                f"assumed geometry {geometry_assessment['status']}."
+            )
         self.log_line(
             f"[2.5D][SOLVED][{geometry_assessment['status']}] "
             f"{geometry_assessment['profile']} | "
