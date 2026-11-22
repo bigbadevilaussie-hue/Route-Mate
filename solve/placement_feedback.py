@@ -6,7 +6,8 @@ routing verification. Never modifies the input project or locked components.
 from __future__ import annotations
 
 import copy
-from typing import Any
+from time import perf_counter
+from typing import Any, Callable
 
 from .quick_fit import is_off_board_component
 
@@ -25,6 +26,7 @@ def solve_with_feedback(
     router: str = "hole_graph",
     hole_iterations: int = 24,
     hole_expansion_budget: int = 600000,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Try diversified placements and route each one.
 
@@ -93,7 +95,18 @@ def solve_with_feedback(
     best: dict[str, Any] | None = None
     best_rank: tuple[int, int, int] | None = None
 
+    # Report completed attempts; never present these as guaranteed ETA.
+    def report_progress(started: float) -> None:
+        if progress is not None:
+            progress({
+                "completed": len(history),
+                "budget": attempts,
+                "seconds": perf_counter() - started,
+                "last": dict(history[-1]),
+            })
+
     for variant in range(attempts):
+        attempt_started = perf_counter()
         if repairs:
             previous, target = repairs.pop(0)
             repaired = relocation(previous, target, variant)
@@ -106,12 +119,14 @@ def solve_with_feedback(
                 "routing": "NOT_ATTEMPTED",
                 "error": (fit.get("errors") or [None])[0],
             })
+            report_progress(attempt_started)
             continue
 
         candidate = copy.deepcopy(fit["project"])
         key = placement_key(candidate)
         if key in seen:
             history.append({"variant": variant, "placement": "DUPLICATE", "routing": "NOT_ATTEMPTED"})
+            report_progress(attempt_started)
             continue
         seen.add(key)
         candidate.setdefault("board", {})["cuts"] = copy.deepcopy(
@@ -141,6 +156,7 @@ def solve_with_feedback(
             "wires": routed.get("wires_added", 0),
             "error": (routed.get("errors") or [None])[0],
         })
+        report_progress(attempt_started)
         if passed:
             return {
                 "status": "ROUTED", "project": routed["project"],
