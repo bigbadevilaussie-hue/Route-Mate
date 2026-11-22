@@ -19,7 +19,7 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_hole_router.py' -v
       - name: Validate both saved WR sidecars and 2.5D geometry
         run: |
-          python -m unittest tests.test_geometry_sidecar_integration tests.test_assumed_25d_provenance tests.test_collector_geometry_assumptions tests.test_gui_edge_slide_search tests.test_slide_fit -v
+          python -m unittest tests.test_geometry_sidecar_integration tests.test_assumed_25d_provenance tests.test_collector_geometry_assumptions tests.test_gui_edge_slide_search tests.test_slide_fit tests.test_capacitor_render_contract tests.test_nominal_pad_access -v
           python - <<'PY'
           import json
           from pathlib import Path
