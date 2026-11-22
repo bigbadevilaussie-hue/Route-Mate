@@ -8,7 +8,7 @@ from collector_geometry import PITCH_MM
 from geometry_sidecar import (
     _nominal_body_gap, assumed_body_pad_keepouts, inspect_assumed_contacts,
 )
-from solve.quick_fit import quick_fit
+from solve.quick_fit import quick_fit, _nominal_body_overhangs_board
 
 
 def capacitor(label, *, row=None, col=None, locked=False):
@@ -32,6 +32,24 @@ def board(rows, cols, parts):
 
 
 class DefaultBodySpacingTests(unittest.TestCase):
+    def test_nominal_cap_body_overhang_preference_uses_real_board_edges(self):
+        pitch = PITCH_MM
+        circle = {"shape": "circle", "center_mm": [9 * pitch, 2 * pitch],
+                  "radius_mm": 2 * pitch}
+        self.assertTrue(
+            _nominal_body_overhangs_board(circle, rows=8, cols=10, pitch=pitch)
+        )
+        circle["center_mm"][0] = 6 * pitch
+        self.assertFalse(
+            _nominal_body_overhangs_board(circle, rows=8, cols=10, pitch=pitch)
+        )
+        rectangle = {"shape": "rectangle", "x_min_mm": -pitch,
+                     "x_max_mm": pitch, "y_min_mm": 0, "y_max_mm": pitch}
+        self.assertTrue(
+            _nominal_body_overhangs_board(rectangle, rows=8, cols=10,
+                                         pitch=pitch)
+        )
+
     def test_normal_default_enforces_one_free_hole_between_nominal_bodies(self):
         project = board(8, 18, [
             capacitor("C1", row=3, col=2, locked=True),
