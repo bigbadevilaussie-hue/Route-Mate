@@ -90,6 +90,14 @@ class DefaultBodySpacingTests(unittest.TestCase):
         self.assertGreater(fitted["report"]["nominal_contact_count"], 0)
         self.assertGreater(len(inspect_assumed_contacts(fitted["project"])), 0)
 
+    def test_one_component_has_no_pair_to_compare_and_keeps_default(self):
+        project = board(8, 18, [capacitor("C1")])
+        fitted = quick_fit(project)
+        self.assertEqual(fitted["status"], "PLACED", fitted.get("errors"))
+        self.assertEqual(fitted["report"]["body_spacing_requested"], 1)
+        self.assertEqual(fitted["report"]["body_spacing_used"], 1)
+        self.assertEqual(fitted["report"]["nominal_contact_count"], 0)
+
     def test_invalid_spacing_is_reported(self):
         project = board(8, 18, [capacitor("C1")])
         for spacing in (-1, 3, 1.5, "1"):
