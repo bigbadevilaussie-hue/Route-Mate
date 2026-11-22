@@ -266,8 +266,22 @@ def jumper_envelope_intersects_component(
 
 
 def jumper_intersects_component(jumper: PhysicalSegment, component_cells: list[PhysicalCell]) -> bool:
-    """Check jumper centreline against saved component occupancy cells."""
-    return any(physical_segment_intersects_cell(jumper, cell) for cell in component_cells)
+    """Check exact centreline collision, cheaply rejecting distant body cells.
+
+    An axis-aligned bounding-box rejection cannot discard a real collision.
+    Inclusive comparisons retain boundary-touch collisions; shortlisted cells
+    still use the existing exact Fraction-based segment/rectangle test.
+    """
+    min_x = min(jumper.start.x_mm, jumper.end.x_mm)
+    max_x = max(jumper.start.x_mm, jumper.end.x_mm)
+    min_y = min(jumper.start.y_mm, jumper.end.y_mm)
+    max_y = max(jumper.start.y_mm, jumper.end.y_mm)
+    return any(
+        physical_segment_intersects_cell(jumper, cell)
+        for cell in component_cells
+        if cell.right_mm >= min_x and cell.left_mm <= max_x
+        and cell.bottom_mm >= min_y and cell.top_mm <= max_y
+    )
 
 
 def jumpers_intersect(first: PhysicalSegment, second: PhysicalSegment) -> bool:
