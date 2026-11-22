@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from solve.parallel_quick import choose_workers, partition_attempts, _process_job
+from solve.solution_quality import solution_signature
 from solve.placement_feedback import solve_with_feedback
 
 
@@ -29,6 +30,18 @@ class PortfolioPolicyTests(unittest.TestCase):
             indices = [i for offset, size in plan
                        for i in range(offset, offset + size)]
             self.assertEqual(indices, list(range(24)))
+
+    def test_route_fingerprint_ignores_generated_wire_ids(self):
+        a = layout(1)
+        a["board"]["wires"] = [{
+            "id": "RM-W001", "from": {"row": 0, "col": 2},
+            "to": {"row": 2, "col": 2},
+        }]
+        b = copy.deepcopy(a)
+        b["board"]["wires"][0]["id"] = "RM-W999"
+        self.assertEqual(solution_signature(a), solution_signature(b))
+        b["board"]["wires"][0]["to"]["col"] = 3
+        self.assertNotEqual(solution_signature(a), solution_signature(b))
 
     def test_probe_policy_uses_three_or_four_where_cpu_allows(self):
         self.assertEqual(choose_workers(1, 4), 3)
