@@ -89,7 +89,7 @@ def _variant_rank(variant, *parts):
     return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big")
 
 
-def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, placement_variant=0):
+def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, placement_variant=0, forbidden_anchors=None):
     result = copy.deepcopy(project)
     components = result["components"]
     by_id = {str(c.get("id")): c for c in components if isinstance(c, dict)}
@@ -247,6 +247,20 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                 break
             if height > rows or width > cols:
                 continue
+            # Opposed multi-row pin banks must have a copper escape lane
+            # outside their pins, rather than sitting flush against an edge.
+            cols_for_row = {}
+            rows_for_col = {}
+            for pad in local_pins:
+                pr, pc = int(pad["row"]), int(pad["col"])
+                cols_for_row.setdefault(pr, set()).add(pc)
+                rows_for_col.setdefault(pc, set()).add(pr)
+            reserve_x = width >= 3 and sum(len(v) > 1 for v in cols_for_row.values()) >= 3
+            reserve_y = height >= 3 and sum(len(v) > 1 for v in rows_for_col.values()) >= 3
+            pin_min_c = min(int(p["col"]) for p in local_pins)
+            pin_max_c = max(int(p["col"]) for p in local_pins)
+            pin_min_r = min(int(p["row"]) for p in local_pins)
+            pin_max_r = max(int(p["row"]) for p in local_pins)
             intelligence = _orientation_intelligence(
                 local_pins, sorted(shape - {(int(p["row"]), int(p["col"])) for p in local_pins}),
                 {pid: net for (cid, pid), net in pin_nets.items() if cid == item["id"]},
@@ -258,6 +272,12 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
             for top in range(rows - height + 1):
                 for left in range(cols - width + 1):
                     origin_r, origin_c = top - min_r, left - min_c
+                    if forbidden_anchors and (origin_r, origin_c, rotation) in forbidden_anchors.get(item["id"], ()):
+                        continue
+                    if reserve_x and (origin_c + pin_min_c < 2 or origin_c + pin_max_c >= cols - 2):
+                        continue
+                    if reserve_y and (origin_r + pin_min_r < 2 or origin_r + pin_max_r >= rows - 2):
+                        continue
                     cells = {(origin_r + r, origin_c + c) for r, c in shape}
                     if blocked.intersection(cells):
                         continue
@@ -443,7 +463,7 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
     return placed
 
 
-def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant: int = 0) -> dict[str, Any]:
+def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant: int = 0, forbidden_anchors=None) -> dict[str, Any]:
     """Place components with deterministic net-aware scoring; never mutate input."""
     source = copy.deepcopy(project) if isinstance(project, dict) else {}
     if not isinstance(project, dict):
@@ -555,7 +575,7 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *, placement_variant:
     requested, last_errors = clearance, []
     for used in range(requested, -1, -1):
         placed_project, errors, net_score, links = _attempt(
-            source, rows, cols, used, definitions, pending, pin_nets, placement_variant
+            source, rows, cols, used, definitions, pending, pin_nets, placement_variant, forbidden_anchors
         )
         if placed_project is None:
             last_errors = errors
