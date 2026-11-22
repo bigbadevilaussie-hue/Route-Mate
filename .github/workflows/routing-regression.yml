@@ -48,3 +48,26 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_gui_solve.py' -v
       - name: Test verified desktop adapter
         run: python -m unittest discover -s tests -p 'test_desktop_integration.py' -v
+      - name: Render real solved MOTO board through production SVG bridge
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from solve.desktop_integration import solve_for_display
+          from render.standalone_bridge import render_project_data
+
+          project = json.loads(Path("benchmarks/moto/moto.json").read_text())
+          result = solve_for_display(project, attempts=8)
+          assert result["status"] == "ROUTED", result.get("errors")
+          top, copper, log = render_project_data(result["project"])
+          assert "<svg" in top and "<svg" in copper
+          Path("/tmp/routemate-solved-moto-top.svg").write_text(top)
+          Path("/tmp/routemate-solved-moto-copper.svg").write_text(copper)
+          print("GUI_RENDER=PASS TOP_BYTES=%d COPPER_BYTES=%d" % (len(top), len(copper)))
+          PY
+      - name: Publish solved board-side SVGs
+        uses: actions/upload-artifact@v4
+        with:
+          name: moto-solved-svg-views
+          path: /tmp/routemate-solved-moto-*.svg
+          if-no-files-found: error
