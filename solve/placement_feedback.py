@@ -350,6 +350,17 @@ def solve_with_feedback(
         selected["solutions_found"] = len(verified_results)
         selected["solution_signatures"] = [q["signature"] for _, q in verified_results]
         selected["quality_selection"] = quality
+        # Keep compact diagnostics for *every* verified candidate, not only
+        # the winning route. This makes repeated low-quality outcomes visible
+        # without copying full projects between worker processes.
+        selected["candidate_summaries"] = [{
+            "signature": q.get("signature"),
+            "placement_variant": record.get("placement_variant"),
+            "provisional_score": q.get("provisional_score"),
+            "nominal_contacts": q.get("nominal_contacts"),
+            "nominal_board_overhangs": list(q.get("nominal_board_overhangs") or []),
+            "wires": q.get("wires"), "cuts": q.get("cuts"),
+        } for record, q in verified_results]
         return selected
 
     return {
