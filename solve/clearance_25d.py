@@ -157,7 +157,12 @@ def classify_jumper(case: dict[str, Any]) -> dict[str, Any]:
         if at_endpoint and lead.get("allowed_endpoint", False):
             continue
         if _distance_point_segment(center, a, b) + EPS_MM < radius + lr + lead_margin:
-            findings.append(_result("FAIL_PROVEN", "lead_clearance", str(lead.get("id", ""))))
+            if lead.get("source") == "assumed_standard":
+                findings.append(_result("FAIL_UNVERIFIED", "assumed_lead_clearance",
+                                        str(lead.get("id", ""))))
+            else:
+                findings.append(_result("FAIL_PROVEN", "lead_clearance",
+                                        str(lead.get("id", ""))))
 
     for solid in case.get("body_solids", []):
         name = str(solid.get("id", ""))
