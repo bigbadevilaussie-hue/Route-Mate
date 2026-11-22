@@ -295,6 +295,22 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
                                                 f"{item['label']}.{pin['id']}"))
                     if candidate_conflicts(pin_records, placed_holes):
                         continue
+                    # The old one-hole pin gap may electrically isolate nets
+                    # but leaves nowhere to land a vertical jumper alongside
+                    # a transistor/module's physical body. This is a
+                    # conservative *placement search* constraint, not a claim
+                    # that all closer placements are electrically illegal.
+                    #
+                    # Keep two unused copper holes between different-net
+                    # component pads so a net can escape around nearby artwork.
+                    if any(
+                        existing_net != net
+                        for row, col, net, _ref in pin_records
+                        for dc in (-2, 2)
+                        for existing_net, _existing_ref
+                        in placed_holes.get((row, col + dc), ())
+                    ):
+                        continue
 
                     candidate_net_score = candidate_links = 0
                     same_strip_links = 0
