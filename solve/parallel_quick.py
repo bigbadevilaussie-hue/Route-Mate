@@ -56,8 +56,13 @@ def _process_job(project: dict[str, Any], quota: int, offset: int,
         }
         messages.put((job_index, brief))
 
+    # The first process spends one of its allotted slots on the spacing
+    # scout, then runs compact variants 0..quota-2. Shift later ranges by
+    # one so the original compact sequence has no missing variant index.
+    variant_offset = (offset - 1 if body_spacing_holes > 0 and offset > 0
+                      else offset)
     result = solve_for_display(
-        project, attempts=quota, variant_offset=offset,
+        project, attempts=quota, variant_offset=variant_offset,
         body_spacing_holes=body_spacing_holes, solutions_target=2,
         progress=notify, cancelled=stop_flag.is_set,
     )
