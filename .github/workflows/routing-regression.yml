@@ -18,4 +18,4 @@ jobs:
       - name: Karl AUDIO hole-graph regression
         run: python -m unittest discover -s tests -p 'test_hole_router.py' -v
       - name: End-to-end automatic AUDIO placement and routing
-        run: python benchmark_audio_feedback.py --attempts 3 --backtracks 0 --timeout 90
+        run: python benchmark_audio_feedback.py --attempts 32 --backtracks 0 --timeout 75 --json
