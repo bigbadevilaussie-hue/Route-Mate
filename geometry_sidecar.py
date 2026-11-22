@@ -62,6 +62,17 @@ def _collector_campaign_geometry(project: dict, source_path: str | Path):
     return model
 
 
+def make_document(project: dict, geometry: dict | None = None, *,
+                  origin="collector_profile_generated_for_gui") -> dict:
+    """Build a sidecar document from the same canonical collector geometry."""
+    model = build_assumed_geometry(project) if geometry is None else geometry
+    return {
+        "schema": SCHEMA, "project_sha256": _hash(project),
+        "geometry_sha256": _hash(model), "geometry": model,
+        "geometry_origin": origin,
+    }
+
+
 def load_or_create(project: dict, source_path: str | Path, *, persist=True) -> dict:
     """Fail closed on an out-of-date sidecar; never silently accept stale geometry.
 
@@ -79,14 +90,10 @@ def load_or_create(project: dict, source_path: str | Path, *, persist=True) -> d
                 and existing.get("geometry") == expected
                 and existing.get("geometry_sha256") == _hash(expected)):
             return existing
-    document = {
-        "schema": SCHEMA,
-        "project_sha256": signature,
-        "geometry_sha256": _hash(expected),
-        "geometry": expected,
-        "geometry_origin": ("collector_campaign" if campaign_model is not None
-                            else "collector_profile_generated_for_gui"),
-    }
+    document = make_document(
+        project, expected, origin=("collector_campaign" if campaign_model is not None
+                                   else "collector_profile_generated_for_gui")
+    )
     if persist:
         tmp = dest.with_name(dest.name + ".tmp")
         tmp.write_text(json.dumps(document, indent=2, ensure_ascii=False, allow_nan=False)
@@ -222,4 +229,4 @@ def assess_saved_board(project: dict, document: dict) -> dict:
     }
 
 
-__all__ = ["sidecar_path", "load_or_create", "assess_saved_board"]
+__all__ = ["sidecar_path", "make_document", "load_or_create", "assess_saved_board"]
