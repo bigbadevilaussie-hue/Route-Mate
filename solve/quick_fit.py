@@ -447,13 +447,16 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
     # package. Screen external solder-pad locations against the versioned
     # collector's nominal installed 2.5D body silhouettes, not SVG artwork.
     from geometry_sidecar import (
-        assumed_body_pad_keepouts, assumed_pad_body_intersection,
+        assumed_body_pad_keepouts, assumed_blocked_pad_holes,
     )
     from collector_geometry import CLEARANCE
     assumed_bodies = assumed_body_pad_keepouts(project)
     nominal_pad_clearance = (
         CLEARANCE["lead_radius_mm"] + CLEARANCE["lead_margin_mm"]
         + CLEARANCE["min_clearance_mm"]
+    )
+    blocked_pads = assumed_blocked_pad_holes(
+        assumed_bodies, rows, cols, nominal_pad_clearance,
     )
     for component in components:
         if not isinstance(component, dict):
@@ -467,9 +470,7 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
                 hole = (int(point["row"]), int(point["col"]))
                 if not (0 <= hole[0] < rows and 0 <= hole[1] < cols) or hole in used:
                     raise ValueError(f"{component.get('label', cid)} lead {pid}: invalid or duplicate board hole")
-                under = assumed_pad_body_intersection(
-                    hole[0], hole[1], assumed_bodies, nominal_pad_clearance
-                )
+                under = blocked_pads.get(hole)
                 if under is not None:
                     raise ValueError(
                         f"{component.get('label', cid)} lead {pid}: locked "
@@ -522,9 +523,7 @@ def _allocate_offboard_pads(project, definitions, pin_nets, rows, cols):
                 for col in range(cols):
                     if (row, col) in used:
                         continue
-                    if assumed_pad_body_intersection(
-                        row, col, assumed_bodies, nominal_pad_clearance
-                    ) is not None:
+                    if (row, col) in blocked_pads:
                         continue
                     neighbors = row_nets.get(row, {})
                     if net and any(neighbors.get(c) not in (None, net)
