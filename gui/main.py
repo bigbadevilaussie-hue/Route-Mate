@@ -597,13 +597,15 @@ class RouteMateWindow(QMainWindow):
         self.log_line(f"Route-Mate {GUI_VERSION} — desktop Quick Solve")
         self.log_line("Workflow: Import → Netlist → Footprints → Locks → Quick Solve → Electrical check.")
         self.log_line("Engine: locked placement + routing feedback + independent electrical and grid checks; measured cut access remains unverified.")
-        # Advisory benchmark runs asynchronously, never blocks the startup UI.
-        self.log_line("[SPEED] Calibrating 1–4 worker capacity in the background (advisory only)...")
-        self._speed_probe_worker = StartupSpeedProbe(self)
-        self._speed_probe_worker.completed.connect(self._speed_probe_completed)
-        self._speed_probe_worker.crashed.connect(self._speed_probe_failed)
-        self._speed_probe_worker.finished.connect(self._speed_probe_finished)
-        self._speed_probe_worker.start()
+        # Advisory benchmark runs asynchronously on a real desktop.
+        # Offscreen Qt tests must not spawn unrelated background processes.
+        if QApplication.platformName() != "offscreen":
+            self.log_line("[SPEED] Calibrating 1–4 worker capacity in the background (advisory only)...")
+            self._speed_probe_worker = StartupSpeedProbe(self)
+            self._speed_probe_worker.completed.connect(self._speed_probe_completed)
+            self._speed_probe_worker.crashed.connect(self._speed_probe_failed)
+            self._speed_probe_worker.finished.connect(self._speed_probe_finished)
+            self._speed_probe_worker.start()
 
     def _set_board_summary(self, message: str, *, project: dict | None = None,
                            level: str = "neutral"):
