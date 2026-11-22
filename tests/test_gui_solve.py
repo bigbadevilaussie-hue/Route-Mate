@@ -218,6 +218,37 @@ class GuiSolveSmokeTests(unittest.TestCase):
             window._solver_worker = None
             window.close()
 
+    def test_saved_wr_gui_renders_using_persisted_2_5d_sidecar(self):
+        """Both reference layouts exercise real GUI preview + independent 2.5D."""
+        from geometry_sidecar import sidecar_path
+        for filename in ("benchmarks/audio/audio10wires38cuts.json",
+                         "benchmarks/moto/moto14wires30cuts.json"):
+            with self.subTest(filename=filename):
+                with tempfile.TemporaryDirectory() as temp:
+                    source = ROOT / filename
+                    path = Path(temp) / source.name
+                    path.write_bytes(source.read_bytes())
+                    window = RouteMateWindow()
+                    try:
+                        with patch("gui.main.QFileDialog.getOpenFileName",
+                                   return_value=(str(path), "Project JSON (*.json)")):
+                            with patch("render.standalone_bridge.render_project_data",
+                                       return_value=(SVG, SVG, "test")):
+                                with patch("gui.main.QMessageBox.warning"):
+                                    window.render_json()
+                        log = window.log.toPlainText()
+                        self.assertIn("[2.5D][", log)
+                        self.assertIn("source=" + str(sidecar_path(path)), log)
+                        self.assertTrue(sidecar_path(path).exists())
+                        sidecar = json.loads(sidecar_path(path).read_text())
+                        self.assertEqual(sidecar["geometry"]["preset"],
+                                         "standard-through-hole-v1")
+                        self.assertNotIn("physicalClearance", window.project)
+                        self.assertFalse(window._solved_verified)
+                        self.assertFalse(window.save_solved_action.isEnabled())
+                    finally:
+                        window.close()
+
     def test_old_obstructed_saved_board_is_flagged_unsafe(self):
         """Render JSON must not silently endorse the old cap-crossing board."""
         layout = {
