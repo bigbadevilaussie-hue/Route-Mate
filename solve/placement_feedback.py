@@ -117,23 +117,27 @@ def solve_with_feedback(
             })
 
     for variant in range(attempts):
-        # Prefer the one-hole nominal arrangement first. If it cannot be
-        # routed, alternate compact searches within the SAME 24-attempt
-        # budget; never lose the old electrically verified fallback.
-        attempt_spacing = (
-            body_spacing_holes if variant % 2 == 0
-            else max(0, body_spacing_holes - 1)
+        # First candidate uses one-hole nominal body spacing. If it cannot
+        # yield a verified route, resume the ORIGINAL compact feedback
+        # sequence from variant 0, with its own relocation queue. This
+        # preserves proven AUDIO/MOTO routing behaviour within 24 attempts.
+        scouting = body_spacing_holes > 0 and variant == 0
+        attempt_spacing = body_spacing_holes if scouting else 0
+        search_variant = (
+            variant if body_spacing_holes == 0 or scouting else variant - 1
         )
+        if variant == 1 and body_spacing_holes > 0:
+            repairs.clear()
         if cancelled is not None and cancelled():
             return stopped()
         attempt_started = perf_counter()
         if repairs:
             previous, target = repairs.pop(0)
-            repaired = relocation(previous, target, variant, attempt_spacing)
+            repaired = relocation(previous, target, search_variant, attempt_spacing)
             fit = repaired if repaired else {"status": "NO_FIT_FOUND", "errors": ["relocation failed"]}
         else:
             fit = quick_fit(
-                project, clearance=clearance, placement_variant=variant,
+                project, clearance=clearance, placement_variant=search_variant,
                 body_spacing_holes=attempt_spacing,
             )
         if cancelled is not None and cancelled():
@@ -210,7 +214,7 @@ def solve_with_feedback(
             return {
                 "status": "ROUTED", "project": routed["project"],
                 "verification": routed["verification"],
-                "placement_variant": variant,
+                "placement_variant": search_variant,
                 "placement_report": placement_report,
                 "attempts_used": len(history), "history": history,
                 "warnings": warnings,
