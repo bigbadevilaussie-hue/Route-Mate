@@ -332,6 +332,18 @@ class BoardView(QGraphicsView):
 
     def show_svg(self, svg: str):
         import re
+        # Resolve generic SVG font aliases before Qt parses the image.
+        # macOS Qt otherwise spends time constructing missing-font aliases.
+        system_family = QFontDatabase.systemFont(
+            QFontDatabase.SystemFont.GeneralFont
+        ).family()
+        for alias in ("sans-serif", "Sans-serif"):
+            svg = svg.replace(
+                f'font-family="{alias}"', f'font-family="{system_family}"'
+            )
+            svg = svg.replace(
+                f"font-family: {alias}", f"font-family: {system_family}"
+            )
         svg = re.sub(
             r"(<svg\b[^>]*>)",
             r"\1<style>text{fill:#000000!important;stroke:#fff8ed!important;"
