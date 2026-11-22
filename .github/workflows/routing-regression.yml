@@ -25,3 +25,22 @@ jobs:
           name: audio-autorouted
           path: /tmp/route-mate-audio-autorouted.json
           if-no-files-found: error
+
+  gui-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install GUI dependencies
+        run: python -m pip install -r requirements-gui.txt
+      - name: Compile GUI and bridge
+        run: python -m py_compile gui/main.py solve/desktop_integration.py
+      - name: Test real MOTO solve in headless Qt window
+        run: python -m unittest discover -s tests -p 'test_gui_solve.py' -v
+      - name: Test verified desktop adapter
+        run: python -m unittest discover -s tests -p 'test_desktop_integration.py' -v
