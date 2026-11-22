@@ -174,6 +174,116 @@ def add_top_side_cuts(svg: str, project: dict[str, Any]) -> str:
     return re.sub(r'</svg\s*>', lambda m: ''.join(marks) + m.group(0), svg, count=1)
 
 
+def add_assumed_contact_highlights(
+    svg: str, project: dict[str, Any], *, mirrored: bool = False,
+) -> str:
+    """Red outlines for nominal body/body and body/pad contact risk.
+
+    These marks are NOT proof of physical collision. Body outlines and grid
+    pads derive from the same versioned collector as the 2.5D sidecar; the
+    production renderer is still responsible for the actual part artwork.
+    """
+    import re
+    from html import escape
+    from geometry_sidecar import (
+        assumed_body_pad_keepouts, inspect_assumed_contacts,
+    )
+    from capacitor_contract import resolved_capacitor_package
+
+    issues = inspect_assumed_contacts(project)
+    components = {
+        str(c.get("id")): c for c in project.get("components", [])
+        if isinstance(c, dict) and c.get("id")
+    }
+    # Machine-readable package provenance on each top view, even if nothing
+    # touches: useful for SVG tests and debugging stale renderer packages.
+    metadata = []
+    if not mirrored:
+        for cid, part in components.items():
+            package = resolved_capacitor_package(part)
+            if package is not None:
+                metadata.append(
+                    '<g data-route-mate-cap-package="' + escape(package, quote=True)
+                    + '" data-route-mate-cap-id="' + escape(cid, quote=True)
+                    + '" data-route-mate-cap-value="'
+                    + escape(str(part.get("value") or ""), quote=True)
+                    + '"></g>'
+                )
+    if not issues:
+        return re.sub(r"</svg\s*>", lambda m: "".join(metadata) + m.group(0),
+                      svg, count=1)
+
+    from collector_geometry import PITCH_MM
+    scale = HOLE_PITCH / PITCH_MM
+    cols = int(project["board"]["cols"])
+    def px_x(x_mm: float) -> float:
+        original = HOLE_ORIGIN + x_mm * scale
+        if mirrored:
+            return 2 * HOLE_ORIGIN + (cols - 1) * HOLE_PITCH - original
+        return original
+    def px_y(y_mm: float) -> float:
+        return HOLE_ORIGIN + y_mm * scale
+
+    affected = {}
+    pads = {}
+    for issue in issues:
+        reason = (f"{issue['kind']}: "
+                  + " / ".join(issue["components"])
+                  + f", nominal gap {issue['gap_mm']} mm; NOT measured")
+        for cid in issue["component_ids"]:
+            affected.setdefault(cid, set()).add(reason)
+        if "pad" in issue:
+            pad = issue["pad"]
+            pads.setdefault((pad["row"], pad["col"]), set()).add(reason)
+
+    shapes = {
+        shape["id"]: shape for shape in assumed_body_pad_keepouts(project)
+    }
+    marks = []
+    for cid, messages in sorted(affected.items()):
+        shape = shapes.get(cid)
+        if shape is None:
+            continue
+        title = escape("; ".join(sorted(messages)))
+        attrs = (
+            'fill="none" stroke="#e11d48" stroke-width="3" '
+            'stroke-dasharray="7 3" pointer-events="none"'
+        )
+        if shape["shape"] == "circle":
+            x, y = shape["center_mm"]
+            outline = (
+                f'<circle cx="{px_x(x):g}" cy="{px_y(y):g}" '
+                f'r="{(shape["radius_mm"] * scale):g}" {attrs}/>'
+            )
+        else:
+            lo = px_x(shape["x_min_mm"])
+            hi = px_x(shape["x_max_mm"])
+            outline = (
+                f'<rect x="{min(lo, hi):g}" y="{px_y(shape["y_min_mm"]):g}" '
+                f'width="{abs(hi-lo):g}" '
+                f'height="{(shape["y_max_mm"]-shape["y_min_mm"])*scale:g}" '
+                f'{attrs}/>'
+            )
+        marks.append(
+            '<g data-route-mate-nominal-contact="body" '
+            f'data-component-id="{escape(cid, quote=True)}">'
+            f'<title>{title}</title>{outline}</g>'
+        )
+    for (row, col), messages in sorted(pads.items()):
+        x = px_x(col * PITCH_MM)
+        y = px_y(row * PITCH_MM)
+        title = escape("; ".join(sorted(messages)))
+        marks.append(
+            '<g data-route-mate-nominal-contact="pad" '
+            f'data-row="{row}" data-col="{col}"><title>{title}</title>'
+            f'<circle cx="{x:g}" cy="{y:g}" r="12" fill="none" '
+            'stroke="#e11d48" stroke-width="3" pointer-events="none"/>'
+            '</g>'
+        )
+    return re.sub(r"</svg\s*>", lambda m: "".join(metadata + marks) + m.group(0),
+                  svg, count=1)
+
+
 def add_component_highlight(
     svg: str, project: dict[str, Any], component_id: str | None
 ) -> str:
@@ -283,13 +393,23 @@ def _renderer_input(project: dict[str, Any]) -> dict[str, Any]:
     """Copy the project and remove components not mounted on the stripboard."""
     from placement_policy import is_off_board_component
 
+    from capacitor_contract import resolved_capacitor_package
     render_project = dict(project)
     components = project.get("components", [])
     if isinstance(components, list):
-        render_project["components"] = [
-            component for component in components
-            if not is_off_board_component(component)
-        ]
+        render_project["components"] = []
+        for component in components:
+            if is_off_board_component(component):
+                continue
+            part = dict(component)
+            # The production renderer accepts explicit package IDs. Supply
+            # the same resolved ID used by collector/sidecar to avoid any
+            # implicit default or cached-version ambiguity. Never mutate
+            # the project's original package selection.
+            cap_package = resolved_capacitor_package(component)
+            if cap_package is not None:
+                part["package"] = cap_package
+            render_project["components"].append(part)
     return render_project
 
 
@@ -329,8 +449,12 @@ def render_project(
     top_svg = add_offboard_terminals(top_svg, source_project)
     top_svg = add_component_highlight(top_svg, project, highlight_component_id)
     top_svg = add_board_coordinate_labels(top_svg, rows, cols)
+    top_svg = add_assumed_contact_highlights(top_svg, source_project)
     copper_svg = add_board_coordinate_labels(
         copper.read_text(encoding="utf-8"), rows, cols, mirrored=True
+    )
+    copper_svg = add_assumed_contact_highlights(
+        copper_svg, source_project, mirrored=True,
     )
     return top_svg, copper_svg, result.stdout.strip()
 
