@@ -76,6 +76,29 @@ class PlacementFeedbackTests(unittest.TestCase):
 
     @patch("solve.placement_feedback.route_holes")
     @patch("solve.placement_feedback.quick_fit")
+    def test_progress_reports_each_completed_attempt_with_duration(self, fit, route):
+        fit.side_effect = [
+            {"status": "NO_FIT_FOUND", "errors": ["no fit"]},
+            {"status": "PLACED", "project": copy.deepcopy(self.source)},
+        ]
+        route.return_value = {
+            "status": "ROUTED",
+            "project": copy.deepcopy(self.source),
+            "verification": {"status": "PASS"},
+        }
+        updates = []
+        result = solve_with_feedback(
+            self.source, attempts=2, progress=updates.append
+        )
+        self.assertEqual(result["status"], "ROUTED")
+        self.assertEqual([item["completed"] for item in updates], [1, 2])
+        self.assertTrue(all(item["budget"] == 2 for item in updates))
+        self.assertTrue(all(item["seconds"] >= 0 for item in updates))
+        self.assertEqual(updates[0]["last"]["routing"], "NOT_ATTEMPTED")
+        self.assertEqual(updates[1]["last"]["routing"], "ROUTED")
+
+    @patch("solve.placement_feedback.route_holes")
+    @patch("solve.placement_feedback.quick_fit")
     def test_does_not_route_failed_placement(self, fit, route):
         fit.return_value = {"status": "NO_FIT_FOUND", "errors": ["no fit"]}
         result = solve_with_feedback(self.source, attempts=3)
