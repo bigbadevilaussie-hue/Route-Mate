@@ -4,6 +4,32 @@
 
 See [Documentation map](../README.md) and [PRE-SOLVE intelligence handoff](MODULE_IO_AND_HANDOFF_AUDIT.md) for the existing preparation terminology and sidecar boundary.
 
+## Route-Mate 1.43 — bounded parallel routing and honest spacing results
+
+An iMac MOTOMIX run of 1.41 was much slower with three workers (two
+exploration processes repeatedly exhausted full 600,000-expansion router
+budgets). The synthetic startup probe is not a reliable measure of that
+real workload. If four-process synthetic performance is within 15% of three,
+the GUI now chooses four to shorten the long variant tail.
+
+The fixed 24-attempt portfolio now assigns distinct strategies:
+the first worker retains the proven original full-budget compact search
+plus the initial requested-spacing scout. With three processes, one other
+worker explores all its variants at the **requested** Normal/Wider spacing,
+while the last runs a bounded compact fallback. With four processes, two
+additional workers explore requested spacing; the fourth is a bounded
+compact fallback. These exploratory workers have a maximum of 180,000 router
+expansions per attempt, not 600,000. This keeps the original baseline
+fallback available and caps expensive unsuccessful extra variants. The
+portfolio does *not* guarantee lower wall-clock time or a clearance-clean
+board; both depend on the actual netlist, placements and CPU.
+
+A normal/wider run that selects a compact verified route now prominently
+says **SPACING NOT MET (requested → achieved)** in the Overview and Activity.
+Electrical verification is still valid, but nominal body/pad clearance and
+board-edge overhang remain unverified assumptions, not physical approval.
+The Stop action and fixed/edge locks retain their hard semantics.
+
 ## Route-Mate 1.42 — capacitor contact/edge placement correction
 
 The Normal and Wider spacing preferences now outrank near-net and shared-strip
@@ -24,7 +50,7 @@ not itself change the SVG renderer's wire artwork.
 
 ## Route-Mate 1.41 — CPU portfolio and clearer solve feedback
 
-**Current implementation on `main`.** The Qt solve coordinator runs a
+**Implemented in the shared main-line solver.** The Qt solve coordinator runs a
 `ProcessPoolExecutor` using spawned operating-system processes, not CPU-bound
 Python threads. The startup speed probe informs a 3–4 process policy when
 hardware permits; machines with fewer than three logical CPUs use what exists.
