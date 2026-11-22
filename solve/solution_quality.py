@@ -45,9 +45,15 @@ def candidate_quality(project: dict[str, Any], *,
 
     scored = score_render(project, audit_report=audit_report)
     diagnostic = None
+    contact_component_ids: list[str] = []
     try:
         assessment = assess_saved_board(project, make_document(project))
-        contacts = len(assessment.get("contact_findings", []))
+        findings = assessment.get("contact_findings", [])
+        contacts = len(findings)
+        contact_component_ids = sorted({
+            str(cid) for finding in findings
+            for cid in finding.get("component_ids", [])
+        })
         status = str(assessment.get("status", "UNVERIFIED"))
     except (KeyError, ValueError, TypeError) as exc:
         # Never turn absent advisory geometry into a zero-warning result.
@@ -57,13 +63,15 @@ def candidate_quality(project: dict[str, Any], *,
     from geometry_sidecar import assumed_body_pad_keepouts
     from .quick_fit import _nominal_body_overhangs_board
     board = project.get("board", {})
-    overhangs = [
-        str(solid.get("label") or solid.get("id"))
-        for solid in assumed_body_pad_keepouts(project)
+    crossing_solids = [
+        solid for solid in assumed_body_pad_keepouts(project)
         if _nominal_body_overhangs_board(
             solid, int(board["rows"]), int(board["cols"]), PITCH_MM
         )
     ]
+    overhangs = [str(solid.get("label") or solid.get("id"))
+                 for solid in crossing_solids]
+    overhang_ids = [str(solid["id"]) for solid in crossing_solids]
     signature = solution_signature(project)
     rank = (
         int(status == "HARD_CONFLICT"), len(overhangs), contacts,
@@ -73,7 +81,9 @@ def candidate_quality(project: dict[str, Any], *,
     return {
         "signature": signature,
         "nominal_contacts": contacts,
+        "nominal_contact_component_ids": contact_component_ids,
         "nominal_board_overhangs": overhangs,
+        "nominal_board_overhang_ids": overhang_ids,
         "provisional_score": float(scored["score"]),
         "assumed_25d_status": status,
         "wires": int(scored["wires"]),
