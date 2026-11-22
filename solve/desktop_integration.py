@@ -44,6 +44,66 @@ def solve_for_display(
         }
 
     solved = outcome["project"]
+    # Treat locks as hard engine constraints, even if a future placement
+    # strategy mistakenly alters them. Sliding edge anchors are permitted
+    # to move *only along their original edge*, without rotation.
+    from board_geometry import BUILTIN_DEFS, resolve_definition, component_geometry
+    def edge_side(c, definitions, rows, cols):
+        definition = resolve_definition(c, definitions)
+        if definition is None or not isinstance(c.get("boardPos"), dict):
+            return None
+        pins, body = component_geometry(c, definition)
+        occupied = [(int(p["row"]), int(p["col"])) for p in pins] + list(body)
+        if not occupied:
+            return None
+        rr, cc = [p[0] for p in occupied], [p[1] for p in occupied]
+        if min(rr) == 0:
+            return "top"
+        if max(rr) == rows - 1:
+            return "bottom"
+        if min(cc) == 0:
+            return "left"
+        if max(cc) == cols - 1:
+            return "right"
+        return None
+
+    previous = {str(c.get("id")): c for c in source.get("components", [])
+                if isinstance(c, dict)}
+    current = {str(c.get("id")): c for c in solved.get("components", [])
+               if isinstance(c, dict)}
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({str(d["id"]): d for d in source.get("componentDefs", [])
+                        if isinstance(d, dict) and d.get("id")})
+    rows, cols = int(source["board"]["rows"]), int(source["board"]["cols"])
+    locked_errors = []
+    for cid, before in previous.items():
+        if before.get("locked") is not True:
+            continue
+        after = current.get(cid)
+        if after is None:
+            locked_errors.append(f"Locked component {cid} is missing.")
+            continue
+        if before.get("offBoard"):
+            if before.get("leads") != after.get("leads"):
+                locked_errors.append(f"Locked external leads moved for {cid}.")
+            continue
+        for field in ("rotation", "defId", "footprintOverride"):
+            if before.get(field) != after.get(field):
+                locked_errors.append(f"Locked component {cid} changed {field}.")
+        if before.get("edge") and before.get("slide"):
+            if edge_side(before, definitions, rows, cols) != edge_side(after, definitions, rows, cols):
+                locked_errors.append(f"Sliding component {cid} left its anchored board edge.")
+        else:
+            if before.get("boardPos") != after.get("boardPos"):
+                locked_errors.append(f"Locked component {cid} changed board position.")
+            if before.get("flexibleEndPos") != after.get("flexibleEndPos"):
+                locked_errors.append(f"Locked component {cid} changed its endpoint.")
+    if locked_errors:
+        return {
+            "status": "LOCK_CONSTRAINT_FAILED", "project": None,
+            "errors": locked_errors, "history": outcome.get("history", []),
+            "attempts_used": outcome.get("attempts_used", 0),
+        }
     electrical = verify_project(solved)
     grid = quick_audit(solved)
     physical = audit_project(solved)
