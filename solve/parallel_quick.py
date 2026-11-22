@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from multiprocessing import get_context
+from os import getpid
 from queue import Empty
 from typing import Any, Callable
 
@@ -44,11 +45,13 @@ def _process_job(project: dict[str, Any], quota: int, offset: int,
     def notify(event: dict[str, Any]) -> None:
         messages.put((job_index, event))
 
-    return solve_for_display(
+    result = solve_for_display(
         project, attempts=quota, variant_offset=offset,
         body_spacing_holes=body_spacing_holes, solutions_target=2,
         progress=notify, cancelled=stop_flag.is_set,
     )
+    result["_worker_pid"] = getpid()
+    return result
 
 
 def solve_parallel_for_display(
@@ -170,6 +173,8 @@ def solve_parallel_for_display(
         "solutions_found": len(signatures),
         "verified_candidates": len(verified),
         "worker_failures": failures,
+        "worker_pids": sorted({int(r["_worker_pid"]) for r in results
+                               if r.get("_worker_pid") is not None}),
         "strategy": "fixed-budget deterministic variant partition",
     }
     if ranked:
