@@ -45,7 +45,8 @@ def _orient(a, b, c) -> float:
 def _segments_cross(a, b, c, d) -> bool:
     o1, o2 = _orient(a, b, c), _orient(a, b, d)
     o3, o4 = _orient(c, d, a), _orient(c, d, b)
-    if o1 * o2 < -EPS_MM and o3 * o4 < -EPS_MM:
+    opposite = lambda x, y: (x > EPS_MM and y < -EPS_MM) or (x < -EPS_MM and y > EPS_MM)
+    if opposite(o1, o2) and opposite(o3, o4):
         return True
     for p, q, r in ((a, b, c), (a, b, d), (c, d, a), (c, d, b)):
         if abs(_orient(p, q, r)) <= EPS_MM and (
