@@ -45,7 +45,7 @@ class GuiSolveSmokeTests(unittest.TestCase):
             self.assertEqual(built, build_assumed_geometry(fixture))
             self.assertEqual(stage.report["assumed_geometry"], built)
             self.assertEqual(stage.options["geometry_status"], "ASSUMED_UNVERIFIED")
-            self.assertEqual(stage.options["geometry_preset"], "standard-through-hole-v2")
+            self.assertEqual(stage.options["geometry_preset"], "standard-through-hole-v3")
             parts = {p["label"]: p for p in built["components"]}
             self.assertEqual(parts["C4"]["profile"], "electrolytic_small")
             self.assertEqual(parts["C7"]["profile"], "electrolytic_small")
@@ -276,7 +276,7 @@ class GuiSolveSmokeTests(unittest.TestCase):
                         self.assertTrue(sidecar_path(path).exists())
                         sidecar = json.loads(sidecar_path(path).read_text())
                         self.assertEqual(sidecar["geometry"]["preset"],
-                                         "standard-through-hole-v2")
+                                         "standard-through-hole-v3")
                         self.assertNotIn("physicalClearance", window.project)
                         self.assertFalse(window._solved_verified)
                         self.assertFalse(window.save_solved_action.isEnabled())
