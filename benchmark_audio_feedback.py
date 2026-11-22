@@ -1,6 +1,6 @@
-"""Run real AUDIO placement-feedback routing, printing compact results only.
+"""Reproduce automated AUDIO placement, routing, verification and export.
 
-Usage: python3 benchmark_audio_feedback.py --attempts 24
+Usage: python3 benchmark_audio_feedback.py --attempts 8 --out /tmp/audio-autorouted.json
 """
 from __future__ import annotations
 
@@ -16,15 +16,15 @@ from solve.placement_feedback import solve_with_feedback
 ROOT = Path(__file__).resolve().parent
 
 
-def run(attempts: int, backtracks: int) -> dict:
+def run(attempts: int, backtracks: int, *, use_sidecar: bool = False) -> dict:
     reference = json.loads((ROOT / "benchmarks/audio/audio10wires38cuts.json").read_text(encoding="utf-8"))
-    sidecar = ROOT / "benchmarks/audio/audio.routemate-state.json"
-    if sidecar.exists():
+    if use_sidecar:
+        sidecar = ROOT / "benchmarks/audio/audio.routemate-state.json"
         state = json.loads(sidecar.read_text(encoding="utf-8"))
         project = copy.deepcopy(state["pipeline"]["stages"]["SOLVE.quick_fit"]["report"]["result"]["project"])
     else:
-        # No saved Quick Fit sidecar in CI: start from the AUDIO netlist
-        # and discard all unlocked onboard positions before placement.
+        # ALWAYS strip component positions: the reference supplies the netlist,
+        # footprint definitions and off-board lead pads, NOT its placement.
         project = copy.deepcopy(reference)
     reference_by_id = {str(c.get("id")): c for c in reference.get("components", []) if isinstance(c, dict)}
     for component in project.get("components", []):
@@ -45,25 +45,33 @@ def run(attempts: int, backtracks: int) -> dict:
     return solve_with_feedback(project, attempts=attempts, quick_backtracks=backtracks)
 
 
-def _benchmark_worker(queue, attempts, backtracks):
+def _benchmark_worker(queue, attempts, backtracks, use_sidecar, out):
     try:
-        result = run(attempts, backtracks)
-        queue.put({k: v for k, v in result.items() if k != "project"})
+        result = run(attempts, backtracks, use_sidecar=use_sidecar)
+        summary = {k: v for k, v in result.items() if k != "project"}
+        if out and result["status"] == "ROUTED":
+            destination = Path(out)
+            destination.write_text(json.dumps(result["project"], indent=2) + "\n", encoding="utf-8")
+            summary["output"] = str(destination)
+        queue.put(summary)
     except Exception as exc:
         queue.put({"status": "EXCEPTION", "error": str(exc), "attempts_used": 0})
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--attempts", type=int, default=1)
+    parser.add_argument("--attempts", type=int, default=8)
     parser.add_argument("--backtracks", type=int, default=0)
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument("--timeout", type=int, default=45)
+    parser.add_argument("--use-sidecar", action="store_true")
+    parser.add_argument("--out", type=Path, help="write fully verified routed project JSON")
     args = parser.parse_args()
     if args.timeout < 1:
         parser.error("--timeout must be positive")
     queue = mp.Queue()
-    process = mp.Process(target=_benchmark_worker, args=(queue, args.attempts, args.backtracks))
+    process = mp.Process(target=_benchmark_worker, args=(queue, args.attempts, args.backtracks,
+                                                   args.use_sidecar, str(args.out) if args.out else None))
     process.start()
     process.join(args.timeout)
     if process.is_alive():
@@ -81,6 +89,8 @@ if __name__ == "__main__":
     print(f"STATUS={result['status']} ATTEMPTS={result['attempts_used']}")
     if result["status"] == "ROUTED":
         print(f"VERIFICATION={result['verification'].get('status')} VARIANT={result['placement_variant']}")
+        if result.get("output"):
+            print(f"ROUTED_BOARD={result['output']}")
     else:
         print(f"BEST_FAILURE={result.get('best_failure')}")
         if result.get("error"):
