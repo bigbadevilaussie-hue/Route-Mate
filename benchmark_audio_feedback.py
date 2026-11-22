@@ -49,10 +49,10 @@ def _benchmark_worker(queue, attempts, backtracks):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--attempts", type=int, default=24)
-    parser.add_argument("--backtracks", type=int, default=2)
+    parser.add_argument("--attempts", type=int, default=1)
+    parser.add_argument("--backtracks", type=int, default=0)
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--timeout", type=int, default=90)
+    parser.add_argument("--timeout", type=int, default=30)
     args = parser.parse_args()
     if args.timeout < 1:
         parser.error("--timeout must be positive")
