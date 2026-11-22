@@ -15,7 +15,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+_VERSION_FILE = REPO_ROOT / "VERSION"
+GUI_VERSION = (_VERSION_FILE.read_text(encoding="utf-8").strip()
+               if _VERSION_FILE.is_file() else "1.38")
 CODE_VERSION = GUI_VERSION
 
 from PySide6.QtCore import Qt, QByteArray, QPoint, QThread, Signal
@@ -219,27 +221,51 @@ class BoardView(QGraphicsView):
         self.setRenderHints(QPainter.RenderHint.Antialiasing |
                             QPainter.RenderHint.TextAntialiasing |
                             QPainter.RenderHint.SmoothPixmapTransform)
-        self.setBackgroundBrush(QBrush(QColor("#f2f2f2")))
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setBackgroundBrush(QBrush(QColor("#fafbfd")))
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._renderer = None
+        self._user_zoomed = False
 
     def fit_board(self):
+        if self.scene().sceneRect().isEmpty():
+            return
         self.resetTransform()
         self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self._user_zoomed = False
+
+    def zoom(self, factor: float):
+        if self.scene().sceneRect().isEmpty():
+            return
+        current = self.transform().m11()
+        # Bound zoom to avoid vanishing boards or enormous rasterisation.
+        if 0.02 <= current * factor <= 12.0:
+            self.scale(factor, factor)
+            self._user_zoomed = True
+
+    def wheelEvent(self, event):
+        amount = event.angleDelta().y()
+        if amount:
+            self.zoom(1.2 if amount > 0 else 1 / 1.2)
+            event.accept()
+        else:
+            super().wheelEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.scene() and not self.scene().sceneRect().isEmpty():
+        if self.scene() and not self.scene().sceneRect().isEmpty() and not self._user_zoomed:
             self.fit_board()
 
     def show_svg(self, svg: str):
         import re
         svg = re.sub(
             r"(<svg\b[^>]*>)",
-            r"\1<style>text{fill:#000000!important;stroke:#f3e5bf!important;"
-            r"stroke-width:0.55px!important;paint-order:stroke fill!important;"
+            r"\1<style>text{fill:#000000!important;stroke:#fff8ed!important;"
+            r"stroke-width:0.32px!important;paint-order:stroke fill!important;"
             r"stroke-linejoin:round!important;font-weight:700!important;opacity:1!important;}"
             r"tspan{fill:#000000!important;stroke:#f3e5bf!important;"
             r"stroke-width:0.55px!important;font-weight:700!important;opacity:1!important;}</style>",
@@ -275,17 +301,17 @@ class WorkflowChecklist(QWidget):
         super().__init__(parent)
         self.setObjectName("workflowChecklist")
         self.setStyleSheet("""
-            QWidget#workflowChecklist { background: #f7f8fa; border-radius: 12px; }
-            QLabel#workflowTitle { color: #30343a; font-size: 17px; font-weight: 600; }
-            QLabel#workflowPercent { color: #30343a; font-size: 17px; }
-            QProgressBar { background: #e4e7ec; border: 0; border-radius: 5px; height: 10px; }
-            QProgressBar::chunk { background: #35b96c; border-radius: 5px; }
+            QWidget#workflowChecklist { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; }
+            QLabel#workflowTitle { color: #203047; font-size: 15px; font-weight: 700; }
+            QLabel#workflowPercent { color: #233e6b; font-size: 14px; font-weight: 700; }
+            QProgressBar { background: #e9eef5; border: 0; border-radius: 5px; height: 8px; }
+            QProgressBar::chunk { background: #19866f; border-radius: 5px; }
         """)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(15, 15, 15, 12)
+        layout.setSpacing(8)
         heading = QHBoxLayout()
-        title = QLabel("Workflow Progress")
+        title = QLabel("Quick Solve progress")
         title.setObjectName("workflowTitle")
         self.percent = QLabel("0%")
         self.percent.setObjectName("workflowPercent")
@@ -301,16 +327,16 @@ class WorkflowChecklist(QWidget):
         for key, caption in self.STAGES:
             row = QHBoxLayout()
             mark = QLabel("○")
-            mark.setFixedWidth(28)
+            mark.setFixedWidth(22)
             mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
             mark.setStyleSheet("font-size: 23px; color: #b8bec7;")
             label = QLabel(caption)
-            label.setStyleSheet("font-size: 13px; color: #444b55;")
+            label.setStyleSheet("font-size: 12px; color: #475569;")
             row.addWidget(mark)
             row.addWidget(label, 1)
             layout.addLayout(row)
             self.rows[key] = mark
-        note = QLabel("Pipeline milestones only — not physical build approval")
+        note = QLabel("Electrical completion ≠ build-ready physical clearance")
         note.setWordWrap(True)
         note.setStyleSheet("font-size: 10px; color: #697586;")
         layout.addWidget(note)
@@ -328,6 +354,9 @@ class WorkflowChecklist(QWidget):
                 mark.setText("✓")
                 mark.setStyleSheet("font-size: 19px; font-weight: bold; color: #2ebd64;")
                 complete += 1
+            elif state == "running":
+                mark.setText("●")
+                mark.setStyleSheet("font-size: 17px; color: #2673bf;")
             elif state == "failed":
                 mark.setText("✕")
                 mark.setStyleSheet("font-size: 19px; font-weight: bold; color: #d64545;")
@@ -440,26 +469,131 @@ class RouteMateWindow(QMainWindow):
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(5000)
-        self.log.setPlaceholderText("Route-Mate running log")
+        self.log.setPlaceholderText("Checks, solve attempts and diagnostics appear here.")
+        self.log.setStyleSheet(
+            "QPlainTextEdit { background: #0f1c2b; color: #dbe7f5;"
+            "border: 0; padding: 12px; font-size: 11px; }"
+        )
         self.top_view = BoardView()
         split = QSplitter(Qt.Orientation.Horizontal)
+        split.setChildrenCollapsible(False)
+        split.setHandleWidth(5)
+
+        # Left: meaningful overview without a wall of test output.
         self.checklist = WorkflowChecklist()
+        self.project_summary = QLabel("Open a circuit to begin")
+        self.project_summary.setWordWrap(True)
+        self.project_summary.setObjectName("projectSummary")
+        self.solve_summary = QLabel("No board solved")
+        self.solve_summary.setWordWrap(True)
+        self.solve_summary.setObjectName("solveSummary")
+        overview = QWidget()
+        overview_layout = QVBoxLayout(overview)
+        overview_layout.setContentsMargins(8, 12, 8, 8)
+        overview_layout.setSpacing(11)
+        overview_layout.addWidget(self.project_summary)
+        overview_layout.addWidget(self.checklist)
+        overview_layout.addWidget(self.solve_summary)
+        overview_layout.addStretch()
+        self.sidebar_tabs = QTabWidget()
+        self.sidebar_tabs.setObjectName("sidebarTabs")
+        self.sidebar_tabs.addTab(overview, "Overview")
+        self.sidebar_tabs.addTab(self.log, "Activity")
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(8, 8, 8, 8)
-        left_layout.setSpacing(8)
-        left_layout.addWidget(self.checklist)
-        left_layout.addWidget(self.log, 1)
+        left_layout.setContentsMargins(6, 8, 2, 8)
+        left_layout.addWidget(self.sidebar_tabs)
+        left_panel.setMinimumWidth(245)
+        left_panel.setMaximumWidth(375)
         split.addWidget(left_panel)
-        split.addWidget(self.top_view)
+
+        # Right: prominent board canvas with a compact identity, result and
+        # zoom controls; panning is available by dragging the board.
+        board_panel = QWidget()
+        board_layout = QVBoxLayout(board_panel)
+        board_layout.setContentsMargins(8, 8, 8, 8)
+        board_layout.setSpacing(7)
+        board_heading = QFrame()
+        board_heading.setObjectName("boardHeader")
+        heading_row = QHBoxLayout(board_heading)
+        heading_row.setContentsMargins(13, 8, 10, 8)
+        heading_row.setSpacing(9)
+        heading_text = QVBoxLayout()
+        heading_text.setSpacing(2)
+        self.board_project_label = QLabel("BOARD PREVIEW")
+        self.board_project_label.setObjectName("boardProjectLabel")
+        self.board_result_label = QLabel("Open a project to show its component layout")
+        self.board_result_label.setObjectName("boardResultLabel")
+        heading_text.addWidget(self.board_project_label)
+        heading_text.addWidget(self.board_result_label)
+        heading_row.addLayout(heading_text, 1)
+        for caption, callback, tip in (
+            ("−", lambda: self.top_view.zoom(1 / 1.2), "Zoom out"),
+            ("+", lambda: self.top_view.zoom(1.2), "Zoom in"),
+            ("Fit", self.fit_board, "Fit the complete board"),
+        ):
+            button = QPushButton(caption)
+            button.setObjectName("boardZoomButton")
+            button.setToolTip(tip)
+            button.clicked.connect(callback)
+            heading_row.addWidget(button)
+        board_layout.addWidget(board_heading)
+        board_layout.addWidget(self.top_view, 1)
+        split.addWidget(board_panel)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
-        split.setSizes([320, 1280])
+        split.setSizes([295, 1265])
         self.setCentralWidget(split)
+        self.setStyleSheet("""
+            QMainWindow { background: #eef2f7; }
+            QWidget#sidebarTabs { background: #f7f9fc; }
+            QTabWidget::pane { border: 1px solid #e0e7ef; border-radius: 9px;
+                                background: #f7f9fc; }
+            QTabBar::tab { color: #5b6c82; background: #e8eef5; padding: 9px 22px;
+                           margin-right: 3px; border-radius: 7px; font-weight: 600; }
+            QTabBar::tab:selected { background: white; color: #173c66; }
+            QLabel#projectSummary { background: #e8f0fa; color: #1c4268;
+                                    border-radius: 8px; padding: 12px;
+                                    font-size: 12px; font-weight: 600; }
+            QLabel#solveSummary { background: #edf3fa; color: #2e5274;
+                                  border-radius: 8px; padding: 12px;
+                                  font-size: 12px; }
+            QFrame#boardHeader { background: white; border: 1px solid #e0e7ef;
+                                  border-radius: 10px; }
+            QLabel#boardProjectLabel { color: #17324f; font-size: 15px; font-weight: 800; }
+            QLabel#boardResultLabel { color: #60738a; font-size: 11px; }
+            QPushButton#boardZoomButton { background: #eff4fa; color: #183956;
+                                         padding: 7px 11px; border: 1px solid #dbe5ef;
+                                         border-radius: 6px; font-weight: 700; }
+            QPushButton#boardZoomButton:hover { background: #dbe9f7; }
+            QStatusBar { background: #e7eef5; color: #3f5873; font-size: 11px; }
+        """)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate {GUI_VERSION} — desktop Quick Solve")
         self.log_line("Workflow: Import → Netlist → Footprints → Locks → Quick Solve → Electrical check.")
         self.log_line("Engine: locked placement + routing feedback + independent electrical and grid checks; measured cut access remains unverified.")
+
+    def _set_board_summary(self, message: str, *, project: dict | None = None,
+                           level: str = "neutral"):
+        active = project if project is not None else self.project
+        board = active.get("board", {}) if isinstance(active, dict) else {}
+        name = self.project_path.stem if self.project_path is not None else "Untitled"
+        rows, cols = board.get("rows"), board.get("cols")
+        dims = f"  ·  {rows} × {cols} holes" if rows and cols else ""
+        self.board_project_label.setText(f"{name.upper()}{dims}")
+        self.board_result_label.setText(message)
+        self.solve_summary.setText(message)
+        backgrounds = {
+            "neutral": ("#edf3fa", "#2e5274"),
+            "working": ("#e7f1ff", "#155aa0"),
+            "pass": ("#e2f4ed", "#176c51"),
+            "failed": ("#fdeaea", "#ac2f3c"),
+        }
+        bg, fg = backgrounds.get(level, backgrounds["neutral"])
+        self.solve_summary.setStyleSheet(
+            f"background: {bg}; color: {fg}; border-radius: 8px; "
+            "padding: 12px; font-size: 12px; font-weight: 600;"
+        )
 
     def log_line(self, message: str):
         self.log.appendPlainText(message)
