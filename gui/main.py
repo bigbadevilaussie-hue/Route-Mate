@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-GUI_VERSION = "1.34"
-CODE_VERSION = "1.34"
+GUI_VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+CODE_VERSION = GUI_VERSION
 
 from PySide6.QtCore import Qt, QByteArray, QPoint, QThread, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter, QPixmap, QIcon
@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox, QHBoxLayout,
     QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QComboBox,
-    QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget, QProgressBar,
+    QSpinBox, QSplitter, QToolBar, QVBoxLayout, QWidget, QProgressBar, QTabWidget, QFrame,
 )
 
 
@@ -263,13 +263,12 @@ class WorkflowChecklist(QWidget):
 
     STAGES = (
         ("COLLECT", "Project imported"),
-        ("SANITY", "Electrical sanity"),
-        ("PRE-SOLVE", "Footprint analysis"),
-        ("TEST", "Automated tests"),
-        ("CONSTRAINTS", "Placement decisions"),
-        ("QUICK FIT", "Component placement"),
-        ("ROUTING", "Copper routing"),
-        ("VERIFY", "Electrical verification"),
+        ("SANITY", "Netlist checked"),
+        ("PRE-SOLVE", "Footprints analysed"),
+        ("CONSTRAINTS", "Placement locks"),
+        ("QUICK FIT", "Components placed"),
+        ("ROUTING", "Copper routed"),
+        ("VERIFY", "Electrical PASS"),
     )
 
     def __init__(self, parent=None):
@@ -360,9 +359,9 @@ class SolveWorker(QThread):
 class RouteMateWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Route-Mate GUI v{GUI_VERSION} (Code v{CODE_VERSION})")
-        self.resize(1600, 760)
-        self.setMinimumSize(1000, 600)
+        self.setWindowTitle(f"Route-Mate {GUI_VERSION} — Stripboard Quick Solve")
+        self.resize(1560, 900)
+        self.setMinimumSize(950, 600)
         self.project: dict[str, Any] | None = None
         self.project_path: Path | None = None
         self.presolve_constraints: dict[str, dict[str, bool]] = {}
@@ -373,6 +372,7 @@ class RouteMateWindow(QMainWindow):
         self._solver_worker = None
         self._solve_input = None
         self._solved_verified = False
+        self._quick_source = None  # Locked pre-route project; never a previously solved layout.
 
         logo_path = REPO_ROOT / "icon" / "RouteMate-original.png"
         if logo_path.is_file():
@@ -405,10 +405,16 @@ class RouteMateWindow(QMainWindow):
         self.load_action = QAction("Load JSON", self)
         self.load_action.triggered.connect(self.load_json)
         toolbar.addAction(self.load_action)
-        self.solve_action = QAction("Solve Board", self)
+        self.solve_action = QAction("Quick Solve", self)
+        self.solve_action.setToolTip("Place and route while preserving fixed components")
         self.solve_action.setEnabled(False)
         self.solve_action.triggered.connect(self.solve_board)
         toolbar.addAction(self.solve_action)
+        self.review_locks_action = QAction("Review Locks", self)
+        self.review_locks_action.setEnabled(False)
+        self.review_locks_action.setToolTip("Choose fixed and edge constraints for positioned parts")
+        self.review_locks_action.triggered.connect(self.review_locks)
+        toolbar.addAction(self.review_locks_action)
         self.save_solved_action = QAction("Save Solved JSON", self)
         self.save_solved_action.setEnabled(False)
         self.save_solved_action.triggered.connect(self.save_solved_json)
@@ -426,7 +432,8 @@ class RouteMateWindow(QMainWindow):
         self.copper_action.setCheckable(True)
         self.copper_action.triggered.connect(lambda: self._switch_board_side("copper"))
         toolbar.addAction(self.copper_action)
-        self.render_action = QAction("Render JSON", self)
+        self.render_action = QAction("Open Solved", self)
+        self.render_action.setToolTip("Preview an existing routed JSON without re-solving")
         self.render_action.triggered.connect(self.render_json)
         toolbar.addAction(self.render_action)
 
@@ -450,9 +457,9 @@ class RouteMateWindow(QMainWindow):
         split.setSizes([320, 1280])
         self.setCentralWidget(split)
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
-        self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
-        self.log_line("Workflow: COLLECT → TEST → QUICKSOLVE → SOLVE. Pipeline State shows stage reports, project hashes and findings handed forward.")
-        self.log_line("Solver: feedback-aware placement + verified hole-graph routing. The board views show cuts and vertical jumpers; measured cut access is not certified.")
+        self.log_line(f"Route-Mate {GUI_VERSION} — desktop Quick Solve")
+        self.log_line("Workflow: Import → Netlist → Footprints → Locks → Quick Solve → Electrical check.")
+        self.log_line("Engine: locked placement + routing feedback + independent electrical and grid checks; measured cut access remains unverified.")
 
     def log_line(self, message: str):
         self.log.appendPlainText(message)
@@ -785,8 +792,8 @@ class RouteMateWindow(QMainWindow):
             {"constraints": copy.deepcopy(self.presolve_constraints)},
         )
 
-        # The full placement-feedback solve is the same Python engine used
-        # by the AUDIO and MOTO benchmark CLIs. Run it outside the GUI thread.
+        # Use approved locks as the immutable Quick Solve input.
+        self._quick_source = copy.deepcopy(self.project)
         self.solve_board()
 
     def solve_board(self):
@@ -987,45 +994,34 @@ class RouteMateWindow(QMainWindow):
         self.statusBar().showMessage(f"Saved solved board: {path}")
 
     def _refresh_checklist(self):
+        """Map actual pipeline stage names to visible milestones."""
         if self.pipeline_run is None:
             self.checklist.reset()
             return
-        mapping = {
-            'COLLECT': 'PREPARE.import',
-            'SANITY': 'PREPARE.sanity',
-            'PRE-SOLVE': 'PREPARE.presolve',
-            'TEST': 'TEST',
-            'CONSTRAINTS': 'PREPARE.constraints',
-            'QUICK FIT': 'SOLVE.quick_fit',
-            'ROUTING': 'SOLVE.route',
-            'VERIFY': 'SOLVE.verify',
+        stage_keys = {
+            "IN.project_import": "COLLECT",
+            "IN.collect": "COLLECT",
+            "PREPARE.electrical": "SANITY",
+            "PREPARE.presolve": "PRE-SOLVE",
+            "PREPARE.constraints": "CONSTRAINTS",
+            "SOLVE.quick_fit": "QUICK FIT",
+            "SOLVE.route": "ROUTING",
+            "VERIFY.independent": "VERIFY",
         }
         states = {}
         for result in self.pipeline_run.context.stages.values():
-            stage = result.stage.lower()
-            if 'presolve' in stage:
-                key = 'PRE-SOLVE'
-            elif 'constraints' in stage:
-                key = 'CONSTRAINTS'
-            elif 'sanity' in stage:
-                key = 'SANITY'
-            elif 'quick_fit' in stage:
-                key = 'QUICK FIT'
-            elif 'verify' in stage:
-                key = 'VERIFY'
-            elif 'route' in stage:
-                key = 'ROUTING'
-            elif 'test' in stage:
-                key = 'TEST'
-            elif 'import' in stage or 'collect' in stage:
-                key = 'COLLECT'
-            else:
+            key = stage_keys.get(result.stage)
+            if key is None:
                 continue
             status = str(result.status).lower()
-            states[key] = ('failed' if status in ('fail', 'failed', 'error', 'skipped')
-                           or 'fail' in status else 'done' if status in
-                           ('pass', 'passed', 'completed', 'placed', 'routed', 'success')
-                           else 'pending')
+            if status in ("failed", "blocked", "stale", "error"):
+                states[key] = "failed"
+            elif status == "completed":
+                report = result.report
+                if result.stage in ("PREPARE.electrical", "VERIFY.independent"):
+                    states[key] = "done" if report.get("status") == "PASS" else "failed"
+                else:
+                    states[key] = "done"
         self.checklist.update_states(states)
 
     def _record_pipeline_result(self, result, findings):
@@ -1186,12 +1182,7 @@ class RouteMateWindow(QMainWindow):
             if renderer_log:
                 self.log_line("[RENDER] " + renderer_log)
 
-            tests_passed = self._run_tests()
-            if not tests_passed:
-                QMessageBox.warning(self, "Tests failed",
-                                    "Repository tests failed. The existing board remains displayed; lock questions were not started.")
-                return
-
+            # Unit tests belong in CI, not on every user project import.
             self._ask_lock_settings(placed)
         except Exception as exc:
             self.log_line(f"[ERROR] {type(exc).__name__}: {exc}")
