@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 GUI_VERSION = "1.34"
 CODE_VERSION = "1.34"
 
-from PySide6.QtCore import Qt, QByteArray, QPoint
+from PySide6.QtCore import Qt, QByteArray, QPoint, QThread, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QFontDatabase, QPainter, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QGraphicsSvgItem
@@ -339,6 +339,24 @@ class WorkflowChecklist(QWidget):
         self.percent.setText(f"{round(100 * complete / len(self.STAGES))}%")
 
 
+class SolveWorker(QThread):
+    """Run the shared solver off the Qt event loop; emit only finished results."""
+
+    completed = Signal(object)
+    crashed = Signal(str)
+
+    def __init__(self, project: dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.project = copy.deepcopy(project)
+
+    def run(self):
+        try:
+            from solve.desktop_integration import solve_for_display
+            self.completed.emit(solve_for_display(self.project, attempts=24))
+        except Exception:
+            self.crashed.emit(traceback.format_exc())
+
+
 class RouteMateWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -352,6 +370,9 @@ class RouteMateWindow(QMainWindow):
         self._top_svg = None
         self._copper_svg = None
         self._board_side = "top"
+        self._solver_worker = None
+        self._solve_input = None
+        self._solved_verified = False
 
         logo_path = REPO_ROOT / "icon" / "RouteMate-original.png"
         if logo_path.is_file():
@@ -381,9 +402,17 @@ class RouteMateWindow(QMainWindow):
         toolbar.addWidget(brand)
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
-        load_action = QAction("Load JSON", self)
-        load_action.triggered.connect(self.load_json)
-        toolbar.addAction(load_action)
+        self.load_action = QAction("Load JSON", self)
+        self.load_action.triggered.connect(self.load_json)
+        toolbar.addAction(self.load_action)
+        self.solve_action = QAction("Solve Board", self)
+        self.solve_action.setEnabled(False)
+        self.solve_action.triggered.connect(self.solve_board)
+        toolbar.addAction(self.solve_action)
+        self.save_solved_action = QAction("Save Solved JSON", self)
+        self.save_solved_action.setEnabled(False)
+        self.save_solved_action.triggered.connect(self.save_solved_json)
+        toolbar.addAction(self.save_solved_action)
         pipeline_action = QAction("Pipeline State", self)
         pipeline_action.triggered.connect(self.show_pipeline_state)
         toolbar.addAction(pipeline_action)
@@ -397,9 +426,9 @@ class RouteMateWindow(QMainWindow):
         self.copper_action.setCheckable(True)
         self.copper_action.triggered.connect(lambda: self._switch_board_side("copper"))
         toolbar.addAction(self.copper_action)
-        render_action = QAction("Render JSON", self)
-        render_action.triggered.connect(self.render_json)
-        toolbar.addAction(render_action)
+        self.render_action = QAction("Render JSON", self)
+        self.render_action.triggered.connect(self.render_json)
+        toolbar.addAction(self.render_action)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -423,7 +452,7 @@ class RouteMateWindow(QMainWindow):
         self.statusBar().showMessage("Ready. Load a project JSON to begin.")
         self.log_line(f"Route-Mate GUI v{GUI_VERSION} | Code v{CODE_VERSION}")
         self.log_line("Workflow: COLLECT → TEST → QUICKSOLVE → SOLVE. Pipeline State shows stage reports, project hashes and findings handed forward.")
-        self.log_line("Solver available: deterministic greedy Quick Fit plus first-pass strip copper routing. Hard edge anchors and sliding are not implemented.")
+        self.log_line("Solver: feedback-aware placement + verified hole-graph routing. The board views show cuts and vertical jumpers; measured cut access is not certified.")
 
     def log_line(self, message: str):
         self.log.appendPlainText(message)
@@ -543,6 +572,9 @@ class RouteMateWindow(QMainWindow):
             self.project = project
             self.project_path = path
             self.pipeline_run = None
+            self._solved_verified = False
+            self.solve_action.setEnabled(True)
+            self.save_solved_action.setEnabled(False)
             self.checklist.reset()
             self.presolve_constraints = {}
             self._top_svg = top_svg
@@ -722,187 +754,206 @@ class RouteMateWindow(QMainWindow):
             {"constraints": copy.deepcopy(self.presolve_constraints)},
         )
 
-        # Locked, positioned parts (including edge/slide-labelled anchors)
-        # are fixed obstacles; proceed directly to Quick Fit.
-        self.log_line("[QUICK FIT] Running shared deterministic net-aware placement engine...")
-        from pipeline import quick_fit_stage_result
-        from solve import quick_fit
-        # Read the persisted PREPARE decisions back from disk before placement.
-        # This makes the saved sidecar an audited input rather than a write-only log.
-        from pipeline import PipelineRun, project_sha256
-        saved_run = PipelineRun.load(self.pipeline_run.state_path)
-        saved_constraints_stage = saved_run.context.stages.get("PREPARE.constraints")
-        if saved_constraints_stage is None or not isinstance(saved_constraints_stage.report, dict):
-            raise ValueError("QUICKSOLVE requires saved PREPARE.constraints in the sidecar")
-        saved_constraints = saved_constraints_stage.report.get("constraints")
-        if not isinstance(saved_constraints, dict):
-            raise ValueError("QUICKSOLVE sidecar lock constraints are missing or invalid")
-        if saved_run.context.project_sha256 != project_sha256(self.project):
-            raise ValueError("QUICKSOLVE sidecar project hash does not match the current project")
-        for component in self.project.get("components", []):
-            if not isinstance(component, dict):
-                continue
-            cid = str(component.get("id"))
-            if cid not in saved_constraints:
-                continue
-            flags = saved_constraints[cid]
-            if not isinstance(flags, dict):
-                raise ValueError(f"QUICKSOLVE invalid saved lock settings for {cid}")
-            for key in ("locked", "edge", "slide"):
-                expected = bool(flags.get(key, False))
-                if bool(component.get(key, False)) != expected:
-                    raise ValueError(f"QUICKSOLVE saved {key} disagrees with project for {cid}")
-            if flags.get("reposition") and isinstance(component.get("boardPos"), dict):
-                raise ValueError(f"QUICKSOLVE {cid} was returned to placement pool but still positioned")
-        self.log_line(f"[QUICK FIT] Read and verified {len(saved_constraints)} lock decisions from sidecar.")
-        quick_fit_handoff = self.pipeline_run.handoff(self.project, "solve.quick_fit")
-        self._log_handoff(quick_fit_handoff)
-        quick_fit_input = quick_fit_handoff["project"]
-        result = quick_fit(quick_fit_input)
-        stage_result, findings = quick_fit_stage_result(quick_fit_input, result)
-        stage_result.options.update({
-            "from_stage": quick_fit_handoff["from_stage"],
-            "upstream_finding_ids": quick_fit_handoff["finding_ids"],
-        })
-        self._record_pipeline_result(stage_result, findings)
-        for error in result.get("errors", []):
-            self.log_line("[QUICK FIT][ERROR] " + str(error))
-        for warning in result.get("warnings", []):
-            self.log_line("[QUICK FIT][WARNING] " + str(warning))
-        if result.get("status") != "PLACED":
-            self.log_line(
-                f"[QUICK FIT] {result.get('status', 'FAIL')}: "
-                f"{result.get('placed', 0)} components placed; current edited preview retained."
-            )
-            QMessageBox.warning(
-                self, "Quick Fit incomplete",
-                 "Quick Fit could not place every included component. "
-                "The latest board preview, including removals, remains displayed. See the log."
-            )
-            self.statusBar().showMessage("Quick Fit incomplete — latest preview retained.")
+        # The full placement-feedback solve is the same Python engine used
+        # by the AUDIO and MOTO benchmark CLIs. Run it outside the GUI thread.
+        self.solve_board()
+
+    def solve_board(self):
+        """Solve the current project and then show both rendered board sides."""
+        if self.project is None:
+            QMessageBox.information(self, "Solve Board", "Load a project JSON first.")
+            return
+        if self._solver_worker is not None and self._solver_worker.isRunning():
+            self.statusBar().showMessage("A board solve is already running.")
             return
 
-        self.project = result["project"]
-        from pipeline import route_stage_result, verification_stage_result
-        from solve import route_copper
-        route_handoff = self.pipeline_run.handoff(self.project, "solve.route")
-        self._log_handoff(route_handoff)
-        route_input = route_handoff["project"]
-        routing = route_copper(route_input, vertical_only=True)
-        route_result, route_findings = route_stage_result(route_input, routing)
-        route_result.options.update({
-            "from_stage": route_handoff["from_stage"],
-            "upstream_finding_ids": route_handoff["finding_ids"],
-        })
-        self._record_pipeline_result(route_result, route_findings)
-        verification = routing.get("verification")
-        if isinstance(verification, dict) and verification.get("status") in {"PASS", "FAIL"}:
-            verify_handoff = self.pipeline_run.handoff(
-                routing.get("project", route_input), "solve.verify"
+        # Preserve and verify the saved PREPARE lock decisions when available.
+        if self.pipeline_run is not None:
+            from pipeline import PipelineRun, project_sha256
+            saved_run = PipelineRun.load(self.pipeline_run.state_path)
+            constraints_stage = saved_run.context.stages.get("PREPARE.constraints")
+            if constraints_stage is not None:
+                saved_constraints = constraints_stage.report.get("constraints")
+                if not isinstance(saved_constraints, dict):
+                    raise ValueError("PREPARE.constraints sidecar report is invalid.")
+                if saved_run.context.project_sha256 != project_sha256(self.project):
+                    raise ValueError("Saved lock constraints do not match the current project.")
+                for component in self.project.get("components", []):
+                    if not isinstance(component, dict):
+                        continue
+                    cid = str(component.get("id"))
+                    if cid not in saved_constraints:
+                        continue
+                    flags = saved_constraints[cid]
+                    if not isinstance(flags, dict):
+                        raise ValueError(f"Invalid saved lock constraints for {cid}.")
+                    for key in ("locked", "edge", "slide"):
+                        if bool(component.get(key, False)) != bool(flags.get(key, False)):
+                            raise ValueError(f"Saved {key} constraint differs for {cid}.")
+                    if flags.get("reposition") and isinstance(component.get("boardPos"), dict):
+                        raise ValueError(f"{cid}: repositioned component still has a position.")
+                self.log_line(f"[SOLVE] Confirmed {len(saved_constraints)} saved lock decisions.")
+
+        self._solve_input = copy.deepcopy(self.project)
+        self._solved_verified = False
+        self.save_solved_action.setEnabled(False)
+        self.solve_action.setEnabled(False)
+        self.load_action.setEnabled(False)
+        self.render_action.setEnabled(False)
+        self.log_line("[SOLVE] Starting automatic placement, hole routing and independent audits...")
+        self.statusBar().showMessage("Solving board — preview remains visible...")
+        self._solver_worker = SolveWorker(self._solve_input, self)
+        self._solver_worker.completed.connect(self._solve_completed)
+        self._solver_worker.crashed.connect(self._solve_crashed)
+        self._solver_worker.finished.connect(self._solve_finished)
+        self._solver_worker.start()
+
+    def _solve_completed(self, outcome: dict[str, Any]):
+        """On the GUI thread, accept only a verified board and redraw it."""
+        status = outcome.get("status", "FAILED")
+        self.log_line(f"[SOLVE] {status} — {outcome.get('attempts_used', 0)} placement attempt(s).")
+        if status != "ROUTED":
+            for error in outcome.get("errors", []):
+                self.log_line("[SOLVE][ERROR] " + str(error))
+            failure = outcome.get("best_failure")
+            if failure:
+                self.log_line(f"[SOLVE] Best failed trial: {failure}")
+            if self.pipeline_run is not None and self._solve_input is not None:
+                from pipeline import route_stage_result
+                handoff = self.pipeline_run.handoff(self._solve_input, "solve.placement_feedback")
+                rejected = {
+                    "status": status, "project": handoff["project"],
+                    "errors": list(outcome.get("errors", [])), "warnings": [],
+                    "cuts_added": 0, "wires_added": 0, "verification": None,
+                }
+                stage, findings = route_stage_result(handoff["project"], rejected)
+                stage.status = "failed"
+                stage.options["router"] = "hole_graph"
+                self._record_pipeline_result(stage, findings)
+            self.statusBar().showMessage("No verified route found; original preview retained.")
+            return
+
+        solved = outcome["project"]
+        placement = outcome["placement"]
+        routing = outcome["routing"]
+        verification = outcome["verification"]
+        if self.pipeline_run is not None and self._solve_input is not None:
+            from pipeline import (
+                quick_fit_stage_result, route_stage_result, verification_stage_result,
             )
+            place_handoff = self.pipeline_run.handoff(
+                self._solve_input, "solve.placement_feedback",
+            )
+            self._log_handoff(place_handoff)
+            place_result, findings = quick_fit_stage_result(
+                place_handoff["project"], placement,
+            )
+            place_result.module = "solve.placement_feedback"
+            place_result.options.update({
+                "from_stage": place_handoff["from_stage"],
+                "upstream_finding_ids": place_handoff["finding_ids"],
+                "router": "hole_graph",
+                "attempts_used": outcome["attempts_used"],
+            })
+            self._record_pipeline_result(place_result, findings)
+
+            route_handoff = self.pipeline_run.handoff(placement["project"], "solve.hole_router")
+            self._log_handoff(route_handoff)
+            route_result, findings = route_stage_result(
+                route_handoff["project"], routing,
+            )
+            route_result.module = "solve.hole_router"
+            route_result.options.update({
+                "from_stage": route_handoff["from_stage"],
+                "upstream_finding_ids": route_handoff["finding_ids"],
+                "measured_clearance_certified": False,
+            })
+            self._record_pipeline_result(route_result, findings)
+            verify_handoff = self.pipeline_run.handoff(solved, "solve.verify")
             self._log_handoff(verify_handoff)
-            verify_result, verify_findings = verification_stage_result(
-                verify_handoff["project"], verification
+            verify_result, findings = verification_stage_result(
+                verify_handoff["project"], verification,
             )
             verify_result.options.update({
                 "from_stage": verify_handoff["from_stage"],
                 "upstream_finding_ids": verify_handoff["finding_ids"],
             })
-            self._record_pipeline_result(verify_result, verify_findings)
-        for error in routing.get("errors", []):
-            self.log_line("[ROUTING][ERROR] " + str(error))
-        for warning in routing.get("warnings", []):
-            self.log_line("[ROUTING][WARNING] " + str(warning))
-        routed = routing.get("status") == "ROUTED"
-        if routed:
-            self.project = routing["project"]
-            report = routing["verification"]
-            self.log_line(
-                f"[ROUTING] ROUTED — added {routing['cuts_added']} cuts and "
-                f"{routing['wires_added']} jumpers; copper verification PASS "
-                f"({report['counts']['nets_checked']} nets checked)."
-            )
-        else:
-            self.log_line(
-                f"[ROUTING] {routing.get('status', 'FAILED')} — placement retained; "
-                "no partial routing changes applied."
-            )
-        # Jumper length is the minimum straight-line distance at 2.54 mm pitch.
-        wire_lengths = []
-        for wire in self.project.get("board", {}).get("wires", []):
-            try:
-                a, b = wire["from"], wire["to"]
-                dr = int(a["row"]) - int(b["row"])
-                dc = int(a["col"]) - int(b["col"])
-                wire_lengths.append((dr * dr + dc * dc) ** 0.5 * 2.54)
-            except (KeyError, TypeError, ValueError):
-                self.log_line("[DIAGNOSTICS][ERROR] Invalid jumper endpoints")
-        cuts_total = len(self.project.get("board", {}).get("cuts", []))
+            self._record_pipeline_result(verify_result, findings)
+
+        self.project = solved
+        counts = verification["counts"]
         self.log_line(
-            f"[DIAGNOSTICS] {len(wire_lengths)} jumper wires; {cuts_total} cuts; "
-            f"total straight-line wire length {sum(wire_lengths):.1f} mm; "
-            f"longest {max(wire_lengths, default=0):.1f} mm."
+            f"[ROUTING] ROUTED: {len(solved['board']['cuts'])} cuts, "
+            f"{len(solved['board']['wires'])} jumpers; "
+            f"{counts['nets_checked']} nets, 0 shorts and 0 opens."
         )
-        self.log_line("[DIAGNOSTICS] Wire lengths are minimum straight-line estimates, not assembly allowances.")
-        for index, length in enumerate(wire_lengths, 1):
-            self.log_line(f"[DIAGNOSTICS] W{index:03d}: {length:.1f} mm")
-        # Reuse the independent jumper audit rather than silently folding
-        # diagonal jumpers into the total wire count.
-        from solve.quality_audit import audit_project
-        jumper_report = audit_project(self.project)
-        jumper_audit = jumper_report["jumper_audit"]
-        diagonal_count = jumper_audit["diagonal_count"]
         self.log_line(
-            f"[DIAGNOSTICS] Jumper orientation: {len(wire_lengths)} total; "
-            f"{diagonal_count} diagonal; "
-            f"{len(wire_lengths) - diagonal_count} non-diagonal."
+            f"[VERIFY] Electrical PASS | grid jumper audit "
+            f"{outcome['grid_audit']['status']} | grid physical audit "
+            f"{outcome['physical_audit']['status']}."
         )
-        for wire in jumper_audit["diagonals"]:
-            self.log_line(
-                f"[DIAGNOSTICS][DIAGONAL] {wire['id']}: "
-                f"({wire['from']['row']}, {wire['from']['col']}) -> "
-                f"({wire['to']['row']}, {wire['to']['col']}); "
-                f"{wire['length_hole_pitches'] * 2.54:.1f} mm."
-            )
-        for issue in jumper_report["errors"]:
-            self.log_line("[DIAGNOSTICS][ERROR] " + issue)
-        # Always export the exact project used for the rendered Quick Fit board.
-        # The file is overwritten on each successful placement run.
-        quick_path = (self.project_path.parent if self.project_path else REPO_ROOT) / "quick.json"
+        for warning in outcome.get("warnings", []):
+            self.log_line("[PHYSICAL][UNCERTIFIED] " + warning)
+        self.log_line("[PHYSICAL] Measured package clearance and cut-tool access are NOT certified.")
         try:
-            temp_path = quick_path.with_name("quick.json.tmp")
-            temp_path.write_text(json.dumps(self.project, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            temp_path.replace(quick_path)
-            self.log_line(f"[QUICK FIT] Saved rendered board JSON: {quick_path}")
+            top_svg, renderer_log = self._render_component_side(solved)
+            self._show_board(top_svg)
+            self._solved_verified = True
+            self.save_solved_action.setEnabled(True)
+            if renderer_log:
+                self.log_line("[RENDER] " + renderer_log)
+            self.log_line("[RENDER] Solved component and mirrored copper sides are ready.")
+            self.statusBar().showMessage(
+                f"Electrical PASS — {len(solved['board']['cuts'])} cuts, "
+                f"{len(solved['board']['wires'])} jumpers. Physical cut access unverified."
+            )
+        except Exception as exc:
+            self.log_line(f"[RENDER][ERROR] Could not show solved board: {exc}")
+            self.statusBar().showMessage("Solved and verified, but board rendering failed.")
+            QMessageBox.warning(self, "Solved board rendering failed", str(exc))
+
+    def _solve_crashed(self, message: str):
+        self.log_line("[SOLVE][ERROR] " + message)
+        self.statusBar().showMessage("Solve error; previous preview retained.")
+        QMessageBox.warning(self, "Solve failed", message.splitlines()[-1])
+
+    def _solve_finished(self):
+        self._solver_worker = None
+        self._solve_input = None
+        self.load_action.setEnabled(True)
+        self.render_action.setEnabled(True)
+        self.solve_action.setEnabled(self.project is not None)
+
+    def save_solved_json(self):
+        """Save the exact verified routed project; never overwrite source."""
+        if not self._solved_verified or self.project is None:
+            QMessageBox.information(self, "Save Solved JSON", "Solve a board first.")
+            return
+        folder = self.project_path.parent if self.project_path else REPO_ROOT
+        stem = self.project_path.stem if self.project_path else "board"
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save verified routed board",
+            str(folder / f"{stem}-autorouted.json"),
+            "Project JSON (*.json)",
+        )
+        if not filename:
+            return
+        path = Path(filename)
+        if path.suffix.lower() != ".json":
+            path = path.with_suffix(".json")
+        if self.project_path is not None and path.resolve() == self.project_path.resolve():
+            QMessageBox.warning(self, "Source protected", "Choose a new file; the source JSON will not be overwritten.")
+            return
+        try:
+            payload = json.dumps(self.project, indent=2, ensure_ascii=False) + "\n"
+            temp = path.with_name(path.name + ".tmp")
+            temp.write_text(payload, encoding="utf-8")
+            temp.replace(path)
         except OSError as exc:
-            self.log_line(f"[QUICK FIT][ERROR] Could not save quick.json: {exc}")
-            QMessageBox.warning(self, "Quick JSON export failed", str(exc))
-        top_svg, renderer_log = self._render_component_side(self.project)
-        self._show_board(top_svg)
-        if quick_path.is_file():
-            try:
-                audit = audit_quick_pads(quick_path)
-                self.log_line(
-                    f"[QUALITY] {audit['status']} — {audit['checked']} physical pins/pads checked; "
-                    f"{audit['off_board_skipped']} excluded components skipped; "
-                    f"{len(audit['errors'])} errors."
-                )
-                for issue in audit["errors"]:
-                    self.log_line("[QUALITY][ERROR] " + issue)
-            except (OSError, ValueError, KeyError, TypeError) as exc:
-                self.log_line(f"[QUALITY][ERROR] Could not audit quick.json: {exc}")
-        self.log_line(
-            f"[QUICK FIT] PLACED — {result['placed']} components placed; "
-            f"{result.get('excluded', 0)} off-board/excluded."
-        )
-        self.log_line("[RENDER] Updated component-side placement displayed.")
-        self.log_line("[RENDER] Production renderer generated component artwork and both board-side SVGs.")
-        if renderer_log:
-            self.log_line("[RENDER] " + renderer_log)
-        self.statusBar().showMessage(
-            "Quick Fit and copper connectivity verified." if routed
-            else "Quick Fit complete; copper routing needs attention."
-        )
+            QMessageBox.warning(self, "Save failed", str(exc))
+            return
+        self.log_line(f"[SAVE] Verified routed board: {path}")
+        self.statusBar().showMessage(f"Saved solved board: {path}")
 
     def _refresh_checklist(self):
         if self.pipeline_run is None:
@@ -1095,6 +1146,9 @@ class RouteMateWindow(QMainWindow):
 
             self.project = project
             self.project_path = path
+            self._solved_verified = False
+            self.solve_action.setEnabled(True)
+            self.save_solved_action.setEnabled(False)
             top_svg, renderer_log = self._render_component_side(project)
             self._show_board(top_svg)
             self.log_line("[RENDER] Existing component-side layout rendered with alternating row bands.")
@@ -1114,6 +1168,10 @@ class RouteMateWindow(QMainWindow):
             QMessageBox.critical(self, "Could not load project", str(exc))
 
     def closeEvent(self, event):
+        if self._solver_worker is not None and self._solver_worker.isRunning():
+            event.ignore()
+            self.statusBar().showMessage("A bounded board solve is active; close after it finishes.")
+            return
         event.accept()
 
 
