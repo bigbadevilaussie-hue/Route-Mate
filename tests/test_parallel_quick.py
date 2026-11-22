@@ -7,7 +7,7 @@ from contextlib import ExitStack
 from unittest.mock import patch
 
 from solve.parallel_quick import choose_workers, partition_attempts, _process_job
-from solve.solution_quality import solution_signature
+from solve.solution_quality import solution_signature, candidate_quality
 from solve.placement_feedback import solve_with_feedback
 
 
@@ -31,6 +31,40 @@ class PortfolioPolicyTests(unittest.TestCase):
             indices = [i for offset, size in plan
                        for i in range(offset, offset + size)]
             self.assertEqual(indices, list(range(24)))
+
+    def test_overhanging_cap_is_ranked_below_inside_board_layout(self):
+        source = layout(1)
+        scored = {
+            "score": 43.3, "wires": 10, "cuts": 10,
+            "wire_length_mm": 20.0,
+        }
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "solve.render_quality.score_render", return_value=scored
+            ))
+            stack.enter_context(patch(
+                "geometry_sidecar.make_document", return_value={}
+            ))
+            stack.enter_context(patch(
+                "geometry_sidecar.assess_saved_board",
+                return_value={"status": "ASSUMED_CLEARANCE_PASS",
+                              "contact_findings": []},
+            ))
+            stack.enter_context(patch(
+                "geometry_sidecar.assumed_body_pad_keepouts",
+                return_value=[{"id": "C1", "label": "C1",
+                               "shape": "circle", "center_mm": [0.0, 0.0],
+                               "radius_mm": 2.0}],
+            ))
+            with patch("solve.quick_fit._nominal_body_overhangs_board",
+                       return_value=False):
+                clean = candidate_quality(source)
+            with patch("solve.quick_fit._nominal_body_overhangs_board",
+                       return_value=True):
+                protruding = candidate_quality(source)
+        self.assertLess(clean["rank"], protruding["rank"])
+        self.assertEqual(protruding["nominal_board_overhangs"], ["C1"])
+        self.assertEqual(clean["nominal_board_overhangs"], [])
 
     def test_route_fingerprint_ignores_generated_wire_ids(self):
         a = layout(1)
