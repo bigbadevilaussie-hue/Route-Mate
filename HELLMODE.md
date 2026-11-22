@@ -358,12 +358,12 @@ Exit code 0 on completion with a verified result, non-zero if no verified layout
 ## 13. Tests (write these before the search code)
 
 1. **Quick Solve regression:** compare unsolved Set U inputs to snapshots pinned from the pre-merge SHA; historical solved exports are Set H compatibility tests only.
-2. **Determinism:** same seed gives byte-identical `best_solved.json` with 1 worker and with 3 workers.
+2. **Determinism:** iteration-budgeted runs with the same seed give byte-identical `best_solved.json` with 1 worker and with 3 workers.
 3. **Incremental vs full:** `--paranoid` run of 200k moves, zero mismatches.
 4. **Locks:** locked components never move across 1M random moves.
 5. **Move reversibility:** apply move then undo returns the exact prior state (hash compare), for every move type.
 6. **Verifier gate:** inject a candidate that has fewer wires but a known geometry failure; it must land in `rejected.json`, not `best_solved.json`.
-7. **Halving logic:** with synthetic scores, the right candidates survive each stage and budget is reallocated on plateau.
+7. **Halving logic:** with synthetic scores, the right candidates survive each stage and freed plateau budget is reallocated deterministically at the next stage boundary.
 8. **Diversity:** duplicate candidates are collapsed; `min_distance` relaxes and logs when needed.
 9. **Stop and resume:** Stop mid-run keeps the best; resume continues from the checkpoint.
 10. **Golden geometry fixtures** (shared with the verifier): G01 to G07, G03a/G03b split, plus boundary cases exactly at and just inside `min_clearance` with a stated floating-point tolerance. Hell Mode must not accept anything these fixtures reject.
@@ -460,4 +460,4 @@ Then `geometry_policy = "ALLOW_CONDITIONAL"` may be enabled, with conditional re
 
 On `moto.json`, a Hell preset run on 3 workers finishes within the time budget, produces a layout that passes the electrical check and has unconditional `PASS` geometry, has a score tuple strictly better than the **measured** Quick Solve baseline recorded in `run.json`, saves a replayable `run.json`, and leaves Quick Solve output unchanged against its pinned snapshot. If no strict improvement is found, the run reports `no improvement` and the investigation (not the label) is the deliverable.
 
-The numbers 38 wires / 48 cuts must not appear in code, tests or acceptance criteria. They were an observation from one Quick Solve screenshot.
+Historical numeric baselines are descriptive only; no fixed wire/cut counts may be used as code, test or acceptance targets.
