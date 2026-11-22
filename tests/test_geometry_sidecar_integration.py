@@ -43,7 +43,7 @@ class SavedWitnessSidecarTests(unittest.TestCase):
             document = load_or_create(board, Path(d) / "moto.json")
             result = assess_saved_board(board, document)
         self.assertEqual(len(result["wire_results"]), 14)
-        self.assertEqual(result["profile"], "standard-through-hole-v2")
+        self.assertEqual(result["profile"], "standard-through-hole-v3")
         self.assertEqual(result["status"], "ASSUMED_CLEARANCE_PASS", result)
         self.assertEqual(result["unknown_bodies"], [])
         self.assertEqual(result["counts"]["FAIL_PROVEN"], 0)
