@@ -176,6 +176,59 @@ def _installed_shape(part: dict, definition: dict, entry: dict) -> dict | None:
     return shape
 
 
+def assumed_body_pad_keepouts(project: dict) -> list[dict]:
+    """Return installed nominal body XY shapes for lead-pad access screening.
+
+    This is a conservative *design assumption*, not a measured package size.
+    Uses exactly the same rotated/translated shapes as the 2.5D audit.
+    The hole allocator can avoid proposing an external terminal beneath a
+    component body even when that hole is unoccupied in the footprint grid.
+    """
+    geometry = build_assumed_geometry(project)
+    definitions = dict(BUILTIN_DEFS)
+    definitions.update({
+        str(d["id"]): d for d in project.get("componentDefs", [])
+        if isinstance(d, dict) and d.get("id")
+    })
+    components = {
+        str(p["id"]): p for p in project.get("components", [])
+        if isinstance(p, dict) and p.get("id") and not is_off_board_component(p)
+        and isinstance(p.get("boardPos"), dict)
+    }
+    solids = []
+    for entry in geometry["components"]:
+        part = components.get(entry["id"])
+        if part is None or not entry.get("body_solids"):
+            continue
+        definition = _definition(part, definitions)
+        if definition is None:
+            continue
+        shape = _installed_shape(part, definition, entry)
+        if shape is not None:
+            shape["label"] = str(part.get("label") or part["id"])
+            solids.append(shape)
+    return solids
+
+
+def assumed_pad_body_intersection(
+    row: int, col: int, solids: list[dict], clearance_mm: float = 0.85,
+) -> str | None:
+    """Label of nominal body covering a proposed pad-access clearance disc."""
+    from math import hypot
+    x, y = col * PITCH, row * PITCH
+    for solid in solids:
+        if solid["shape"] == "circle":
+            cx, cy = solid["center_mm"]
+            distance = hypot(x - cx, y - cy) - solid["radius_mm"]
+        else:
+            dx = max(solid["x_min_mm"] - x, 0, x - solid["x_max_mm"])
+            dy = max(solid["y_min_mm"] - y, 0, y - solid["y_max_mm"])
+            distance = hypot(dx, dy)
+        if distance < clearance_mm:
+            return solid["label"]
+    return None
+
+
 def assess_saved_board(project: dict, document: dict) -> dict:
     """Independent per-jumper 2.5D comparison using sidecar as source of truth."""
     if document.get("schema") != SCHEMA or document.get("project_sha256") != _hash(project):
@@ -286,4 +339,4 @@ def assess_saved_board(project: dict, document: dict) -> dict:
     }
 
 
-__all__ = ["sidecar_path", "make_document", "load_or_create", "assess_saved_board"]
+__all__ = ["sidecar_path", "make_document", "load_or_create", "assess_saved_board", "assumed_body_pad_keepouts", "assumed_pad_body_intersection"]
