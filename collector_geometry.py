@@ -14,7 +14,7 @@ from typing import Any
 
 PITCH_MM = 2.54
 SCHEMA = "route-mate/assumed-geometry/1.0"
-PRESET_VERSION = "standard-through-hole-v1"
+PRESET_VERSION = "standard-through-hole-v2"
 CLEARANCE = {
     "wire_od_mm": 0.9,
     "min_clearance_mm": 0.3,
@@ -36,6 +36,15 @@ PROFILES = {
     "to92": ("rectangle", 4.8, 3.8, 3.5),
     "to220": ("rectangle", 10.0, 4.5, 3.0),
 }
+# The universal fallback is an explicitly assumed envelope, derived from
+# the FOOTPRINT dimensions/occupied cells, never from a component label.
+# Standoff and nominal height are deliberately visible in the versioned preset:
+# they are design hypotheses, NOT measurements of the installed component.
+FOOTPRINT_ENVELOPE_ASSUMPTIONS = {
+    "standoff_mm": 1.5,
+    "body_height_mm": 2.54,
+}
+
 # Height tuple member is nominal body height, not clearance to board.
 # Installation standoffs are intentionally fixed assumptions, NOT measurements.
 ASSUMED_STANDOFF_MM = {
@@ -142,6 +151,47 @@ def _body(profile: str, pins: list[dict]) -> dict:
     }
 
 
+def _footprint_envelope(definition: dict, pins: list[dict]) -> dict:
+    """Assumed generic body, with XY extent derived from saved footprint.
+
+    Unlike artwork-only proxies, this is deliberately opt-in as an ASSUMED
+    bounding envelope in standard-through-hole-v2; it makes no measured-size
+    claim. The board audit will reproject the complete actual pin/body geometry
+    after rotations and flexible endpoints.
+    """
+    rows = [pin["y_mm"] / PITCH_MM for pin in pins]
+    cols = [pin["x_mm"] / PITCH_MM for pin in pins]
+    for cell in definition.get("bodyCells") or []:
+        if not isinstance(cell, dict):
+            raise ValueError("footprint contains non-object bodyCell")
+        rows.append(_finite(cell.get("row"), "body cell row"))
+        cols.append(_finite(cell.get("col"), "body cell col"))
+    if not rows or not cols:
+        raise ValueError("footprint envelope requires known pins or body cells")
+    extent = {
+        "shape": "rectangle",
+        "x_min_mm": round((min(cols) - 0.5) * PITCH_MM, 6),
+        "x_max_mm": round((max(cols) + 0.5) * PITCH_MM, 6),
+        "y_min_mm": round((min(rows) - 0.5) * PITCH_MM, 6),
+        "y_max_mm": round((max(rows) + 0.5) * PITCH_MM, 6),
+    }
+    standoff = FOOTPRINT_ENVELOPE_ASSUMPTIONS["standoff_mm"]
+    height = FOOTPRINT_ENVELOPE_ASSUMPTIONS["body_height_mm"]
+    return {
+        **extent, "body_height_mm": height,
+        "assumed_standoff_mm": standoff,
+        "assumed_z_min_mm": standoff,
+        "assumed_z_max_mm": round(standoff + height, 6),
+        "installation_clearance": "CONDITIONAL_ASSUMED",
+        "provenance": {
+            "kind": "assumed_standard", "preset": PRESET_VERSION,
+            "profile": "footprint_envelope",
+            "xy_basis": "footprint_pins_and_bodyCells",
+            "dimensions_measured": False,
+        },
+    }
+
+
 def _artwork_proxies(definition: dict) -> list[dict[str, Any]]:
     """Soft bounding box of footprint bodyCells; never a hard body solid."""
     cells = definition.get("bodyCells") or []
@@ -202,11 +252,18 @@ def build_assumed_geometry(project: dict) -> dict:
                             "pins": [], "body_solids": []})
             continue
         profile = _profile(part)
-        body = [_body(profile, pins)] if profile else []
+        # Unknown package names are NOT silently empty bodies: build one
+        # generic assumed envelope from the actual source footprint data.
+        # Its geometry remains conditional and must be measured before build.
+        if profile:
+            body = [_body(profile, pins)]
+        else:
+            profile = "footprint_envelope"
+            body = [_footprint_envelope(definition, pins)]
         artwork_proxies = _artwork_proxies(definition)
         reasons = []
-        if not profile:
-            reasons.append("no_standard_body_profile")
+        if profile == "footprint_envelope":
+            reasons.append("body_extents_from_footprint_not_measured")
         if body:
             reasons.append("installed_standoff_is_assumed_not_measured")
         if isinstance(override, dict) and "bodyCells" in override:
@@ -239,6 +296,7 @@ def build_assumed_geometry(project: dict) -> dict:
             "unknown_standoff": "FAIL_UNVERIFIED",
             "intermediate_occupied_holes": "HARD_BLOCK",
             "artwork": "NOT_HARD_BODY",
+            "fallback_body": "FOOTPRINT_ENVELOPE_ASSUMED_NOT_MEASURED",
             "cut_tool_access": "UNVERIFIED",
             "thermal": "UNVERIFIED_UNLESS_EXPLICITLY_DOCUMENTED",
         },
@@ -248,4 +306,4 @@ def build_assumed_geometry(project: dict) -> dict:
     }
 
 
-__all__ = ["build_assumed_geometry", "CLEARANCE", "SCHEMA", "PRESET_VERSION"]
+__all__ = ["build_assumed_geometry", "CLEARANCE", "SCHEMA", "PRESET_VERSION", "FOOTPRINT_ENVELOPE_ASSUMPTIONS"]
