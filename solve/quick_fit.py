@@ -57,6 +57,30 @@ def _nominal_local_body(component: dict, definition: dict, entry: dict,
     return _installed_shape(probe, definition, entry)
 
 
+def _nominal_body_overhangs_board(
+    solid: dict | None, rows: int, cols: int, pitch: float,
+) -> bool:
+    """Advisory body silhouette crossing the nominal board perimeter.
+
+    The real board edges are halfway beyond the outermost hole centres.
+    Only unlocked candidate placements use this ranking preference: existing
+    fixed edge anchors are NEVER shifted or rejected by assumed geometry.
+    """
+    if solid is None:
+        return False
+    if solid["shape"] == "circle":
+        x, y = solid["center_mm"]
+        radius = solid["radius_mm"]
+        xmin, xmax, ymin, ymax = x - radius, x + radius, y - radius, y + radius
+    else:
+        xmin, xmax = solid["x_min_mm"], solid["x_max_mm"]
+        ymin, ymax = solid["y_min_mm"], solid["y_max_mm"]
+    return (xmin < -pitch * 0.5 - 1e-7
+            or ymin < -pitch * 0.5 - 1e-7
+            or xmax > (cols - 0.5) * pitch + 1e-7
+            or ymax > (rows - 0.5) * pitch + 1e-7)
+
+
 def _nominal_body_rejects(
     candidate: dict | None,
     candidate_pins: list[dict],
@@ -515,10 +539,14 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                             "row": origin_r + int(p["row"]),
                             "col": origin_c + int(p["col"]),
                         } for p in local_pins]
-                        spacing_penalty = int(_nominal_body_rejects(
-                            body, candidate_pins, nominal_bodies, nominal_pins,
-                            body_gap_mm, pad_margin_mm, PITCH_MM,
-                        ))
+                        spacing_penalty = int(
+                            _nominal_body_overhangs_board(
+                                body, rows, cols, PITCH_MM
+                            ) or _nominal_body_rejects(
+                                body, candidate_pins, nominal_bodies, nominal_pins,
+                                body_gap_mm, pad_margin_mm, PITCH_MM,
+                            )
+                        )
                     if spacing_penalty:
                         actual_topology = (
                             -same_strip_links, -shared_column_links,
