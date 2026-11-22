@@ -1534,10 +1534,16 @@ class RouteMateWindow(QMainWindow):
                 f"stops on first verified route."
             )
         else:
+            quality_details = (
+                f" · quality={last['quality_score']}/100"
+                f" contacts={last['nominal_contacts']}"
+                if "quality_score" in last else ""
+            )
             self.log_line(
                 f"[SOLVE][ATTEMPT {completed}/{budget}] "
                 f"placement={last.get('placement')} routing={last.get('routing')} "
-                f"time={seconds:.2f}s · remaining-budget estimate ~{maximum_seconds}s"
+                f"time={seconds:.2f}s{quality_details} · "
+                f"remaining-budget estimate ~{maximum_seconds}s"
             )
 
     def _solve_completed(self, outcome: dict[str, Any]):
@@ -1573,6 +1579,27 @@ class RouteMateWindow(QMainWindow):
             )
         else:
             self.log_line(f"[SOLVE] {status} — {outcome.get('attempts_used', 0)} placement attempt(s).")
+        if status == "ROUTED":
+            retry = outcome.get("quality_retry") or {}
+            if retry.get("triggered"):
+                self.log_line(
+                    f"[QUALITY][AUTO_RETRY] Completed {retry['extra_attempts']} "
+                    f"additional placement attempt(s) after verified low-quality "
+                    f"or high-contact result. Selected variant="
+                    f"{retry.get('selected_variant')}; "
+                    f"score={retry.get('selected_quality')}/100 provisional; "
+                    f"nominal contacts={retry.get('selected_contacts')}. "
+                    "Original electrically verified fallback was retained until "
+                    "a better independently verified result was available."
+                )
+            else:
+                selected = outcome.get("selection_metrics") or {}
+                if selected:
+                    self.log_line(
+                        f"[QUALITY][SELECTION] score={selected['score']}/100 "
+                        f"provisional; contacts={selected['contacts']}; "
+                        "automatic retry threshold score<40 or contacts>1."
+                    )
         if status != "ROUTED":
             self._set_board_summary(
                 (f"{status} · checked all {slide_search['positions_total']} "
