@@ -602,6 +602,7 @@ class RouteMateWindow(QMainWindow):
         self._speed_probe_worker = StartupSpeedProbe(self)
         self._speed_probe_worker.completed.connect(self._speed_probe_completed)
         self._speed_probe_worker.crashed.connect(self._speed_probe_failed)
+        self._speed_probe_worker.finished.connect(self._speed_probe_finished)
         self._speed_probe_worker.start()
 
     def _set_board_summary(self, message: str, *, project: dict | None = None,
@@ -1118,10 +1119,10 @@ class RouteMateWindow(QMainWindow):
             f"recommended={self._recommended_workers} worker(s). "
             "Current Quick Solve remains single-worker."
         )
-        self._speed_probe_worker = None
-
     def _speed_probe_failed(self, error: str):
         self.log_line(f"[SPEED][UNAVAILABLE] Startup probe: {error}; solver unaffected.")
+
+    def _speed_probe_finished(self):
         self._speed_probe_worker = None
 
     def _solve_attempted(self, attempt: dict[str, Any]):
