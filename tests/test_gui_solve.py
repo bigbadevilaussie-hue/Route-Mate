@@ -33,6 +33,19 @@ class GuiSolveSmokeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_new_project_picker_uses_user_folder_not_app_bundle(self):
+        from gui.main import default_project_directory
+        window = RouteMateWindow()
+        try:
+            with patch("gui.main.QFileDialog.getOpenFileName", return_value=("", "")) as pick:
+                window.load_json()
+                self.assertEqual(pick.call_args.args[2], str(default_project_directory()))
+            with patch("gui.main.QFileDialog.getOpenFileName", return_value=("", "")) as pick:
+                window.render_json()
+                self.assertEqual(pick.call_args.args[2], str(default_project_directory()))
+        finally:
+            window.close()
+
     def test_workflow_reaches_100_only_after_real_electrical_check(self):
         window = RouteMateWindow()
         try:
