@@ -796,50 +796,122 @@ class RouteMateWindow(QMainWindow):
         self._quick_source = copy.deepcopy(self.project)
         self.solve_board()
 
-    def solve_board(self):
-        """Solve the current project and then show both rendered board sides."""
+    def review_locks(self):
+        """Review the *input* placement, not the last solved output."""
+        from placement_policy import is_off_board_component
+        if self._solver_worker is not None and self._solver_worker.isRunning():
+            return
         if self.project is None:
-            QMessageBox.information(self, "Solve Board", "Load a project JSON first.")
+            return
+        source = copy.deepcopy(self._quick_source or self.project)
+        placed = [c for c in source.get("components", [])
+                  if isinstance(c, dict) and isinstance(c.get("boardPos"), dict)
+                  and not is_off_board_component(c)]
+        if not placed:
+            QMessageBox.information(
+                self, "Review Locks",
+                "No on-board parts have positions yet. Load a partially placed "
+                "project to choose fixed anchors, or run Quick Solve first."
+            )
+            return
+        self.project = source
+        self._solved_verified = False
+        self.save_solved_action.setEnabled(False)
+        from pipeline import PipelineRun
+        if self.project_path is not None:
+            # Reviewing constraints starts a fresh pipeline run rather than
+            # editing an already-verified result's immutable history.
+            self.pipeline_run = PipelineRun.create(self.project_path, source)
+        preview, _ = self._render_component_side(source)
+        self._show_board(preview)
+        self._ask_lock_settings(placed)
+
+    def _restart_quick_pipeline(self, source: dict[str, Any]):
+        """Re-run lightweight input checks when repeating a Quick Solve."""
+        if self.project_path is None:
+            return
+        from pipeline import (
+            PipelineRun, electrical_sanity_stage_result,
+            presolve_stage_result,
+        )
+        from prepare.sanity.electrical import run_electrical_sanity
+        self.pipeline_run = PipelineRun.create(self.project_path, source)
+        self._record_project_stage(
+            "IN.project_import", "gui.quicksolve", {"source": "approved locked layout"},
+            snapshot=source,
+        )
+        sanity = run_electrical_sanity(source)
+        result, findings = electrical_sanity_stage_result(source, sanity)
+        self._record_pipeline_result(result, findings)
+        if sanity["status"] != "PASS":
+            raise ValueError("Electrical sanity failed before Quick Solve: " +
+                             "; ".join(sanity.get("errors", [])[:4]))
+        result, findings = presolve_stage_result(source)
+        self._record_pipeline_result(result, findings)
+        self._record_project_stage(
+            "PREPARE.constraints", "gui.lock_dialog",
+            {"constraints": copy.deepcopy(self.presolve_constraints)},
+            snapshot=source,
+        )
+
+    def solve_board(self):
+        """Bounded Quick Solve from preserved input, honoring hard locks."""
+        if self.project is None:
+            QMessageBox.information(self, "Quick Solve", "Load a project JSON first.")
             return
         if self._solver_worker is not None and self._solver_worker.isRunning():
-            self.statusBar().showMessage("A board solve is already running.")
+            self.statusBar().showMessage("Quick Solve is already running.")
+            return
+        source = copy.deepcopy(self._quick_source if self._quick_source is not None
+                               else self.project)
+        try:
+            if self.pipeline_run is not None:
+                from pipeline import PipelineRun, project_sha256
+                current = project_sha256(source)
+                if self.pipeline_run.context.project_sha256 != current:
+                    # Previously completed route changed the pipeline hash.
+                    # Start a fresh recorded run; do not send old wires into
+                    # route_copper or turn Quick Solve into legacy rerouting.
+                    self._restart_quick_pipeline(source)
+                saved_run = PipelineRun.load(self.pipeline_run.state_path)
+                constraints_stage = saved_run.context.stages.get("PREPARE.constraints")
+                if constraints_stage is not None:
+                    saved_constraints = constraints_stage.report.get("constraints")
+                    if not isinstance(saved_constraints, dict):
+                        raise ValueError("PREPARE.constraints sidecar report is invalid.")
+                    if saved_run.context.project_sha256 != current:
+                        raise ValueError("Saved constraints do not match the locked input.")
+                    for component in source.get("components", []):
+                        if not isinstance(component, dict):
+                            continue
+                        cid = str(component.get("id"))
+                        if cid not in saved_constraints:
+                            continue
+                        flags = saved_constraints[cid]
+                        if not isinstance(flags, dict):
+                            raise ValueError(f"Invalid saved lock constraints for {cid}.")
+                        for key in ("locked", "edge", "slide"):
+                            if bool(component.get(key, False)) != bool(flags.get(key, False)):
+                                raise ValueError(f"Saved {key} constraint differs for {cid}.")
+                        if flags.get("reposition") and isinstance(component.get("boardPos"), dict):
+                            raise ValueError(f"{cid}: repositioned component is still positioned.")
+                    self.log_line(f"[QUICK SOLVE] {len(saved_constraints)} approved lock choices.")
+        except (ValueError, OSError, KeyError) as exc:
+            self.log_line(f"[QUICK SOLVE][BLOCKED] {exc}")
+            QMessageBox.warning(self, "Quick Solve blocked", str(exc))
+            self.statusBar().showMessage("Resolve locked-input conflicts before solving.")
             return
 
-        # Preserve and verify the saved PREPARE lock decisions when available.
-        if self.pipeline_run is not None:
-            from pipeline import PipelineRun, project_sha256
-            saved_run = PipelineRun.load(self.pipeline_run.state_path)
-            constraints_stage = saved_run.context.stages.get("PREPARE.constraints")
-            if constraints_stage is not None:
-                saved_constraints = constraints_stage.report.get("constraints")
-                if not isinstance(saved_constraints, dict):
-                    raise ValueError("PREPARE.constraints sidecar report is invalid.")
-                if saved_run.context.project_sha256 != project_sha256(self.project):
-                    raise ValueError("Saved lock constraints do not match the current project.")
-                for component in self.project.get("components", []):
-                    if not isinstance(component, dict):
-                        continue
-                    cid = str(component.get("id"))
-                    if cid not in saved_constraints:
-                        continue
-                    flags = saved_constraints[cid]
-                    if not isinstance(flags, dict):
-                        raise ValueError(f"Invalid saved lock constraints for {cid}.")
-                    for key in ("locked", "edge", "slide"):
-                        if bool(component.get(key, False)) != bool(flags.get(key, False)):
-                            raise ValueError(f"Saved {key} constraint differs for {cid}.")
-                    if flags.get("reposition") and isinstance(component.get("boardPos"), dict):
-                        raise ValueError(f"{cid}: repositioned component still has a position.")
-                self.log_line(f"[SOLVE] Confirmed {len(saved_constraints)} saved lock decisions.")
-
-        self._solve_input = copy.deepcopy(self.project)
+        self._quick_source = copy.deepcopy(source)
+        self._solve_input = copy.deepcopy(source)
         self._solved_verified = False
         self.save_solved_action.setEnabled(False)
         self.solve_action.setEnabled(False)
+        self.review_locks_action.setEnabled(False)
         self.load_action.setEnabled(False)
         self.render_action.setEnabled(False)
-        self.log_line("[SOLVE] Starting automatic placement, hole routing and independent audits...")
-        self.statusBar().showMessage("Solving board — preview remains visible...")
+        self.log_line("[QUICK SOLVE] Routing-aware placement with exact locks and edge constraints...")
+        self.statusBar().showMessage("Quick Solve running — the board remains responsive.")
         self._solver_worker = SolveWorker(self._solve_input, self)
         self._solver_worker.completed.connect(self._solve_completed)
         self._solver_worker.crashed.connect(self._solve_crashed)
@@ -961,6 +1033,7 @@ class RouteMateWindow(QMainWindow):
         self.load_action.setEnabled(True)
         self.render_action.setEnabled(True)
         self.solve_action.setEnabled(self.project is not None)
+        self.review_locks_action.setEnabled(self._quick_source is not None)
 
     def save_solved_json(self):
         """Save the exact verified routed project; never overwrite source."""
@@ -1037,11 +1110,13 @@ class RouteMateWindow(QMainWindow):
             f"state saved to {self.pipeline_run.state_path.name}"
         )
 
-    def _record_project_stage(self, stage: str, module: str, report: dict[str, Any]):
-        if self.pipeline_run is None or self.project is None:
+    def _record_project_stage(self, stage: str, module: str, report: dict[str, Any],
+                              *, snapshot: dict[str, Any] | None = None):
+        project = self.project if snapshot is None else snapshot
+        if self.pipeline_run is None or project is None:
             return
         from pipeline import StageResult, project_sha256
-        current_hash = project_sha256(self.project)
+        current_hash = project_sha256(project)
         result = StageResult(
             stage=stage, status="completed", module=module,
             input_project_sha256=self.pipeline_run.context.project_sha256,
