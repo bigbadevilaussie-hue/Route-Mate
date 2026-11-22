@@ -27,3 +27,6 @@ venv/
 /profile_results/
 /test_timings.json
 /test_timings.log
+
+# GUI generated per-project geometry evidence sidecars
+*.routemate-geometry.json
