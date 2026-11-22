@@ -164,6 +164,14 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets, pla
             ):
                 errors.append(f"{label}: locked footprint has pads/body outside the board")
                 continue
+            if component.get("edge") and not (
+                min(r for r, c in cells) <= 0
+                or max(r for r, c in cells) >= rows - 1
+                or min(c for r, c in cells) <= 0
+                or max(c for r, c in cells) >= cols - 1
+            ):
+                errors.append(f"{label}: fixed edge anchor does not touch any board edge")
+                continue
             cells = {(r, c) for r, c in cells if 0 <= r < rows and 0 <= c < cols}
             if occupied.intersection(cells):
                 errors.append(f"{label}: locked footprint overlaps another locked footprint")
