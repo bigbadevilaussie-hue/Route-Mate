@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from contextlib import ExitStack
 from unittest.mock import patch
 
 from solve.parallel_quick import choose_workers, partition_attempts, _process_job
@@ -104,6 +105,37 @@ class PortfolioPolicyTests(unittest.TestCase):
         self.assertEqual(result["placement_variant"], 1)
         self.assertEqual(result["project"]["components"][0]["boardPos"]["col"], 3)
         self.assertEqual(result["attempts_used"], 2)
+
+    def test_low_quality_two_results_trigger_bounded_third_attempt(self):
+        with ExitStack() as stack:
+            fit = stack.enter_context(patch("solve.placement_feedback.quick_fit"))
+            route = stack.enter_context(patch("solve.placement_feedback.route_holes"))
+            stack.enter_context(patch("solve.verify.verify_project",
+                                      return_value={"status": "PASS"}))
+            stack.enter_context(patch("solve.quick_rules.quick_audit",
+                                      return_value={"status": "PASS"}))
+            stack.enter_context(patch("solve.quality_audit.audit_project",
+                                      return_value={"status": "PASS"}))
+            quality = stack.enter_context(patch("solve.solution_quality.candidate_quality"))
+            fit.side_effect = [{"status": "PLACED", "project": layout(i)}
+                               for i in (1, 2, 3)]
+            route.side_effect = [
+                {"status": "ROUTED", "project": layout(i),
+                 "verification": {"status": "PASS"}} for i in (1, 2, 3)
+            ]
+            quality.side_effect = lambda project: (
+                lambda col: {
+                    "signature": str(col), "rank": (4 - col,),
+                    "nominal_contacts": 3 - col,
+                    "provisional_score": 30.0 if col < 3 else 60.0,
+                }
+            )(project["components"][0]["boardPos"]["col"])
+            result = solve_with_feedback(layout(0), attempts=3,
+                                         body_spacing_holes=0, solutions_target=2)
+        self.assertEqual(result["status"], "ROUTED")
+        self.assertEqual(result["solutions_found"], 3)
+        self.assertEqual(result["attempts_used"], 3)
+        self.assertEqual(result["project"]["components"][0]["boardPos"]["col"], 3)
 
     def test_if_only_one_solution_exists_it_is_retained(self):
         with patch("solve.placement_feedback.quick_fit") as fit, \
