@@ -31,6 +31,7 @@ def solve_with_feedback(
     cancelled: Callable[[], bool] | None = None,
     variant_offset: int = 0,
     solutions_target: int = 1,
+    prefer_spacing_variants: bool = False,
 ) -> dict[str, Any]:
     """Try diversified placements and route each one.
 
@@ -48,6 +49,8 @@ def solve_with_feedback(
         raise ValueError("router must be hole_graph or legacy")
     if variant_offset < 0 or solutions_target not in (1, 2):
         raise ValueError("invalid variant offset or solution target")
+    if not isinstance(prefer_spacing_variants, bool):
+        raise ValueError("prefer_spacing_variants must be boolean")
 
     history: list[dict[str, Any]] = []
     verified_results: list[tuple[dict[str, Any], dict[str, Any]]] = []
@@ -127,10 +130,12 @@ def solve_with_feedback(
     # semantics. Full GUI/benchmark budgets add a single nominal-spacing
     # scout before reverting to the proven compact search sequence.
     use_scout = (body_spacing_holes > 0 and variant_offset == 0
+                 and not prefer_spacing_variants
                  and (attempts >= 8 or solutions_target == 2))
     for variant in range(attempts):
         scouting = use_scout and variant == 0
         attempt_spacing = (
+            body_spacing_holes if prefer_spacing_variants else
             0 if solutions_target == 2 and variant_offset > 0 else
             body_spacing_holes if not use_scout or scouting else 0
         )
@@ -220,9 +225,9 @@ def solve_with_feedback(
             )
             if attempt_spacing < body_spacing_holes:
                 warnings.append(
-                    "The one-hole nominal body-spacing preference did not "
-                    "produce the selected electrically verified route; "
-                    "a compact placement was used instead. Actual package "
+                    f"The requested {body_spacing_holes}-hole nominal spacing "
+                    "preference did not produce this electrically verified route; "
+                    "compact placement was used instead. Actual package "
                     "dimensions remain unmeasured."
                 )
             accepted = {
