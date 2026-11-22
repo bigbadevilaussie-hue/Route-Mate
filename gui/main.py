@@ -32,6 +32,18 @@ from PySide6.QtWidgets import (
 )
 
 
+
+def default_project_directory() -> Path:
+    """Start native file pickers in user files, never PyInstaller internals."""
+    desktop = Path.home() / "Desktop"
+    project_folder = desktop / "Route-Mate"
+    if project_folder.is_dir():
+        return project_folder
+    if desktop.is_dir():
+        return desktop
+    return Path.home()
+
+
 def audit_quick_pads(path: Path) -> dict[str, Any]:
     """Check each on-board pin and pad against saved quick.json."""
     from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
@@ -721,7 +733,7 @@ class RouteMateWindow(QMainWindow):
 
     def render_json(self):
         """Open a board JSON and display its saved layout without running the pipeline."""
-        start_dir = self.project_path.parent if self.project_path else REPO_ROOT
+        start_dir = self.project_path.parent if self.project_path else default_project_directory()
         filename, _ = QFileDialog.getOpenFileName(
             self, "Render Route-Mate JSON", str(start_dir),
             "Project JSON (*.json);;All files (*)",
@@ -815,7 +827,7 @@ class RouteMateWindow(QMainWindow):
         if self.project is None:
             QMessageBox.information(self, "Render SVG", "Load a project first.")
             return
-        directory = self.project_path.parent if self.project_path else REPO_ROOT
+        directory = self.project_path.parent if self.project_path else default_project_directory()
         suggested = directory / "route-mate-board.svg"
         filename, _ = QFileDialog.getSaveFileName(
             self, "Export component-side SVG", str(suggested),
@@ -1283,7 +1295,7 @@ class RouteMateWindow(QMainWindow):
         if not self._solved_verified or self.project is None:
             QMessageBox.information(self, "Save Solved JSON", "Solve a board first.")
             return
-        folder = self.project_path.parent if self.project_path else REPO_ROOT
+        folder = self.project_path.parent if self.project_path else default_project_directory()
         stem = self.project_path.stem if self.project_path else "board"
         filename, _ = QFileDialog.getSaveFileName(
             self, "Save verified routed board",
@@ -1370,8 +1382,7 @@ class RouteMateWindow(QMainWindow):
         self._record_pipeline_result(result, [])
 
     def load_json(self):
-        app_dir = Path(__file__).resolve().parent.parent
-        start_dir = self.project_path.parent if self.project_path else app_dir
+        start_dir = self.project_path.parent if self.project_path else default_project_directory()
         filename, _ = QFileDialog.getOpenFileName(
             self, "Load Route-Mate project", str(start_dir),
             "Project JSON (*.json);;All files (*)",
