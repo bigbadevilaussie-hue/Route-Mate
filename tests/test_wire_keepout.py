@@ -72,8 +72,14 @@ class WireKeepoutTests(unittest.TestCase):
         project = tiny(part("J1", "def-connector-2", 5, 12),
                        wire_from={"row": 2, "col": 12},
                        wire_to={"row": 8, "col": 12})
+        # _static needs at least one assigned physical net, while the
+        # *second* connector pin is deliberately electrically unassigned.
+        project["netAssignments"] = [{
+            "componentId": "J1", "pinId": "1", "netId": "N1",
+        }]
         rows, cols, bodies, pin_net, nets, vreach = _static(project)
-        self.assertEqual(pin_net[5 * cols + 12], "__UNASSIGNED_PAD__")
+        self.assertEqual(pin_net[5 * cols + 12], "N1")
+        self.assertEqual(pin_net[6 * cols + 12], "__UNASSIGNED_PAD__")
         self.assertTrue(any("intermediate component pin" in e
                             for e in wire_keepout_errors(project)))
 
