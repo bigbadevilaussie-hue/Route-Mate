@@ -68,6 +68,32 @@ cut-tool accessibility, or buildability: these remain outside current grid
 verification. The historical status and packaging sections below describe
 earlier releases, not a macOS runtime check of this new GUI wiring.
 
+## Jumper-to-component obstruction correction (development branch, 2026-11-22)
+
+The previous MOTO board showed long vertical jumpers passing through the
+drawn capacitor and other components. The original footprint `bodyCells`
+do not represent the complete component artwork: electrolytic cans,
+ceramic capacitors, LEDs and three-pin transistors may have no body
+occupancy at all.
+
+The shared `solve/wire_keepout.py` now provides conservative graphic
+envelopes at board-hole scale, plus the existing declared body cells.
+`solve/hole_router.py` excludes **complete jumper spans** crossing these
+shapes. `solve/quick_rules.py` independently rejects any routed jumper
+crossing component artwork or an intermediate component/connector pad.
+All physical pads, including unassigned external leads, participate in
+jumper clearance; copper strips may still run under electrically floating
+pins. Placement adds extra copper escape space on boards containing
+transistor packages rather than routing through their middle pins.
+
+A route remains subject to independent electrical verification and
+grid-level collision checks before appearing in the GUI. **These are
+drawing-derived conservative keepouts, not measured package dimensions
+or guaranteed real-world insulation/clearance.** The frozen physical
+specification still requires measured envelopes, jumper diameter,
+cut-tool access and certified physical verification before declaring a
+board buildable.
+
 ## Board display
 
 The existing public renderer API is:
