@@ -1673,11 +1673,19 @@ class RouteMateWindow(QMainWindow):
             else:
                 stats["seconds"] += max(0.0, float(attempt.get("seconds", 0.0)))
             last = attempt.get("last") or {}
-            self.solve_activity.setText(
-                f"Worker {worker}/{workers}: {last.get('placement', 'placing')} "
-                f"→ {last.get('routing', 'routing')} · "
-                f"{self._solve_found} / 2 verified candidates found"
-            )
+            repair_target = last.get("repair_target")
+            if repair_target:
+                self.solve_activity.setText(
+                    f"Worker {worker}/{workers}: clearance repair for "
+                    f"{repair_target} → {last.get('routing', 'routing')} · "
+                    f"{self._solve_found} verified candidates"
+                )
+            else:
+                self.solve_activity.setText(
+                    f"Worker {worker}/{workers}: {last.get('placement', 'placing')} "
+                    f"→ {last.get('routing', 'routing')} · "
+                    f"{self._solve_found} verified candidates"
+                )
             self._update_solve_clock()
             if attempt.get("worker_finished"):
                 self.log_line(f"[WORKER {worker}/{workers}] Finished its assigned budget.")
@@ -1686,7 +1694,8 @@ class RouteMateWindow(QMainWindow):
                     f"[WORKER {worker}/{workers}][ATTEMPTS] "
                     f"{self._solve_done}/{self._solve_budget} · "
                     f"route={last.get('routing')} · "
-                    f"{float(attempt.get('seconds', 0)):.2f}s"
+                    + (f"targeted-repair={repair_target} · " if repair_target else "")
+                    + f"{float(attempt.get('seconds', 0)):.2f}s"
                 )
             self.statusBar().showMessage(
                 f"Quick Solve: {workers} CPU processes · "
