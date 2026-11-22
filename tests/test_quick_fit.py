@@ -246,6 +246,21 @@ class QuickFitPlacementTests(unittest.TestCase):
         self.assertEqual(components["fixed"]["boardPos"], {"row": 0, "col": 4})
         self.assertEqual(components["anchor"]["rotation"], 0)
 
+    def test_fixed_edge_anchor_in_board_interior_is_rejected(self):
+        project = {
+            "board": {"rows": 6, "cols": 8},
+            "componentDefs": [{"id": "one", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "wrong", "defId": "one",
+                            "boardPos": {"row": 3, "col": 4},
+                            "locked": True, "edge": True}],
+            "netAssignments": [],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "CONSTRAINT_CONFLICT")
+        self.assertIn("does not touch any board edge", result["errors"][0])
+
     def test_slide_without_locked_edge_anchor_is_rejected(self):
         project = {
             "board": {"rows": 6, "cols": 8},
