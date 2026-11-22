@@ -7,12 +7,13 @@ from placement_policy import is_off_board_component
 from solve.quality_audit import audit_project
 
 
-def score_render(project: dict[str, Any]) -> dict[str, Any]:
+def score_render(project: dict[str, Any], *,
+                 audit_report: dict[str, Any] | None = None) -> dict[str, Any]:
     """Score layout completeness and routing cost, exposing every penalty.
 
     A heuristic comparison metric, NOT proof of electrical/physical correctness.
     """
-    report = audit_project(project)
+    report = audit_report if audit_report is not None else audit_project(project)
     board = project["board"]
     components = [c for c in project.get("components", []) if isinstance(c, dict)
                   and not is_off_board_component(c)]
