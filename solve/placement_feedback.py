@@ -153,7 +153,10 @@ def solve_with_feedback(
             continue
 
         candidate = copy.deepcopy(fit["project"])
-        key = placement_key(candidate)
+        # A nominal-spacing scout may have tried this exact placement with
+        # a reduced router budget. Do not suppress the subsequent compact
+        # retry, which restores the full proven routing budget.
+        key = (attempt_spacing, placement_key(candidate))
         if key in seen:
             history.append({"variant": variant, "body_spacing_preference": attempt_spacing,
                             "placement": "DUPLICATE", "routing": "NOT_ATTEMPTED"})
