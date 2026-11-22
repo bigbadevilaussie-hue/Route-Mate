@@ -94,6 +94,47 @@ def audit_file(source: Path) -> list[dict]:
     return results
 
 
+def audit_visual_contact_and_label() -> None:
+    """Exercise both user-visible failure cases through real Node SVG output."""
+    source = {
+        "board": {"rows": 12, "cols": 12, "cuts": [], "wires": []},
+        "components": [
+            {"id": "CER", "label": "C4", "defId": "def-capacitor",
+             "value": "15pf", "boardPos": {"row": 5, "col": 5},
+             "rotation": 0,
+             "boardLabelOffset": {"x": -1.0, "y": -34.294}},
+            {"id": "CAN", "label": "C1", "defId": "def-cap-polarized",
+             "value": "1000uF", "boardPos": {"row": 2, "col": 5},
+             "rotation": 0},
+        ],
+        "componentDefs": [], "nets": [], "netAssignments": [],
+    }
+    original = copy.deepcopy(source)
+    top, _, renderer_log = render_project_data(source)
+    assert "[CAPACITOR][LABEL] C4:" in renderer_log, renderer_log
+    assert "data-route-mate-cap-package=\"cap-ceramic\"" in top
+    assert source == original, "rendering must not move source pads or labels"
+    print("CAP_LABEL_ALIAS=PASS C4 label moved off C1 can in rendered view only",
+          flush=True)
+
+    # Move the *bodies* into nominal contact and add a foreign termination
+    # pad beneath C1. Both views must mark contact red; no measured claim.
+    source["components"][0].pop("boardLabelOffset")
+    source["components"][0]["boardPos"] = {"row": 3, "col": 4}
+    source["components"][1]["boardPos"] = {"row": 3, "col": 6}
+    source["components"].append({
+        "id": "J", "label": "J1", "defId": "def-connector-1",
+        "offBoard": True, "leads": {"1": {"row": 3, "col": 7}},
+    })
+    top, copper, _ = render_project_data(source)
+    for svg in (top, copper):
+        assert 'data-route-mate-nominal-contact="body"' in svg
+        assert 'data-route-mate-nominal-contact="pad"' in svg
+        assert 'stroke="#e11d48"' in svg
+    print("CAP_RED_CONTACTS=PASS body/body and external pad risks red on both SVGs; "
+          "assumed only", flush=True)
+
+
 if __name__ == "__main__":
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else (
         ROOT / "benchmarks/moto/motomix.json"
@@ -106,3 +147,4 @@ if __name__ == "__main__":
         ), flush=True)
     print(f"CAP_RENDER_TOTAL=PASS {len(rows)} part(s); "
           "nominal dimensions, not measured physical clearance", flush=True)
+    audit_visual_contact_and_label()
