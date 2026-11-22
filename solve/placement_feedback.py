@@ -29,6 +29,8 @@ def solve_with_feedback(
     hole_expansion_budget: int = 600000,
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    variant_offset: int = 0,
+    solutions_target: int = 1,
 ) -> dict[str, Any]:
     """Try diversified placements and route each one.
 
@@ -44,8 +46,12 @@ def solve_with_feedback(
         raise ValueError("quick_backtracks must be between 0 and 32")
     if router not in ("hole_graph", "legacy"):
         raise ValueError("router must be hole_graph or legacy")
+    if variant_offset < 0 or solutions_target not in (1, 2):
+        raise ValueError("invalid variant offset or solution target")
 
     history: list[dict[str, Any]] = []
+    verified_results: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    verified_signatures: set[str] = set()
     repairs = []
     seen = set()
     original_locked = {
@@ -114,18 +120,21 @@ def solve_with_feedback(
                 "budget": attempts,
                 "seconds": perf_counter() - started,
                 "last": dict(history[-1]),
+                "solutions_found": len(verified_results),
             })
 
     # Short explicit budgets retain the original per-variant relocation
     # semantics. Full GUI/benchmark budgets add a single nominal-spacing
     # scout before reverting to the proven compact search sequence.
-    use_scout = body_spacing_holes > 0 and attempts >= 8
+    use_scout = (body_spacing_holes > 0 and variant_offset == 0
+                 and (attempts >= 8 or solutions_target == 2))
     for variant in range(attempts):
         scouting = use_scout and variant == 0
         attempt_spacing = (
+            0 if solutions_target == 2 and variant_offset > 0 else
             body_spacing_holes if not use_scout or scouting else 0
         )
-        search_variant = (
+        search_variant = variant_offset + (
             variant if not use_scout or scouting else variant - 1
         )
         if variant == 1 and use_scout:
@@ -216,7 +225,7 @@ def solve_with_feedback(
                     "a compact placement was used instead. Actual package "
                     "dimensions remain unmeasured."
                 )
-            return {
+            accepted = {
                 "status": "ROUTED", "project": routed["project"],
                 "verification": routed["verification"],
                 "placement_variant": search_variant,
@@ -224,6 +233,30 @@ def solve_with_feedback(
                 "attempts_used": len(history), "history": history,
                 "warnings": warnings,
             }
+            if solutions_target == 1:
+                return accepted
+
+            # The two-solution mode never scores an electrically or
+            # geometrically invalid candidate. These independent checks
+            # precede heuristic ranking and are repeated in the GUI adapter.
+            from .verify import verify_project
+            from .quick_rules import quick_audit
+            from .quality_audit import audit_project
+            from .solution_quality import candidate_quality
+            electrical = verify_project(routed["project"])
+            grid = quick_audit(routed["project"])
+            physical = audit_project(routed["project"])
+            if (electrical["status"] == "PASS"
+                    and grid["status"] != "FAIL"
+                    and physical["status"] == "PASS"):
+                quality = candidate_quality(routed["project"])
+                if quality["signature"] not in verified_signatures:
+                    verified_signatures.add(quality["signature"])
+                    verified_results.append((accepted, quality))
+            else:
+                history[-1]["independent_recheck"] = "FAILED"
+            if len(verified_results) >= solutions_target:
+                break
 
         # Prioritize movable components attached to nets mentioned by router errors.
         errors = routed.get("errors") or []
@@ -243,6 +276,16 @@ def solve_with_feedback(
         if best_rank is None or rank < best_rank:
             best_rank = rank
             best = history[-1]
+
+    if verified_results:
+        verified_results.sort(key=lambda record: record[1]["rank"])
+        selected, quality = verified_results[0]
+        selected["attempts_used"] = len(history)
+        selected["history"] = history
+        selected["solutions_found"] = len(verified_results)
+        selected["solution_signatures"] = [q["signature"] for _, q in verified_results]
+        selected["quality_selection"] = quality
+        return selected
 
     return {
         "status": "ROUTING_FAILED", "project": None,
