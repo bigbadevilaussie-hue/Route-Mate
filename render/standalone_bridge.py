@@ -240,9 +240,17 @@ def _bundled_runtime() -> tuple[Path, Path] | None:
         return None
     root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     node = root / "renderer-runtime" / "node"
-    cli = root / "renderer-runtime" / "standalone-renderer" / "cli.js"
-    if not node.is_file() or not cli.is_file():
-        raise RuntimeError("Standalone app is missing its bundled Node.js renderer.")
+    dist = root / "renderer-runtime" / "dist"
+    cli = dist / "standalone-renderer" / "cli.js"
+    required = (
+        cli,
+        dist / "standalone-renderer" / "render.js",
+        dist / "data" / "defaultComponents.js",
+        dist / "components" / "stripboard" / "boardLayout.js",
+        dist / "utils" / "resolveComponentDef.js",
+    )
+    if not node.is_file() or any(not file.is_file() for file in required):
+        raise RuntimeError("Standalone app is missing required bundled renderer files.")
     return node, cli
 
 
