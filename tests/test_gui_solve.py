@@ -174,6 +174,37 @@ class GuiSolveSmokeTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_checklist_displays_fixed_and_edge_locked_with_24_per_position_warning(self):
+        from solve.slide_fit import edge_slide_positions
+        project = json.loads(
+            (ROOT / "benchmarks/moto/motoex.json").read_text(encoding="utf-8")
+        )
+        from collect import validate_project
+        project = validate_project(project)
+        project["board"]["rows"] = 24
+        project["board"]["cols"] = 56
+        usb = next(p for p in project["components"] if p.get("label") == "USB")
+        usb.update(locked=True, edge=True, slide=True)
+        fixed = next(p for p in project["components"] if p.get("label") == "TVS")
+        fixed.update(locked=True, edge=False, slide=False)
+        window = RouteMateWindow()
+        try:
+            window.project = project
+            fixed_count, edge_count, slide_count, positions = window._update_lock_summary()
+            self.assertEqual((fixed_count, edge_count, slide_count), (1, 1, 1))
+            self.assertEqual(positions, 51)
+            self.assertIn("Fixed locked: 1", window.checklist.lock_summary.text())
+            self.assertIn("Edge locked: 1", window.checklist.lock_summary.text())
+            self.assertIn("Edge+Slide: 1", window.checklist.lock_summary.text())
+            self.assertTrue(window.checklist.lock_warning.isVisible() or
+                            not window.isVisible())
+            self.assertIn("51 positions × 24 attempts", window.checklist.lock_warning.text())
+            self.assertIn("1,224 solves", window.checklist.lock_warning.text())
+            self.assertIn("much longer", window.checklist.lock_warning.text())
+            self.assertEqual(len(edge_slide_positions(project)[0]["positions"]), 51)
+        finally:
+            window.close()
+
     def test_repeat_quick_solve_uses_locked_input_not_old_routed_output(self):
         project = json.loads((ROOT / "benchmarks/moto/moto.json").read_text())
         locked = next(c for c in project["components"]
