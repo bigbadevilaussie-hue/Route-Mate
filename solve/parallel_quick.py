@@ -43,7 +43,18 @@ def _process_job(project: dict[str, Any], quota: int, offset: int,
     from .desktop_integration import solve_for_display
 
     def notify(event: dict[str, Any]) -> None:
-        messages.put((job_index, event))
+        # Keep IPC small: the GUI needs status, timing and current anchor,
+        # not full per-route graph expansion diagnostics on every attempt.
+        brief = {key: value for key, value in event.items()
+                 if key != "last"}
+        last = event.get("last") or {}
+        brief["last"] = {
+            key: last.get(key) for key in (
+                "variant", "placement", "routing", "error",
+                "cuts", "wires", "slide_positions",
+            ) if key in last
+        }
+        messages.put((job_index, brief))
 
     result = solve_for_display(
         project, attempts=quota, variant_offset=offset,
