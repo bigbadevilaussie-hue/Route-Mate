@@ -29,6 +29,7 @@ def fixture(cols=5):
 def failed(trial, **kwargs):
     return {
         "status": "ROUTING_FAILED", "project": None,
+        "attempts_used": kwargs["attempts"],
         "errors": ["no route"], "history": [
             {"placement": "PLACED", "routing": "ROUTING_FAILED",
              "error": "no route"},
@@ -56,7 +57,7 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
         emitted = []
 
         def fake_solve(trial, *, attempts, clearance, progress=None, cancelled=None):
-            self.assertEqual(attempts, 1)
+            self.assertEqual(attempts, 24)
             self.assertFalse(trial["components"][0]["slide"])
             position = trial["components"][0]["boardPos"]["col"]
             visited.append(position)
@@ -64,6 +65,7 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
                 return failed(trial)
             return {
                 "status": "ROUTED", "project": copy.deepcopy(trial),
+                "attempts_used": 1,
                 "placement": {"status": "PLACED", "project": copy.deepcopy(trial)},
                 "routing": {"status": "ROUTED", "project": copy.deepcopy(trial)},
                 "history": [{"placement": "PLACED", "routing": "ROUTED"}],
@@ -79,6 +81,9 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
         self.assertTrue(all(p["budget"] == 5 for p in emitted))
         self.assertEqual(result["slide_search"]["positions_checked"], 3)
         self.assertEqual(result["slide_search"]["positions_total"], 5)
+        self.assertEqual(result["slide_search"]["variants_per_position"], 24)
+        self.assertEqual(result["slide_search"]["variants_budget"], 120)
+        self.assertEqual(result["slide_search"]["variants_checked"], 49)
         for project in (result["project"], result["placement"]["project"],
                         result["routing"]["project"]):
             part = project["components"][0]
@@ -94,6 +99,7 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
         def unfit(trial, **kwargs):
             return {
                 "status": "NO_FIT_FOUND", "project": None,
+                "attempts_used": kwargs["attempts"],
                 "errors": ["other locked part obstructs placement"],
                 "history": [{"placement": "NO_FIT_FOUND", "routing": "NOT_ATTEMPTED"}],
             }
@@ -102,7 +108,7 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
             result = solve_for_display(source, progress=progress.append)
         self.assertEqual(run.call_count, 5)
         self.assertEqual(result["status"], "NO_FIT_FOUND")
-        self.assertEqual(result["attempts_used"], 5)
+        self.assertEqual(result["attempts_used"], 120)
         self.assertIn("USB (top: 5 positions)", result["errors"][0])
         self.assertIn("cannot fit", result["errors"][0])
         self.assertEqual(progress[-1]["completed"], 5)
@@ -113,9 +119,42 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
             result = solve_for_display(fixture())
         self.assertEqual(run.call_count, 5)
         self.assertEqual(result["status"], "ROUTING_FAILED")
+        self.assertEqual(result["attempts_used"], 120)
         self.assertIn("placement fitted at 5/5", result["errors"][0])
         self.assertIn("no electrically verified route", result["errors"][0])
         self.assertNotIn("cannot fit the edge", result["errors"][0])
+
+    def test_all_24_variants_are_progressed_within_each_edge_position(self):
+        updates = []
+        visited = []
+
+        def simulate(trial, *, attempts, clearance, progress=None, cancelled=None):
+            self.assertEqual(attempts, 24)
+            col = trial["components"][0]["boardPos"]["col"]
+            visited.append(col)
+            for i in range(1, attempts + 1):
+                progress({
+                    "completed": i, "budget": attempts, "seconds": 0.0,
+                    "last": {"placement": "PLACED", "routing": "ROUTING_FAILED"},
+                })
+            return {
+                "status": "ROUTING_FAILED", "project": None,
+                "attempts_used": attempts,
+                "errors": ["no route"],
+                "history": [{"placement": "PLACED", "routing": "ROUTING_FAILED"}],
+            }
+
+        with patch("solve.desktop_integration._solve_one_position",
+                   side_effect=simulate):
+            result = solve_for_display(fixture(cols=3), progress=updates.append)
+        self.assertEqual(visited, [2, 1, 0])
+        variants = [event for event in updates
+                    if event.get("mode") == "edge_slide_variant"]
+        self.assertEqual(len(variants), 72)
+        self.assertEqual([event["completed"] for event in variants],
+                         list(range(1, 73)))
+        self.assertTrue(all(event["budget"] == 72 for event in variants))
+        self.assertEqual(result["slide_search"]["variants_checked"], 72)
 
     def test_multiple_sliders_cover_product_then_stop(self):
         source = fixture(cols=3)
@@ -134,7 +173,7 @@ class EdgeSlideGuiSearchTests(unittest.TestCase):
                    side_effect=failed) as run:
             result = solve_for_display(source)
         self.assertEqual(run.call_count, 9)
-        self.assertEqual(result["attempts_used"], 9)
+        self.assertEqual(result["attempts_used"], 216)
 
 
 if __name__ == "__main__":
