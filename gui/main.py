@@ -1556,22 +1556,25 @@ class RouteMateWindow(QMainWindow):
     def _speed_probe_completed(self, report: dict[str, Any]):
         from solve.parallel_quick import choose_workers
         suggested = int(report["recommended_workers"])
-        self._recommended_workers = choose_workers(
-            suggested, int(report.get("logical_cpus") or os.cpu_count() or 1)
-        )
         times = report["timings"]
+        self._recommended_workers = choose_workers(
+            suggested, int(report.get("logical_cpus") or os.cpu_count() or 1),
+            timings=times,
+        )
         timings = ", ".join(f"{workers}w={seconds:.2f}s" for workers, seconds in times.items())
         self.log_line(
             f"[SPEED] Startup mixed-load probe: {timings}; "
             f"probe fastest={suggested} worker(s); "
             f"Quick Solve uses {self._recommended_workers} OS processes "
-            "(3 minimum when available, 4 if probe recommends 4)."
+            "(4 preferred when its probe timing is within 15% of 3)."
         )
         self.solve_worker_status.setText(
             f"{self._recommended_workers} CPU processes selected from startup probe"
         )
         self.log_line(
-            "[SPEED] Worker count changes latency, not the fixed 24-attempt budget."
+            "[SPEED] Worker count changes latency, not the fixed 24-attempt budget. "
+            "Baseline compact routing is preserved; exploratory processes "
+            "try requested spacing and use a smaller bounded router budget."
         )
     def _speed_probe_failed(self, error: str):
         self.log_line(f"[SPEED][UNAVAILABLE] Startup probe: {error}; solver unaffected.")
@@ -1731,6 +1734,10 @@ class RouteMateWindow(QMainWindow):
             if portfolio.get("worker_pids"):
                 self.log_line(
                     f"[MULTICORE] Real solver process IDs: {portfolio['worker_pids']}"
+                )
+            if portfolio.get("worker_strategies"):
+                self.log_line(
+                    f"[MULTICORE] Worker strategies: {portfolio['worker_strategies']}"
                 )
         if self._stop_requested:
             # Even if a verification result raced with the Stop click, never
