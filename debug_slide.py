@@ -120,9 +120,14 @@ def main() -> None:
     if not positions:
         parser.error("no positions on selected edge")
     start = max(0, min(old_axis, len(positions) - 1))
-    # Start near saved position, step forwards one hole at a time, then
-    # restart at the opposite end to cover remaining positions.
-    sequence = list(range(start, len(positions))) + list(range(0, start))
+    # Start at the saved position, then alternate one hole left/right
+    # (or up/down). Never visit an anchor outside the valid footprint range.
+    sequence = [start]
+    for distance in range(1, len(positions)):
+        if start - distance >= 0:
+            sequence.append(start - distance)
+        if start + distance < len(positions):
+            sequence.append(start + distance)
     if args.limit:
         sequence = sequence[:args.limit]
     print(f"[SLIDE] {original.get('label') or original.get('id')} side={side} rotation={rotation} "
