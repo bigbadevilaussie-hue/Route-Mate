@@ -857,9 +857,12 @@ def quick_fit(project: dict[str, Any], clearance: int = 1, *,
                  for b in solids[i + 1:]),
                 default=float("inf"),
             )
-            achieved = (min(body_spacing_holes, max(
-                0, int((closest_gap + 1e-7) / PITCH_MM),
-            )) if body_spacing_holes else 0)
+            achieved = (
+                body_spacing_holes if closest_gap == float("inf") else
+                min(body_spacing_holes, max(
+                    0, int((closest_gap + 1e-7) / PITCH_MM),
+                ))
+            ) if body_spacing_holes else 0
             if contacts:
                 achieved = 0
             if achieved < body_spacing_holes:
