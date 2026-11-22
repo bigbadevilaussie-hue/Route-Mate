@@ -94,7 +94,7 @@ class PortfolioPolicyTests(unittest.TestCase):
                 {"status": "ROUTED", "project": copy.deepcopy(second),
                  "verification": {"status": "PASS"}},
             ]
-            quality.side_effect = lambda project: {
+            quality.side_effect = lambda project, **kwargs: {
                 "signature": str(project["components"][0]["boardPos"]["col"]),
                 "rank": (2,) if project["components"][0]["boardPos"]["col"] == 1 else (0,),
             }
@@ -123,7 +123,7 @@ class PortfolioPolicyTests(unittest.TestCase):
                 {"status": "ROUTED", "project": layout(i),
                  "verification": {"status": "PASS"}} for i in (1, 2, 3)
             ]
-            quality.side_effect = lambda project: (
+            quality.side_effect = lambda project, **kwargs: (
                 lambda col: {
                     "signature": str(col), "rank": (4 - col,),
                     "nominal_contacts": 3 - col,
