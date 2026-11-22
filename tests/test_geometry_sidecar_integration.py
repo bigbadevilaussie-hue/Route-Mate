@@ -50,6 +50,62 @@ class SavedWitnessSidecarTests(unittest.TestCase):
         self.assertEqual(result["counts"]["FAIL_UNVERIFIED"], 0)
         self.assertFalse(result["physical_signoff"])
 
+    def test_rotated_custom_module_envelope_uses_installed_body_cells(self):
+        from board_geometry import component_geometry
+        from geometry_sidecar import _installed_shape, make_document
+        definition = {
+            "id": "module",
+            "width": 4, "height": 3,
+            "pins": [{"id": "P", "offsetRow": 0, "offsetCol": 0}],
+            "bodyCells": [{"row": 2, "col": 3}],
+        }
+        part = {
+            "id": "X", "defId": "module", "label": "X",
+            "boardPos": {"row": 4, "col": 4}, "rotation": 90,
+        }
+        project = {"components": [part], "componentDefs": [definition]}
+        doc = make_document(project)
+        entry = doc["geometry"]["components"][0]
+        shape = _installed_shape(part, definition, entry)
+        pins, cells = component_geometry(part, definition)
+        self.assertTrue(cells)
+        self.assertEqual(
+            shape["x_min_mm"],
+            (min([p["col"] for p in pins] + [c for _, c in cells]) - 0.5) * 2.54,
+        )
+        self.assertEqual(
+            shape["y_max_mm"],
+            (max([p["row"] for p in pins] + [r for r, _ in cells]) + 0.5) * 2.54,
+        )
+        self.assertEqual(shape["z_min_source"], "assumed_standard")
+
+    def test_intermediate_occupied_pin_cannot_pass_assumed_geometry(self):
+        from geometry_sidecar import make_document
+        project = {
+            "board": {"rows": 9, "cols": 9, "cuts": [], "wires": [{
+                "id": "W", "from": {"row": 0, "col": 3},
+                "to": {"row": 6, "col": 3},
+            }]},
+            "componentDefs": [{
+                "id": "three", "width": 1, "height": 3,
+                "pins": [
+                    {"id": str(i), "offsetRow": i, "offsetCol": 0}
+                    for i in range(3)
+                ],
+                "bodyCells": [],
+            }],
+            "components": [{
+                "id": "P", "label": "P", "defId": "three",
+                "boardPos": {"row": 1, "col": 3}, "rotation": 0,
+            }],
+        }
+        report = assess_saved_board(project, make_document(project))
+        self.assertEqual(report["status"], "HARD_CONFLICT", report)
+        self.assertTrue(any(
+            x["reason"] == "occupied_hole" and x["verdict"] == "FAIL_PROVEN"
+            for x in report["findings"]
+        ), report)
+
     def test_stale_project_rebuilds_sidecar_and_old_snapshot_rejected(self):
         board = self.witness("audio")
         with tempfile.TemporaryDirectory() as d:
