@@ -246,20 +246,71 @@ class QuickFitPlacementTests(unittest.TestCase):
         self.assertEqual(components["fixed"]["boardPos"], {"row": 0, "col": 4})
         self.assertEqual(components["anchor"]["rotation"], 0)
 
-    def test_fixed_edge_anchor_in_board_interior_is_rejected(self):
+    def test_fixed_edge_anchor_may_be_interior_and_remains_fixed(self):
         project = {
             "board": {"rows": 6, "cols": 8},
             "componentDefs": [{"id": "one", "width": 1, "height": 1,
                                "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
                                "bodyCells": []}],
-            "components": [{"id": "wrong", "defId": "one",
-                            "boardPos": {"row": 3, "col": 4},
-                            "locked": True, "edge": True}],
+            "components": [{"id": "fixed", "defId": "one",
+                            "boardPos": {"row": 3, "col": 4}, "rotation": 0,
+                            "locked": True, "edge": True, "slide": False}],
             "netAssignments": [],
         }
         result = quick_fit(project, clearance=0)
-        self.assertEqual(result["status"], "CONSTRAINT_CONFLICT")
-        self.assertIn("does not touch any board edge", result["errors"][0])
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        self.assertEqual(result["project"]["components"][0], project["components"][0])
+
+    def test_fixed_edge_body_may_overhang_but_pins_must_remain_on_board(self):
+        project = {
+            "board": {"rows": 6, "cols": 8},
+            "componentDefs": [{"id": "overhang", "width": 3, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 1}],
+                               "bodyCells": [{"row": 0, "col": 0}, {"row": 0, "col": 2}]}],
+            "components": [{"id": "edge", "defId": "overhang",
+                            "boardPos": {"row": 2, "col": -1},
+                            "locked": True, "edge": True, "slide": False}],
+            "netAssignments": [],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        self.assertEqual(result["project"]["components"][0]["boardPos"], {"row": 2, "col": -1})
+        project["components"][0]["edge"] = False
+        self.assertEqual(quick_fit(project, clearance=0)["status"], "NO_FIT_FOUND")
+
+    def test_slide_from_interior_hint_moves_to_nearest_edge_without_rotation(self):
+        project = {
+            "board": {"rows": 6, "cols": 12},
+            "componentDefs": [{"id": "one", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "slider", "defId": "one",
+                            "boardPos": {"row": 3, "col": 10}, "rotation": 90,
+                            "locked": True, "edge": True, "slide": True}],
+            "netAssignments": [],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        slider = result["project"]["components"][0]
+        self.assertEqual(slider["boardPos"]["col"], 11)
+        self.assertEqual(slider["rotation"], 90)
+
+    def test_ordinary_lock_must_stay_on_board_and_cannot_move(self):
+        project = {
+            "board": {"rows": 6, "cols": 8},
+            "componentDefs": [{"id": "one", "width": 1, "height": 1,
+                               "pins": [{"id": "1", "offsetRow": 0, "offsetCol": 0}],
+                               "bodyCells": []}],
+            "components": [{"id": "fixed", "defId": "one",
+                            "boardPos": {"row": 2, "col": 4},
+                            "locked": True, "edge": False, "slide": False}],
+            "netAssignments": [],
+        }
+        result = quick_fit(project, clearance=0)
+        self.assertEqual(result["status"], "PLACED", result["errors"])
+        self.assertEqual(result["project"]["components"][0], project["components"][0])
+        project["components"][0]["boardPos"] = {"row": 2, "col": 8}
+        self.assertEqual(quick_fit(project, clearance=0)["status"], "NO_FIT_FOUND")
 
     def test_slide_without_locked_edge_anchor_is_rejected(self):
         project = {
