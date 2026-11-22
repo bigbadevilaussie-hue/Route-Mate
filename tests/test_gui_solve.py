@@ -231,6 +231,38 @@ class GuiSolveSmokeTests(unittest.TestCase):
             finally:
                 window.close()
 
+    def test_artwork_only_overlap_is_unverified_not_proven_unsafe(self):
+        layout = {
+            "board": {"rows": 12, "cols": 25, "cuts": [], "wires": [{
+                "id": "W-ART",
+                "from": {"row": 0, "col": 13},
+                "to": {"row": 6, "col": 13},
+            }]},
+            "componentDefs": [],
+            "components": [{
+                "id": "C1", "label": "C1", "defId": "def-cap-polarized",
+                "boardPos": {"row": 2, "col": 12},
+            }],
+            "nets": [], "netAssignments": [],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "artwork-only.json"
+            path.write_text(json.dumps(layout))
+            window = RouteMateWindow()
+            try:
+                with patch("gui.main.QFileDialog.getOpenFileName",
+                           return_value=(str(path), "Project JSON (*.json)")):
+                    with patch("render.standalone_bridge.render_project_data",
+                               return_value=(SVG, SVG, "test")):
+                        with patch("gui.main.QMessageBox.warning") as warning:
+                            window.render_json()
+                self.assertTrue(warning.called)
+                self.assertIn("[RENDER JSON][UNVERIFIED]", window.log.toPlainText())
+                self.assertNotIn("[RENDER JSON][UNSAFE]", window.log.toPlainText())
+                self.assertFalse(window.save_solved_action.isEnabled())
+            finally:
+                window.close()
+
     def test_attempt_eta_uses_measured_seconds_and_remaining_budget(self):
         window = RouteMateWindow()
         try:
