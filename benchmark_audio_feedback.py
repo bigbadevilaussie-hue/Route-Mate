@@ -39,6 +39,14 @@ def run(attempts: int, backtracks: int) -> dict:
     return solve_with_feedback(project, attempts=attempts, quick_backtracks=backtracks)
 
 
+def _benchmark_worker(queue, attempts, backtracks):
+    try:
+        result = run(attempts, backtracks)
+        queue.put({k: v for k, v in result.items() if k != "project"})
+    except Exception as exc:
+        queue.put({"status": "EXCEPTION", "error": str(exc), "attempts_used": 0})
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--attempts", type=int, default=24)
@@ -49,13 +57,7 @@ if __name__ == "__main__":
     if args.timeout < 1:
         parser.error("--timeout must be positive")
     queue = mp.Queue()
-    def worker(queue, attempts, backtracks):
-        try:
-            result = run(attempts, backtracks)
-            queue.put({k: v for k, v in result.items() if k != "project"})
-        except Exception as exc:
-            queue.put({"status": "EXCEPTION", "error": str(exc), "attempts_used": 0})
-    process = mp.Process(target=worker, args=(queue, args.attempts, args.backtracks))
+    process = mp.Process(target=_benchmark_worker, args=(queue, args.attempts, args.backtracks))
     process.start()
     process.join(args.timeout)
     if process.is_alive():
