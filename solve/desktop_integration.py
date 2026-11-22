@@ -20,6 +20,7 @@ from .quality_audit import audit_project
 def _solve_one_position(
     project: dict[str, Any], *, attempts: int = 24,
     clearance: int = 1,
+    body_spacing_holes: int = 1,
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -33,6 +34,7 @@ def _solve_one_position(
     source = copy.deepcopy(project)
     outcome = solve_with_feedback(
         source, attempts=attempts, clearance=clearance,
+        body_spacing_holes=body_spacing_holes,
         quick_backtracks=0, router="hole_graph", progress=progress,
         cancelled=cancelled,
     )
@@ -137,6 +139,10 @@ def _solve_one_position(
             "placement_variant": outcome["placement_variant"],
             "attempts_used": outcome["attempts_used"],
             "clearance_requested": clearance,
+            "clearance_used": outcome.get("placement_report", {}).get("clearance_used"),
+            "body_spacing_requested": body_spacing_holes,
+            "body_spacing_used": outcome.get("placement_report", {}).get("body_spacing_used"),
+            "nominal_contact_count": outcome.get("placement_report", {}).get("nominal_contact_count"),
         },
     }
     routing = {
@@ -156,6 +162,7 @@ def _solve_one_position(
         "physical_audit": physical,
         "history": outcome.get("history", []),
         "placement_variant": outcome["placement_variant"],
+        "placement_report": outcome.get("placement_report", {}),
         "attempts_used": outcome["attempts_used"],
         "warnings": routing["warnings"],
     }
@@ -164,6 +171,7 @@ def _solve_one_position(
 def solve_for_display(
     project: dict[str, Any], *, attempts: int = 24,
     clearance: int = 1,
+    body_spacing_holes: int = 1,
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -206,8 +214,9 @@ def solve_for_display(
         }
     if not sliders:
         return _solve_one_position(
-            project, attempts=attempts, clearance=clearance, progress=progress,
-            cancelled=cancelled,
+            project, attempts=attempts, clearance=clearance,
+            body_spacing_holes=body_spacing_holes,
+            progress=progress, cancelled=cancelled,
         )
 
     total = prod(len(s["positions"]) for s in sliders)
@@ -282,6 +291,7 @@ def solve_for_display(
 
         result = _solve_one_position(
             trial, attempts=attempts, clearance=clearance,
+            body_spacing_holes=body_spacing_holes,
             progress=variant_progress, cancelled=cancelled,
         )
         variants_checked += result.get("attempts_used", len(result.get("history") or []))
