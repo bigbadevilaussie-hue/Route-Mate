@@ -90,13 +90,17 @@ class GuiSolveSmokeTests(unittest.TestCase):
             "MOVE": {"locked": False, "edge": False, "slide": False, "reposition": True},
         }
         try:
-            with patch("gui.main.LockManagerDialog") as dialog:
+            with patch("gui.main.LockDialog") as dialog:
                 dialog.return_value.exec.return_value = 1
-                dialog.return_value.values.return_value = accepted
-                with patch.object(window, "_render_component_side", return_value=(SVG, "")):
+                dialog.return_value.values.side_effect = [accepted["KEEP"], accepted["MOVE"]]
+                with patch.object(window, "_render_component_side", return_value=(SVG, "")) as render:
                     with patch.object(window, "solve_board") as solve:
                         window.review_locks()
             solve.assert_called_once()
+            self.assertEqual(dialog.call_count, 2)
+            highlighted = [call.kwargs.get("highlight_component_id")
+                           for call in render.call_args_list if "highlight_component_id" in call.kwargs]
+            self.assertEqual(highlighted, ["KEEP", "MOVE"])
             fixed = {c["id"]: c for c in window._quick_source["components"]}
             self.assertEqual(fixed["KEEP"]["boardPos"], {"row": 1, "col": 2})
             self.assertTrue(fixed["KEEP"]["locked"])
@@ -104,6 +108,34 @@ class GuiSolveSmokeTests(unittest.TestCase):
             self.assertEqual(window._quick_source["board"]["wires"], [])
             self.assertEqual(window._quick_source["board"]["cuts"], [])
             self.assertEqual(current["board"]["wires"][0]["id"], "OLD")
+        finally:
+            window.close()
+
+    def test_per_component_review_preserves_edge_slide_choice(self):
+        project = {
+            "board": {"rows": 6, "cols": 10, "cuts": [], "wires": []},
+            "components": [
+                {"id": "EDGE", "label": "Edge", "boardPos": {"row": 0, "col": 3}},
+            ],
+            "nets": [], "netAssignments": [],
+        }
+        window = RouteMateWindow()
+        window.project = project
+        try:
+            choice = {"locked": True, "edge": True, "slide": True, "reposition": False}
+            with patch("gui.main.LockDialog") as dialog:
+                dialog.return_value.exec.return_value = 1
+                dialog.return_value.values.return_value = choice
+                with patch.object(window, "_render_component_side", return_value=(SVG, "")):
+                    with patch.object(window, "solve_board") as solve:
+                        window._ask_lock_settings(project["components"])
+            solve.assert_called_once()
+            part = window._quick_source["components"][0]
+            self.assertEqual(part["boardPos"], {"row": 0, "col": 3})
+            self.assertTrue(part["locked"])
+            self.assertTrue(part["edge"])
+            self.assertTrue(part["slide"])
+            self.assertEqual(window.presolve_constraints["EDGE"], choice)
         finally:
             window.close()
 
