@@ -1596,6 +1596,9 @@ class RouteMateWindow(QMainWindow):
         geometry_document = make_document(solved)
         geometry_assessment = assess_saved_board(solved, geometry_document)
         self._assumed_geometry = geometry_document
+        contact_count = self._log_assumed_contacts(
+            geometry_assessment, stage="SOLVED"
+        )
         self.log_line(
             f"[2.5D][SOLVED][{geometry_assessment['status']}] "
             f"{geometry_assessment['profile']} | "
@@ -1671,10 +1674,14 @@ class RouteMateWindow(QMainWindow):
              f"{len(solved['board']['cuts'])} cuts, "
              f"{len(solved['board']['wires'])} jumpers."
              if hard_conflict else
+             f"Electrical PASS · {contact_count} nominal contacts marked RED · "
+             "physical fit UNVERIFIED"
+             if contact_count else
              f"Electrical PASS · {len(solved['board']['cuts'])} cuts · "
              f"{len(solved['board']['wires'])} jumpers · "
              f"{outcome['attempts_used']} placement attempt(s) · physical sign-off pending"),
-            level="failed" if hard_conflict else "pass",
+            level="failed" if hard_conflict else
+                  "neutral" if contact_count else "pass",
         )
         self.sidebar_tabs.setCurrentIndex(0)
         self.log_line(
@@ -1701,6 +1708,9 @@ class RouteMateWindow(QMainWindow):
             self.statusBar().showMessage(
                 ("Electrical PASS but 2.5D HARD CONFLICT: inspect Activity before building."
                  if hard_conflict else
+                 f"Electrical PASS, but {contact_count} nominal contacts are RED; "
+                 "inspect Activity and verify actual package dimensions."
+                 if contact_count else
                  f"Electrical PASS — {len(solved['board']['cuts'])} cuts, "
                  f"{len(solved['board']['wires'])} jumpers. Physical cut access unverified.")
             )
