@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from solve.parallel_quick import choose_workers, partition_attempts, _process_job
 from solve.solution_quality import solution_signature, candidate_quality
-from solve.placement_feedback import solve_with_feedback
+from solve.placement_feedback import solve_with_feedback, quality_repair_targets
 
 
 def layout(col: int):
@@ -65,6 +65,92 @@ class PortfolioPolicyTests(unittest.TestCase):
         self.assertLess(clean["rank"], protruding["rank"])
         self.assertEqual(protruding["nominal_board_overhangs"], ["C1"])
         self.assertEqual(clean["nominal_board_overhangs"], [])
+
+    def test_contact_and_board_edge_feedback_targets_only_movable_parts(self):
+        placed = {
+            "components": [
+                {"id": "F1", "locked": True, "boardPos": {"row": 0, "col": 0}},
+                {"id": "C1", "boardPos": {"row": 1, "col": 7}},
+                {"id": "MPU", "boardPos": {"row": 1, "col": 2}},
+                {"id": "MOSFET", "boardPos": {"row": 1, "col": 5}},
+            ],
+        }
+        quality = {
+            "nominal_board_overhang_ids": ["C1", "F1"],
+            "nominal_contact_component_ids": ["MPU", "MOSFET", "F1"],
+        }
+        self.assertEqual(
+            quality_repair_targets(placed, quality, {"F1": True}),
+            ["C1", "MPU", "MOSFET"],
+        )
+        self.assertEqual(
+            quality_repair_targets(placed, quality, {"F1": True, "C1": True}),
+            ["MPU", "MOSFET"],
+        )
+
+    def test_verified_contact_warning_relocates_actual_offending_part(self):
+        original = {
+            "board": {"rows": 5, "cols": 10, "cuts": [], "wires": []},
+            "components": [
+                {"id": "F1", "locked": True, "boardPos": {"row": 0, "col": 0}},
+                {"id": "C1", "boardPos": {"row": 1, "col": 9}},
+                {"id": "MPU", "boardPos": {"row": 2, "col": 3}},
+            ],
+            "netAssignments": [],
+        }
+        moved = copy.deepcopy(original)
+        moved["components"][1]["boardPos"] = {"row": 1, "col": 6}
+        with ExitStack() as stack:
+            fit = stack.enter_context(patch("solve.placement_feedback.quick_fit"))
+            router = stack.enter_context(patch("solve.placement_feedback.route_holes"))
+            stack.enter_context(patch("solve.verify.verify_project",
+                                      return_value={"status": "PASS"}))
+            stack.enter_context(patch("solve.quick_rules.quick_audit",
+                                      return_value={"status": "PASS"}))
+            stack.enter_context(patch("solve.quality_audit.audit_project",
+                                      return_value={"status": "PASS"}))
+            quality = stack.enter_context(
+                patch("solve.solution_quality.candidate_quality")
+            )
+            fit.side_effect = [
+                {"status": "PLACED", "project": copy.deepcopy(original)},
+                {"status": "PLACED", "project": copy.deepcopy(original)},
+                {"status": "PLACED", "project": copy.deepcopy(moved)},
+            ]
+            router.side_effect = [
+                {"status": "BUDGET_EXHAUSTED", "errors": ["no route"]},
+                {"status": "ROUTED", "project": copy.deepcopy(original),
+                 "verification": {"status": "PASS"}},
+                {"status": "ROUTED", "project": copy.deepcopy(moved),
+                 "verification": {"status": "PASS"}},
+            ]
+            quality.side_effect = [
+                {"signature": "bad", "rank": (1,), "provisional_score": 34.3,
+                 "nominal_contacts": 4, "nominal_board_overhangs": ["C1"],
+                 "nominal_board_overhang_ids": ["C1"],
+                 "nominal_contact_component_ids": ["MPU"]},
+                {"signature": "good", "rank": (0,), "provisional_score": 65.0,
+                 "nominal_contacts": 0, "nominal_board_overhangs": [],
+                 "nominal_board_overhang_ids": [],
+                 "nominal_contact_component_ids": []},
+            ]
+            result = solve_with_feedback(
+                original, attempts=3, body_spacing_holes=1, solutions_target=2
+            )
+        self.assertEqual(result["status"], "ROUTED")
+        self.assertEqual(result["solutions_found"], 2)
+        self.assertEqual(result["project"]["components"][1]["boardPos"],
+                         {"row": 1, "col": 6})
+        self.assertEqual(result["attempts_used"], 3)
+        self.assertEqual(result["history"][2]["repair_target"], "C1")
+        retry_input = fit.call_args_list[2].args[0]["components"]
+        self.assertNotIn("boardPos", retry_input[1])
+        self.assertTrue(retry_input[0]["locked"])
+        self.assertTrue(retry_input[2]["locked"])
+        self.assertEqual(fit.call_args_list[2].kwargs["body_spacing_holes"], 1)
+        self.assertEqual(router.call_args_list[2].kwargs["expansion_budget"],
+                         600000)
+        self.assertEqual(original["components"][1]["boardPos"], {"row": 1, "col": 9})
 
     def test_route_fingerprint_ignores_generated_wire_ids(self):
         a = layout(1)
