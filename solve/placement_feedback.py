@@ -14,6 +14,8 @@ from .quick_fit import is_off_board_component
 from .quick_fit import quick_fit
 from .route import route_copper
 from .hole_router import route_holes
+from .render_quality import score_render
+from geometry_sidecar import inspect_assumed_contacts
 
 
 def solve_with_feedback(
@@ -27,6 +29,9 @@ def solve_with_feedback(
     router: str = "hole_graph",
     hole_iterations: int = 24,
     hole_expansion_budget: int = 600000,
+    quality_floor: float = 40.0,
+    contact_warning_limit: int = 1,
+    improvement_attempts: int = 3,
     progress: Callable[[dict[str, Any]], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -44,6 +49,12 @@ def solve_with_feedback(
         raise ValueError("quick_backtracks must be between 0 and 32")
     if router not in ("hole_graph", "legacy"):
         raise ValueError("router must be hole_graph or legacy")
+    if not 0 <= quality_floor <= 100:
+        raise ValueError("quality_floor must be between 0 and 100")
+    if type(contact_warning_limit) is not int or contact_warning_limit < 0:
+        raise ValueError("contact_warning_limit must be a non-negative integer")
+    if type(improvement_attempts) is not int or not 0 <= improvement_attempts <= 24:
+        raise ValueError("improvement_attempts must be an integer between 0 and 24")
 
     history: list[dict[str, Any]] = []
     repairs = []
@@ -96,6 +107,58 @@ def solve_with_feedback(
         fit["project"] = result
         return fit
 
+    # Only independently electrically verified candidates enter this pool.
+    # Nominal contact count outranks provisional routing aesthetics; neither
+    # is proof of physical fit. Never discard a verified baseline during retry.
+    verified_best: dict[str, Any] | None = None
+    verified_rank: tuple | None = None
+    first_verified_variant: int | None = None
+
+    def candidate_metrics(board: dict[str, Any]) -> dict | None:
+        try:
+            quality = score_render(board)
+            contacts = inspect_assumed_contacts(board)
+            return {
+                "score": quality["score"],
+                "contacts": len(contacts),
+                "wires": quality["wires"],
+                "cuts": quality["cuts"],
+                "wire_length_mm": quality["wire_length_mm"],
+            }
+        except (ValueError, TypeError, KeyError, AttributeError):
+            # Lightweight mocked routing fixtures may not contain collector
+            # geometry. Do not invent a physical/quality rating for them.
+            return None
+
+    def success_result(routed, fit, search_variant, attempt_spacing, metrics):
+        placement_report = dict(fit.get("report", {}))
+        placement_report["body_spacing_requested"] = body_spacing_holes
+        placement_report["body_spacing_preference"] = attempt_spacing
+        warnings = list(fit.get("warnings", [])) + list(
+            routed.get("warnings", [])
+        )
+        if attempt_spacing < body_spacing_holes:
+            warnings.append(
+                "The one-hole nominal body-spacing preference did not "
+                "produce the selected electrically verified route; "
+                "a compact placement was used instead. Actual package "
+                "dimensions remain unmeasured."
+            )
+        return {
+            "status": "ROUTED", "project": routed["project"],
+            "verification": routed["verification"],
+            "placement_variant": search_variant,
+            "placement_report": placement_report,
+            "attempts_used": len(history), "history": history,
+            "warnings": warnings,
+            "selection_metrics": metrics,
+            "quality_retry": {
+                "triggered": False, "extra_attempts": 0,
+                "quality_floor": quality_floor,
+                "contact_warning_limit": contact_warning_limit,
+            },
+        }
+
     best: dict[str, Any] | None = None
     best_rank: tuple[int, int, int] | None = None
 
@@ -121,6 +184,9 @@ def solve_with_feedback(
     # scout before reverting to the proven compact search sequence.
     use_scout = body_spacing_holes > 0 and attempts >= 8
     for variant in range(attempts):
+        if (verified_best is not None and first_verified_variant is not None
+                and variant - first_verified_variant > improvement_attempts):
+            break
         scouting = use_scout and variant == 0
         attempt_spacing = (
             body_spacing_holes if not use_scout or scouting else 0
@@ -203,27 +269,34 @@ def solve_with_feedback(
         })
         report_progress(attempt_started)
         if passed:
-            placement_report = dict(fit.get("report", {}))
-            placement_report["body_spacing_requested"] = body_spacing_holes
-            placement_report["body_spacing_preference"] = attempt_spacing
-            warnings = list(fit.get("warnings", [])) + list(
-                routed.get("warnings", [])
+            metrics = candidate_metrics(routed["project"])
+            selection = success_result(
+                routed, fit, search_variant, attempt_spacing, metrics,
             )
-            if attempt_spacing < body_spacing_holes:
-                warnings.append(
-                    "The one-hole nominal body-spacing preference did not "
-                    "produce the selected electrically verified route; "
-                    "a compact placement was used instead. Actual package "
-                    "dimensions remain unmeasured."
-                )
-            return {
-                "status": "ROUTED", "project": routed["project"],
-                "verification": routed["verification"],
-                "placement_variant": search_variant,
-                "placement_report": placement_report,
-                "attempts_used": len(history), "history": history,
-                "warnings": warnings,
-            }
+            if metrics is None:
+                return selection
+            rank = (
+                metrics["contacts"], -metrics["score"],
+                metrics["wires"], metrics["cuts"], metrics["wire_length_mm"],
+            )
+            if verified_rank is None or rank < verified_rank:
+                verified_rank = rank
+                verified_best = selection
+            if first_verified_variant is None:
+                first_verified_variant = variant
+            needs_improvement = (
+                metrics["score"] < quality_floor
+                or metrics["contacts"] > contact_warning_limit
+            )
+            history[-1]["quality_score"] = metrics["score"]
+            history[-1]["nominal_contacts"] = metrics["contacts"]
+            history[-1]["verified_fallback_retained"] = needs_improvement
+            # Already meets the quality and contact limits; no extra work.
+            # An improved verified candidate can also end the retry early.
+            if not needs_improvement or improvement_attempts == 0:
+                verified_best = selection if not needs_improvement else verified_best
+                break
+            continue
 
         # Prioritize movable components attached to nets mentioned by router errors.
         errors = routed.get("errors") or []
@@ -243,6 +316,25 @@ def solve_with_feedback(
         if best_rank is None or rank < best_rank:
             best_rank = rank
             best = history[-1]
+
+    if verified_best is not None:
+        output = dict(verified_best)
+        output["attempts_used"] = len(history)
+        output["history"] = history
+        attempts_after_first = (
+            len(history) - first_verified_variant - 1
+            if first_verified_variant is not None else 0
+        )
+        output["quality_retry"] = {
+            "triggered": bool(attempts_after_first),
+            "extra_attempts": attempts_after_first,
+            "quality_floor": quality_floor,
+            "contact_warning_limit": contact_warning_limit,
+            "selected_quality": (output.get("selection_metrics") or {}).get("score"),
+            "selected_contacts": (output.get("selection_metrics") or {}).get("contacts"),
+            "selected_variant": output["placement_variant"],
+        }
+        return output
 
     return {
         "status": "ROUTING_FAILED", "project": None,
