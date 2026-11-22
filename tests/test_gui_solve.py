@@ -159,6 +159,7 @@ class GuiSolveSmokeTests(unittest.TestCase):
                 calls.append(copy.deepcopy(source))
                 self.completed = Event()
                 self.crashed = Event()
+                self.attempted = Event()
                 self.finished = Event()
             def isRunning(self):
                 return True
@@ -216,6 +217,23 @@ class GuiSolveSmokeTests(unittest.TestCase):
                 self.assertFalse(window.save_solved_action.isEnabled())
             finally:
                 window.close()
+
+    def test_attempt_eta_uses_measured_seconds_and_remaining_budget(self):
+        window = RouteMateWindow()
+        try:
+            window._solve_attempted({
+                "completed": 1, "budget": 4, "seconds": 2.0,
+                "last": {"placement": "PLACED", "routing": "ROUTING_FAILED"},
+            })
+            self.assertIn("up to ~6s", window.statusBar().currentMessage())
+            window._solve_attempted({
+                "completed": 2, "budget": 4, "seconds": 4.0,
+                "last": {"placement": "PLACED", "routing": "ROUTING_FAILED"},
+            })
+            self.assertIn("up to ~6s", window.statusBar().currentMessage())
+            self.assertIn("[SOLVE][ATTEMPT 2/4]", window.log.toPlainText())
+        finally:
+            window.close()
 
     def test_moto_worker_updates_both_board_sides(self):
         window = RouteMateWindow()
