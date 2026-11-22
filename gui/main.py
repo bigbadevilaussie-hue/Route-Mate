@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 
 _VERSION_FILE = REPO_ROOT / "VERSION"
 GUI_VERSION = (_VERSION_FILE.read_text(encoding="utf-8").strip()
-               if _VERSION_FILE.is_file() else "1.43")
+               if _VERSION_FILE.is_file() else "1.44")
 CODE_VERSION = GUI_VERSION
 
 from PySide6.QtCore import Qt, QByteArray, QPoint, QThread, Signal, QTimer
