@@ -320,6 +320,79 @@ class GuiSolveSmokeTests(unittest.TestCase):
             finally:
                 window.close()
 
+    def test_stop_button_requests_cooperative_worker_interruption(self):
+        class FakeWorker:
+            def __init__(self):
+                self.requests = 0
+            def isRunning(self):
+                return True
+            def requestInterruption(self):
+                self.requests += 1
+
+        window = RouteMateWindow()
+        fake = FakeWorker()
+        window._solver_worker = fake
+        window.stop_action.setEnabled(True)
+        window.project = {"board": {"rows": 2, "cols": 2},
+                          "components": []}
+        try:
+            window.stop_solve()
+            self.assertEqual(fake.requests, 1)
+            self.assertTrue(window._stop_requested)
+            self.assertFalse(window.stop_action.isEnabled())
+            window.stop_solve()
+            self.assertEqual(fake.requests, 1)
+            # A stale success emitted after Stop must never be accepted.
+            initial = copy.deepcopy(window.project)
+            window._solve_completed({
+                "status": "ROUTED", "project": {"unsafe": "partial"},
+            })
+            self.assertEqual(window.project, initial)
+            self.assertFalse(window._solved_verified)
+            self.assertFalse(window.save_solved_action.isEnabled())
+            self.assertIn("[SOLVE][CANCELLED]", window.log.toPlainText())
+            fake.isRunning = lambda: False
+            window._solve_finished()
+            self.assertIsNone(window._solver_worker)
+            self.assertFalse(window.stop_action.isEnabled())
+            self.assertTrue(window.solve_action.isEnabled())
+        finally:
+            window._solver_worker = None
+            window.close()
+
+    def test_exit_requests_stop_and_closes_after_worker_finishes(self):
+        class FakeWorker:
+            def __init__(self):
+                self.active = True
+                self.interruptions = 0
+            def isRunning(self):
+                return self.active
+            def requestInterruption(self):
+                self.interruptions += 1
+
+        window = RouteMateWindow()
+        fake = FakeWorker()
+        window._solver_worker = fake
+        try:
+            window.show()
+            self.app.processEvents()
+            window._exit_requested()
+            self.assertEqual(fake.interruptions, 1)
+            self.assertTrue(window._close_when_idle)
+            self.assertTrue(window.isVisible(), "must not destroy active QThread")
+            fake.active = False
+            window._solve_finished()
+            self.app.processEvents()
+            # Startup calibration may briefly keep the window alive.
+            if window._speed_probe_worker is not None:
+                self.assertTrue(window._close_when_idle)
+            else:
+                self.assertFalse(window.isVisible())
+        finally:
+            window._solver_worker = None
+            window._close_when_idle = False
+            window.close()
+
     def test_attempt_eta_uses_measured_seconds_and_remaining_budget(self):
         window = RouteMateWindow()
         try:
