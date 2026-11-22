@@ -389,6 +389,105 @@ def ensure_renderer() -> Path:
     return CLI
 
 
+def _cap_label_clearance_adjustments(project: dict[str, Any]) -> list[dict]:
+    """Move ONLY misleading capacitor labels that fall on a foreign body.
+
+    SVG labels are not physical placement. A saved boardLabelOffset may have
+    come from an older board; rendering it into a different capacitor's
+    nominal package makes a small ceramic appear as a large electrolytic.
+    Never alter part positions, pin holes, rotations, package choice or source.
+    """
+    from math import hypot
+    from board_geometry import BUILTIN_DEFS, component_geometry, resolve_definition
+    from capacitor_contract import resolved_capacitor_package
+    from collector_geometry import PITCH_MM
+    from geometry_sidecar import assumed_body_pad_keepouts
+
+    solids = assumed_body_pad_keepouts(project)
+    if not solids:
+        return []
+    defs = dict(BUILTIN_DEFS)
+    defs.update({str(d["id"]): d for d in project.get("componentDefs", [])
+                 if isinstance(d, dict) and d.get("id")})
+    rows, cols = int(project["board"]["rows"]), int(project["board"]["cols"])
+    adjustments = []
+
+    def point_gap_mm(x: float, y: float, body: dict) -> float:
+        if body["shape"] == "circle":
+            bx, by = body["center_mm"]
+            return hypot(x - bx, y - by) - body["radius_mm"]
+        dx = max(body["x_min_mm"] - x, 0, x - body["x_max_mm"])
+        dy = max(body["y_min_mm"] - y, 0, y - body["y_max_mm"])
+        return hypot(dx, dy)
+
+    for part in project.get("components", []):
+        if resolved_capacitor_package(part) is None:
+            continue
+        if not isinstance(part.get("boardPos"), dict):
+            continue
+        definition = resolve_definition(part, defs)
+        if definition is None:
+            continue
+        pins, _ = component_geometry(part, definition)
+        if len(pins) != 2:
+            continue
+        # For radial ceramic, film, and electrolytic bodyAnchor() is zero in
+        # upstream partDrawing: the default label is at pin midpoint.
+        x = (float(pins[0]["col"]) + float(pins[1]["col"])) / 2 * PITCH_MM
+        y = (float(pins[0]["row"]) + float(pins[1]["row"])) / 2 * PITCH_MM
+        others = [s for s in solids if s["id"] != str(part["id"])]
+        if not others:
+            continue
+
+        label = str(part.get("label") or part["id"])
+        original = part.get("boardLabelOffset") or {}
+        original = {"x": float(original.get("x", 0)),
+                    "y": float(original.get("y", 0))}
+        scale = PITCH_MM / HOLE_PITCH
+        # Approximate label half-height plus clearance in millimetres.
+        # This is a *text-layout* concern, not an engineering keepout.
+        text_margin = 1.2
+
+        def score(candidate: dict) -> float:
+            cx = x + candidate["x"] * scale
+            cy = y + candidate["y"] * scale
+            if (cx < -0.5 * PITCH_MM
+                    or cx > (cols - 0.5) * PITCH_MM
+                    or cy < -0.5 * PITCH_MM
+                    or cy > (rows - 0.5) * PITCH_MM):
+                return float("-inf")
+            return min(point_gap_mm(cx, cy, s) for s in others)
+
+        if score(original) >= text_margin:
+            continue
+        options = [
+            {"x": 0.0, "y": 0.0},
+            {"x": 0.0, "y": 22.0}, {"x": 0.0, "y": -22.0},
+            {"x": 22.0, "y": 0.0}, {"x": -22.0, "y": 0.0},
+            {"x": 0.0, "y": 35.0}, {"x": 0.0, "y": -35.0},
+            {"x": 35.0, "y": 0.0}, {"x": -35.0, "y": 0.0},
+        ]
+        selected = next((option for option in options
+                         if score(option) >= text_margin), None)
+        if selected is None:
+            # Best available label position, without any false claim of
+            # physical clearance. Never leave it knowingly inside a can
+            # merely because the board's former manual offset said so.
+            selected = max(options, key=score)
+        if selected == original:
+            continue
+        obstruction = min(others, key=lambda s: point_gap_mm(
+            x + original["x"] * scale,
+            y + original["y"] * scale, s,
+        ))
+        part["boardLabelOffset"] = selected
+        adjustments.append({
+            "label": label, "blocked_by": obstruction["label"],
+            "original": original, "rendered": selected,
+        })
+    return adjustments
+
+
 def _renderer_input(project: dict[str, Any]) -> dict[str, Any]:
     """Copy the project and remove components not mounted on the stripboard."""
     from placement_policy import is_off_board_component
@@ -410,6 +509,9 @@ def _renderer_input(project: dict[str, Any]) -> dict[str, Any]:
             if cap_package is not None:
                 part["package"] = cap_package
             render_project["components"].append(part)
+    render_project["_routeMateLabelAdjustments"] = (
+        _cap_label_clearance_adjustments(render_project)
+    )
     return render_project
 
 
@@ -456,7 +558,16 @@ def render_project(
     copper_svg = add_assumed_contact_highlights(
         copper_svg, source_project, mirrored=True,
     )
-    return top_svg, copper_svg, result.stdout.strip()
+    corrections = project.get("_routeMateLabelAdjustments") or []
+    label_log = "\n".join(
+        f"[CAPACITOR][LABEL] {item['label']}: stale board-label offset "
+        f"would overlap {item['blocked_by']}; moved annotation only "
+        f"{item['original']} -> {item['rendered']}"
+        for item in corrections
+    )
+    return top_svg, copper_svg, "\n".join(
+        part for part in (result.stdout.strip(), label_log) if part
+    )
 
 
 def render_project_data(
