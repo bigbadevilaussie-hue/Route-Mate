@@ -59,8 +59,11 @@ def audit_project(project: Any, expected_cuts: int | None = None,
     definitions = dict(BUILTIN_DEFS)
     definitions.update({str(d["id"]): d for d in project.get("componentDefs", [])
                         if isinstance(d, dict) and d.get("id")})
+    # Physical metadata is authoritative only in explicitly complete 2.5D mode.
+    from solve.wire_keepout import _physical_contract, wire_keepout_errors
+    physical_mode = _physical_contract(project) is not None
     bodies = []
-    for component in project.get("components", []):
+    for component in ([] if physical_mode else project.get("components", [])):
         if not isinstance(component, dict) or is_off_board_component(component):
             continue
         if not isinstance(component.get("boardPos"), dict):
@@ -106,6 +109,8 @@ def audit_project(project: Any, expected_cuts: int | None = None,
         except ValueError as exc:
             errors.append(str(exc))
 
+    if physical_mode:
+        physical_errors.extend(wire_keepout_errors(project))
     lengths = [item["length_hole_pitches"] for item in jumper_lengths]
     total_length = round(sum(lengths), 6)
     report = {
