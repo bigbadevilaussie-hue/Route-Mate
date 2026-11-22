@@ -1,0 +1,522 @@
+{
+  "schema": "route-mate/clearance-2.5d/golden-v1",
+  "units": "mm",
+  "epsilon_mm": 1e-9,
+  "cases": [
+    {
+      "id": "G01_round_corner",
+      "expected": "PASS",
+      "jumper": {
+        "from_mm": [
+          0.1,
+          5.9
+        ],
+        "to_mm": [
+          0.1,
+          5.95
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "C1",
+          "shape": "circle",
+          "center_mm": [
+            1,
+            5
+          ],
+          "radius_mm": 1,
+          "z_min_mm": 0,
+          "z_max_mm": 8,
+          "z_min_source": "measured"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G02_flush_solid",
+      "expected": "FAIL_PROVEN",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "U1",
+          "shape": "rectangle",
+          "x_min_mm": -1,
+          "x_max_mm": 1,
+          "y_min_mm": 3,
+          "y_max_mm": 7,
+          "z_min_mm": 0,
+          "z_max_mm": 8,
+          "z_min_source": "measured"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G03a_free_landing",
+      "expected": "PASS",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [],
+      "artwork": [],
+      "occupied_holes": [
+        {
+          "id": "H1",
+          "center_mm": [
+            1,
+            5
+          ]
+        }
+      ],
+      "thermal_zones": []
+    },
+    {
+      "id": "G03b_intermediate_occupied",
+      "expected": "FAIL_PROVEN",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [],
+      "artwork": [],
+      "occupied_holes": [
+        {
+          "id": "H1",
+          "center_mm": [
+            0,
+            5
+          ]
+        }
+      ],
+      "thermal_zones": []
+    },
+    {
+      "id": "G03c_permitted_endpoint",
+      "expected": "PASS",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [],
+      "artwork": [],
+      "occupied_holes": [
+        {
+          "id": "H0",
+          "center_mm": [
+            0,
+            0
+          ],
+          "allowed_endpoint": true
+        }
+      ],
+      "thermal_zones": []
+    },
+    {
+      "id": "G04_declared_TO220_standoff",
+      "expected": "CONDITIONAL",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "U1",
+          "shape": "rectangle",
+          "x_min_mm": -1,
+          "x_max_mm": 1,
+          "y_min_mm": 3,
+          "y_max_mm": 7,
+          "z_min_mm": 2.5,
+          "z_max_mm": 8,
+          "z_min_source": "user_declared"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G05_artwork_label_only",
+      "expected": "PASS",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [],
+      "artwork": [
+        {
+          "kind": "text",
+          "text": "Large MOSFET label",
+          "shape": "rectangle",
+          "x_min_mm": -10,
+          "x_max_mm": 10,
+          "y_min_mm": 2,
+          "y_max_mm": 8
+        }
+      ],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G06_grounded_hot_tab",
+      "expected": "FAIL_PROVEN",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": [
+        {
+          "id": "TAB",
+          "shape": "rectangle",
+          "x_min_mm": -1,
+          "x_max_mm": 1,
+          "y_min_mm": 3,
+          "y_max_mm": 7,
+          "temperature_basis": "measured operating temperature > wire insulation rating"
+        }
+      ]
+    },
+    {
+      "id": "G07_unknown_standoff",
+      "expected": "FAIL_UNVERIFIED",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "U1",
+          "shape": "rectangle",
+          "x_min_mm": -1,
+          "x_max_mm": 1,
+          "y_min_mm": 3,
+          "y_max_mm": 7,
+          "z_min_mm": 0,
+          "z_max_mm": 8,
+          "z_min_source": "default_flush"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G08a_exact_clearance",
+      "expected": "PASS",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "C1",
+          "shape": "circle",
+          "center_mm": [
+            1,
+            5
+          ],
+          "radius_mm": 0.5,
+          "z_min_mm": 0,
+          "z_max_mm": 8,
+          "z_min_source": "measured"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G08b_inside_clearance",
+      "expected": "FAIL_PROVEN",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "C1",
+          "shape": "circle",
+          "center_mm": [
+            0.999,
+            5
+          ],
+          "radius_mm": 0.5,
+          "z_min_mm": 0,
+          "z_max_mm": 8,
+          "z_min_source": "measured"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G09_permitted_contact",
+      "expected": "CONDITIONAL",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "U1",
+          "shape": "rectangle",
+          "x_min_mm": -1,
+          "x_max_mm": 1,
+          "y_min_mm": 3,
+          "y_max_mm": 7,
+          "z_min_mm": 0,
+          "z_max_mm": 8,
+          "z_min_source": "measured",
+          "allow_contact": true,
+          "contact_source": "user_declared"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G10_lead_cylinder",
+      "expected": "FAIL_PROVEN",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [
+        {
+          "id": "L1",
+          "center_mm": [
+            0.3,
+            5
+          ],
+          "radius_mm": 0.2
+        }
+      ],
+      "body_solids": [],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    },
+    {
+      "id": "G11_true_polygon_outside",
+      "expected": "PASS",
+      "jumper": {
+        "from_mm": [
+          0,
+          0
+        ],
+        "to_mm": [
+          0,
+          10
+        ]
+      },
+      "settings": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.3,
+        "z_margin_mm": 0.3,
+        "lead_margin_mm": 0.1
+      },
+      "leads": [],
+      "body_solids": [
+        {
+          "id": "TAB",
+          "shape": "polygon",
+          "vertices_mm": [
+            [
+              1,
+              4
+            ],
+            [
+              3,
+              4
+            ],
+            [
+              2,
+              7
+            ]
+          ],
+          "z_min_mm": 0,
+          "z_max_mm": 10,
+          "z_min_source": "measured"
+        }
+      ],
+      "artwork": [],
+      "occupied_holes": [],
+      "thermal_zones": []
+    }
+  ]
+}
