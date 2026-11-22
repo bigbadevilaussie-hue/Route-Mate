@@ -180,6 +180,7 @@ def _solve_one_position(
         "solutions_found": outcome.get("solutions_found", 1),
         "solution_signatures": outcome.get("solution_signatures", []),
         "quality_selection": outcome.get("quality_selection"),
+        "candidate_summaries": outcome.get("candidate_summaries", []),
     }
 
 
