@@ -284,6 +284,7 @@ def solve_with_feedback(
             from .quick_rules import quick_audit
             from .quality_audit import audit_project
             from .solution_quality import candidate_quality
+            quality = None
             electrical = verify_project(routed["project"])
             grid = quick_audit(routed["project"])
             physical = audit_project(routed["project"])
