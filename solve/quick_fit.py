@@ -497,6 +497,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                         candidate_net_score, routing_cost, compact,
                     )
                     optimistic_score = (
+                        0,  # A contact-free candidate beats any contact-risk one.
                         (routing_cost, optimistic_topology) if placement_variant == 1
                         else (corridor_cost, optimistic_topology)
                         if placement_variant == 100 else optimistic_topology,
@@ -525,6 +526,7 @@ def _attempt(project, rows, cols, clearance, definitions, pending, pin_nets,
                             routing_cost, compact,
                         )
                         score = (
+                            spacing_penalty,
                             (routing_cost, actual_topology) if placement_variant == 1
                             else (corridor_cost, actual_topology)
                             if placement_variant == 100 else actual_topology,
