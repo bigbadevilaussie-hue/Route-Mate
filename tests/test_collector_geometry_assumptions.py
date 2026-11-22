@@ -51,7 +51,7 @@ class CollectorGeometryTests(unittest.TestCase):
         self.assertEqual(components["Q1"]["status"], "ASSUMED_UNVERIFIED")
         self.assertEqual(mosfet["provenance"]["kind"], "assumed_standard")
 
-    def test_custom_footprint_preserves_pin_grid_but_does_not_invent_body(self):
+    def test_custom_footprint_derives_explicitly_assumed_envelope(self):
         custom = {"id": "custom-1", "width": 4, "height": 2,
                   "pins": [{"id": "A", "offsetRow": 0, "offsetCol": 0},
                            {"id": "B", "offsetRow": 1, "offsetCol": 3}],
@@ -59,10 +59,14 @@ class CollectorGeometryTests(unittest.TestCase):
         result = build_assumed_geometry(project(part("U1", "custom-1"), defs=[custom]))
         obj = result["components"][0]
         self.assertEqual(obj["pins"][1]["x_mm"], 7.62)
-        self.assertEqual(obj["status"], "UNVERIFIED")
-        self.assertEqual(obj["body_solids"], [])
+        self.assertEqual(obj["status"], "ASSUMED_UNVERIFIED")
+        self.assertEqual(obj["profile"], "footprint_envelope")
+        self.assertEqual(obj["body_solids"][0]["shape"], "rectangle")
+        self.assertEqual(obj["body_solids"][0]["provenance"]["xy_basis"],
+                         "footprint_pins_and_bodyCells")
+        self.assertFalse(obj["body_solids"][0]["provenance"]["dimensions_measured"])
         self.assertEqual(obj["artwork_proxies"][0]["routing_role"], "ADVISORY_ONLY")
-        self.assertEqual(result["unverified_count"], 1)
+        self.assertEqual(result["unverified_count"], 0)
 
     def test_unknown_footprint_stays_unknown(self):
         result = build_assumed_geometry(project(part("?", "custom-missing")))
