@@ -139,7 +139,8 @@ def verify_jumper_25d(case: dict) -> dict:
         if _outline_distance_independent(start, end, solid) >= threshold - EPS_MM:
             continue
         source = solid["z_min_source"]
-        if source not in ("datasheet", "measured", "user_declared", "default_flush"):
+        if source not in ("datasheet", "measured", "user_declared",
+                          "default_flush", "assumed_standard"):
             raise ValueError("unsupported standoff provenance")
         bottom = float(solid["z_min_mm"])
         top = float(solid["z_max_mm"])
@@ -149,17 +150,24 @@ def verify_jumper_25d(case: dict) -> dict:
         if source == "default_flush":
             record("FAIL_UNVERIFIED", "standoff_unknown", name)
         elif lift + 2 * outer_radius + z_margin <= bottom + EPS_MM:
-            if source == "user_declared":
+            if source == "assumed_standard":
+                record("CONDITIONAL", "assumed_standoff", name)
+            elif source == "user_declared":
                 record("CONDITIONAL", "declared_standoff", name)
         elif lift >= top + z_margin - EPS_MM:
-            if source == "user_declared":
+            if source == "assumed_standard":
+                record("CONDITIONAL", "assumed_height", name)
+            elif source == "user_declared":
                 record("CONDITIONAL", "declared_height", name)
         elif solid.get("allow_contact") is True:
             if solid.get("contact_source") not in ("datasheet", "measured", "user_declared"):
                 raise ValueError("contact requires provenance")
             record("CONDITIONAL", "declared_contact", name)
         else:
-            record("FAIL_PROVEN", "body_clearance", name)
+            if source == "assumed_standard":
+                record("FAIL_UNVERIFIED", "assumed_body_conflict", name)
+            else:
+                record("FAIL_PROVEN", "body_clearance", name)
 
     for zone in case.get("thermal_zones", []):
         if "component_temp_c" not in zone or "wire_insulation_limit_c" not in zone:
