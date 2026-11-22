@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from placement_policy import is_off_board_component
+from collector_geometry import build_assumed_geometry
 
 DEFAULT_IDS = {
     "def-resistor", "def-capacitor", "def-cap-polarized", "def-led",
@@ -629,6 +630,18 @@ def main() -> int:
         tmp.replace(target)
         (out / "index.json").write_text(json.dumps([entry], indent=2) + "\n", encoding="utf-8")
 
+        # Persist immutable, footprint-local geometric *assumptions* beside
+        # collected project. These are not measured dimensions, and never
+        # silently become 2.5D routing permissions.
+        physical_sidecar = build_assumed_geometry(data)
+        geometry_path = out / "physical_geometry.json"
+        geometry_tmp = out / "physical_geometry.json.tmp"
+        geometry_tmp.write_text(
+            json.dumps(physical_sidecar, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        geometry_tmp.replace(geometry_path)
+
         sources = out / "sources"
         sources.mkdir(exist_ok=True)
         for source in (args.json, args.net, args.mod):
@@ -650,6 +663,10 @@ def main() -> int:
             "netlist_nodes": net_nodes,
             "json_pin_assignments": len(data["netAssignments"]),
             "board_estimate": estimate,
+            "physical_geometry_sidecar": str(geometry_path),
+            "physical_geometry_sidecar_sha256": sha256(geometry_path),
+            "geometry_preset_version": physical_sidecar["preset"],
+            "geometry_unverified_components": physical_sidecar["unverified_count"],
             "actual_board": {"rows": actual_rows, "cols": actual_cols},
             "wanted_board": {
                 "rows": {"mode": wanted_rows_mode, "value": wanted_rows},
@@ -669,6 +686,7 @@ def main() -> int:
         print(f"  components: {len(data['components'])}")
         print(f"  nets / pin assignments: {len(data['nets'])} / {len(data['netAssignments'])}")
         print(f"  custom definitions: {len(data.get('componentDefs', []))}")
+        print(f"  physical assumptions: {geometry_path} ({physical_sidecar['preset']}; NOT measured)")
         print(f"  footprints added: {footprint_count}")
         if net_nodes is not None:
             print(f"  .net node records: {net_nodes} (matched)")
