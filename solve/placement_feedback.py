@@ -16,6 +16,36 @@ from .route import route_copper
 from .hole_router import route_holes
 
 
+
+def quality_repair_targets(
+    project: dict[str, Any], quality: dict[str, Any],
+    original_locked: dict[str, bool], limit: int = 3,
+) -> list[str]:
+    """Identify offending *movable* components for feedback relocation.
+
+    Overhanging package outlines come first, then reported body/pad contacts.
+    The independent contact audit owns the identifiers. A fixed/edge-locked
+    component is NEVER changed to make the quality score appear better.
+    """
+    movable = {
+        str(part.get("id"))
+        for part in project.get("components", [])
+        if isinstance(part, dict) and part.get("id")
+        and not is_off_board_component(part)
+        and not original_locked.get(str(part.get("id")), False)
+    }
+    priority = list(quality.get("nominal_board_overhang_ids") or [])
+    priority.extend(quality.get("nominal_contact_component_ids") or [])
+    targets: list[str] = []
+    for item in priority:
+        cid = str(item)
+        if cid in movable and cid not in targets:
+            targets.append(cid)
+        if len(targets) >= limit:
+            break
+    return targets
+
+
 def solve_with_feedback(
     project: dict[str, Any],
     *,
@@ -147,9 +177,12 @@ def solve_with_feedback(
         if cancelled is not None and cancelled():
             return stopped()
         attempt_started = perf_counter()
+        repair_target = None
+        placement_spacing = attempt_spacing
         if repairs:
-            previous, target = repairs.pop(0)
-            repaired = relocation(previous, target, search_variant, attempt_spacing)
+            previous, target, placement_spacing = repairs.pop(0)
+            repair_target = target
+            repaired = relocation(previous, target, search_variant, placement_spacing)
             fit = repaired if repaired else {"status": "NO_FIT_FOUND", "errors": ["relocation failed"]}
         else:
             fit = quick_fit(
@@ -160,7 +193,8 @@ def solve_with_feedback(
             return stopped()
         if fit["status"] != "PLACED":
             history.append({
-                "variant": variant, "body_spacing_preference": attempt_spacing,
+                "variant": variant, "body_spacing_preference": placement_spacing,
+                "repair_target": repair_target,
                 "placement": fit["status"],
                 "routing": "NOT_ATTEMPTED",
                 "error": (fit.get("errors") or [None])[0],
@@ -172,9 +206,10 @@ def solve_with_feedback(
         # A nominal-spacing scout may have tried this exact placement with
         # a reduced router budget. Do not suppress the subsequent compact
         # retry, which restores the full proven routing budget.
-        key = (attempt_spacing, placement_key(candidate))
+        key = (placement_spacing, placement_key(candidate))
         if key in seen:
-            history.append({"variant": variant, "body_spacing_preference": attempt_spacing,
+            history.append({"variant": variant, "body_spacing_preference": placement_spacing,
+                            "repair_target": repair_target,
                             "placement": "DUPLICATE", "routing": "NOT_ATTEMPTED"})
             report_progress(attempt_started)
             continue
@@ -208,7 +243,8 @@ def solve_with_feedback(
                   and (routed.get("verification") or {}).get("status") == "PASS")
         history.append({
             "variant": variant, "placement": "PLACED",
-            "body_spacing_preference": attempt_spacing,
+            "body_spacing_preference": placement_spacing,
+            "repair_target": repair_target,
             "routing": routed["status"],
             "hole_search": routed.get("hole_search"),
             "cuts": routed.get("cuts_added", 0),
@@ -219,11 +255,11 @@ def solve_with_feedback(
         if passed:
             placement_report = dict(fit.get("report", {}))
             placement_report["body_spacing_requested"] = body_spacing_holes
-            placement_report["body_spacing_preference"] = attempt_spacing
+            placement_report["body_spacing_preference"] = placement_spacing
             warnings = list(fit.get("warnings", [])) + list(
                 routed.get("warnings", [])
             )
-            if attempt_spacing < body_spacing_holes:
+            if placement_spacing < body_spacing_holes:
                 warnings.append(
                     f"The requested {body_spacing_holes}-hole nominal spacing "
                     "preference did not produce this electrically verified route; "
@@ -260,6 +296,20 @@ def solve_with_feedback(
                     verified_results.append((accepted, quality))
             else:
                 history[-1]["independent_recheck"] = "FAILED"
+            if quality is not None:
+                # Once the route is electrically/grid verified, use the
+                # *actual* nominal problem components in further placements.
+                # Previously we relocated arbitrary lexicographically first
+                # IDs, repeatedly returning the same MPU/MOSFET/C1 clashes.
+                targets = quality_repair_targets(
+                    candidate, quality, original_locked,
+                )
+                if targets:
+                    repairs.clear()
+                    repairs.extend(
+                        (candidate, cid, max(1, body_spacing_holes))
+                        for cid in targets
+                    )
             if len(verified_results) >= solutions_target:
                 # Even after two verified layouts, spend the remaining
                 # *existing* budget if the best still has poor provisional
@@ -277,8 +327,9 @@ def solve_with_feedback(
         relevant = {str(a.get("componentId")) for a in candidate.get("netAssignments", []) if isinstance(a, dict) and str(a.get("netId")) in failed}
         movable = [str(c.get("id")) for c in candidate.get("components", []) if isinstance(c, dict) and not is_off_board_component(c) and not original_locked.get(str(c.get("id")), False)]
         movable.sort(key=lambda cid: (cid not in relevant, cid))
-        for cid in movable[:4]:
-            repairs.append((candidate, cid))
+        if not repairs:
+            for cid in movable[:4]:
+                repairs.append((candidate, cid, attempt_spacing))
 
         # Keep a compact failure summary, never a huge partial project dump.
         rank = (
@@ -308,4 +359,4 @@ def solve_with_feedback(
     }
 
 
-__all__ = ["solve_with_feedback"]
+__all__ = ["solve_with_feedback", "quality_repair_targets"]
