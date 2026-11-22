@@ -74,7 +74,12 @@ uncertified unless separately established.
 The experimental project extension is `physicalClearance` with explicit
 `settings`, `body_solids`, `leads`, and a `complete` declaration.
 These fields are **absolute board coordinates in mm**, not screen pixels,
-and must be preserved as user-supplied metadata.
+and must be preserved as user-supplied metadata. The first opt-in integration
+requires **every on-board component to be positioned and locked**, because
+absolute shapes cannot follow Quick Fit moves or Edge Slide positions.
+Auto-placement with 2.5D clearance remains blocked until footprint-relative
+transforms (including rotation and flexible two-lead geometry) are implemented.
+The golden evaluator itself accepts standalone hypothetical geometry fixtures.
 
 Legacy projects without this extension keep the existing conservative
 verification behaviour until the compatibility migration is proven.
