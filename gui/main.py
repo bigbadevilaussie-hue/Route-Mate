@@ -1434,6 +1434,12 @@ class RouteMateWindow(QMainWindow):
         self.load_action.setEnabled(False)
         self.render_action.setEnabled(False)
         self.log_line("[QUICK SOLVE] Routing-aware placement with exact locks and edge constraints...")
+        self.log_line(
+            "[PLACEMENT][SPACING] NORMAL default: 1 free grid hole "
+            "(2.54 mm nominal body gap). Fixed locks stay fixed. "
+            "If a complete layout cannot fit, compact spacing is a "
+            "reported fallback; nominal dimensions are not measured."
+        )
         self._set_board_summary("Quick Solve in progress · preserving approved locks", project=source, level="working")
         self.statusBar().showMessage("Quick Solve running — the board remains responsive.")
         self._solve_attempt_seconds = []
@@ -1629,6 +1635,17 @@ class RouteMateWindow(QMainWindow):
                         f"obstacle={finding.get('obstacle', '')}"
                     )
         placement = outcome["placement"]
+        spacing = placement.get("report", {})
+        used_spacing = spacing.get("body_spacing_used")
+        if used_spacing is not None:
+            requested_spacing = spacing.get("body_spacing_requested", 1)
+            level = "PREFERRED" if used_spacing == requested_spacing else "COMPACT_FALLBACK"
+            self.log_line(
+                f"[PLACEMENT][SPACING][{level}] requested={requested_spacing} "
+                f"free hole(s), used={used_spacing} | "
+                f"nominal contacts={contact_count} | "
+                "assumed package geometry, not measured clearance."
+            )
         routing = outcome["routing"]
         verification = outcome["verification"]
         if self.pipeline_run is not None and self._solve_input is not None:
