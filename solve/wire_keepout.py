@@ -30,6 +30,16 @@ def _physical_contract(project: dict) -> dict | None:
     for name in ("body_solids", "leads"):
         if not isinstance(config.get(name), list):
             raise ValueError(f"physicalClearance.{name} must be a list (explicitly empty if none)")
+    # Absolute millimetre geometry cannot follow auto-moving components.
+    # Reject it until component-relative transforms are implemented.
+    for part in project.get("components", []):
+        if not isinstance(part, dict) or is_off_board_component(part):
+            continue
+        if not isinstance(part.get("boardPos"), dict) or part.get("locked") is not True:
+            raise ValueError(
+                "physicalClearance absolute geometry requires every on-board "
+                "component fixed/locked; movable parts need component-relative geometry"
+            )
     return config
 
 
