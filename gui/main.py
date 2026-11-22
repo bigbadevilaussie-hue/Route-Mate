@@ -414,6 +414,7 @@ class SolveWorker(QThread):
             from solve.desktop_integration import solve_for_display
             self.completed.emit(solve_for_display(
                 self.project, attempts=24, progress=self.attempted.emit,
+                cancelled=self.isInterruptionRequested,
             ))
         except Exception:
             self.crashed.emit(traceback.format_exc())
@@ -434,6 +435,8 @@ class RouteMateWindow(QMainWindow):
         self._board_side = "top"
         self._solver_worker = None
         self._speed_probe_worker = None
+        self._stop_requested = False
+        self._close_when_idle = False
         self._recommended_workers = 1
         self._solve_attempt_seconds = []
         self._solve_input = None
@@ -477,6 +480,11 @@ class RouteMateWindow(QMainWindow):
         self.solve_action.setEnabled(False)
         self.solve_action.triggered.connect(self.solve_board)
         toolbar.addAction(self.solve_action)
+        self.stop_action = QAction("Stop Solve", self)
+        self.stop_action.setToolTip("Cancel the running solve safely; keep the original board")
+        self.stop_action.setEnabled(False)
+        self.stop_action.triggered.connect(self.stop_solve)
+        toolbar.addAction(self.stop_action)
         self.review_locks_action = QAction("Review Locks", self)
         self.review_locks_action.setEnabled(False)
         self.review_locks_action.setToolTip("Choose fixed and edge constraints for positioned parts")
@@ -503,6 +511,11 @@ class RouteMateWindow(QMainWindow):
         self.render_action.setToolTip("Preview an existing routed JSON without re-solving")
         self.render_action.triggered.connect(self.render_json)
         toolbar.addAction(self.render_action)
+        toolbar.addSeparator()
+        self.exit_action = QAction("Exit", self)
+        self.exit_action.setToolTip("Stop any active solve, then close Route-Mate")
+        self.exit_action.triggered.connect(self._exit_requested)
+        toolbar.addAction(self.exit_action)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -1255,9 +1268,11 @@ class RouteMateWindow(QMainWindow):
 
         self._quick_source = copy.deepcopy(source)
         self._solve_input = copy.deepcopy(source)
+        self._stop_requested = False
         self._solved_verified = False
         self.save_solved_action.setEnabled(False)
         self.solve_action.setEnabled(False)
+        self.stop_action.setEnabled(True)
         self.review_locks_action.setEnabled(False)
         self.load_action.setEnabled(False)
         self.render_action.setEnabled(False)
@@ -1286,8 +1301,29 @@ class RouteMateWindow(QMainWindow):
 
     def _speed_probe_finished(self):
         self._speed_probe_worker = None
+        if self._close_when_idle:
+            self.close()
+
+    def stop_solve(self):
+        """Cooperatively stop the active worker; never force-kill a QThread."""
+        worker = self._solver_worker
+        if worker is None or not worker.isRunning() or self._stop_requested:
+            return
+        self._stop_requested = True
+        self.stop_action.setEnabled(False)
+        worker.requestInterruption()
+        self.log_line("[SOLVE][STOP] Cancellation requested; discarding current trial.")
+        self.statusBar().showMessage(
+            "Stopping Quick Solve — current search is being interrupted safely."
+        )
+
+    def _exit_requested(self):
+        self._close_when_idle = True
+        self.close()
 
     def _solve_attempted(self, attempt: dict[str, Any]):
+        if self._stop_requested:
+            return
         completed = int(attempt["completed"])
         budget = int(attempt["budget"])
         seconds = float(attempt["seconds"])
@@ -1322,6 +1358,22 @@ class RouteMateWindow(QMainWindow):
     def _solve_completed(self, outcome: dict[str, Any]):
         """On the GUI thread, accept only a verified board and redraw it."""
         status = outcome.get("status", "FAILED")
+        if self._stop_requested:
+            # Even if a verification result raced with the Stop click, never
+            # publish a board after the user requested cancellation.
+            status = "CANCELLED"
+        if status == "CANCELLED":
+            self._solved_verified = False
+            self.save_solved_action.setEnabled(False)
+            self._set_board_summary(
+                "Quick Solve stopped · original board retained", level="neutral",
+            )
+            self.log_line("[SOLVE][CANCELLED] Stopped by user; no partial "
+                          "layout or routes were accepted.")
+            self.statusBar().showMessage(
+                "Quick Solve stopped — original board retained."
+            )
+            return
         slide_search = outcome.get("slide_search")
         if slide_search:
             self.log_line(
@@ -1466,6 +1518,9 @@ class RouteMateWindow(QMainWindow):
             QMessageBox.warning(self, "Solved board rendering failed", str(exc))
 
     def _solve_crashed(self, message: str):
+        if self._stop_requested:
+            self.log_line("[SOLVE][CANCELLED] Worker stopped; previous board retained.")
+            return
         self.log_line("[SOLVE][ERROR] " + message)
         self._set_board_summary("Quick Solve error — see Activity", level="failed")
         self.sidebar_tabs.setCurrentIndex(1)
@@ -1475,10 +1530,14 @@ class RouteMateWindow(QMainWindow):
     def _solve_finished(self):
         self._solver_worker = None
         self._solve_input = None
+        self._stop_requested = False
+        self.stop_action.setEnabled(False)
         self.load_action.setEnabled(True)
         self.render_action.setEnabled(True)
         self.solve_action.setEnabled(self.project is not None)
         self.review_locks_action.setEnabled(self._quick_source is not None)
+        if self._close_when_idle:
+            self.close()
 
     def save_solved_json(self):
         """Save the exact verified routed project; never overwrite source."""
@@ -1721,13 +1780,20 @@ class RouteMateWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self._solver_worker is not None and self._solver_worker.isRunning():
+            self._close_when_idle = True
+            self.stop_solve()
             event.ignore()
-            self.statusBar().showMessage("A bounded board solve is active; close after it finishes.")
+            self.statusBar().showMessage(
+                "Exit requested — stopping active solve safely before closing."
+            )
             return
         if self._speed_probe_worker is not None and self._speed_probe_worker.isRunning():
-            # A brief active benchmark must exit before Qt destroys its QThread.
+            # Do not destroy a live QThread; retry close when calibration ends.
+            self._close_when_idle = True
             event.ignore()
-            self.statusBar().showMessage("Startup speed calibration is finishing; close after it completes.")
+            self.statusBar().showMessage(
+                "Exit requested — startup speed calibration is finishing."
+            )
             return
         event.accept()
 
