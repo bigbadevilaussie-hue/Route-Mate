@@ -1707,6 +1707,22 @@ class RouteMateWindow(QMainWindow):
         for warning in outcome.get("warnings", []):
             self.log_line("[PHYSICAL][UNCERTIFIED] " + warning)
         self.log_line("[PHYSICAL] Measured package clearance and cut-tool access are NOT certified.")
+        if contact_count:
+            affected = sorted({
+                str(label)
+                for finding in geometry_assessment.get("contact_findings", [])
+                for label in finding.get("components", [])
+            })
+            self.log_line(
+                f"[DIAGNOSTIC][RECOMMENDATION][EXTRA_ROOM] "
+                f"{contact_count} assumed component-body/pad proximity finding(s)"
+                + (f" involving {', '.join(affected)}." if affected else ".")
+                + " Consider trying another layout with extra room between parts. "
+                "The current electrical PASS remains valid and the solved board "
+                "is retained; nominal body sizes may be exaggerated. "
+                "A wider-spacing retry is not yet automated. "
+                "Extra spacing may increase board size, cuts, jumpers or solve time."
+            )
         try:
             top_svg, renderer_log = self._render_component_side(solved)
             self._show_board(top_svg)
