@@ -35,6 +35,39 @@ It must:
 
 The GUI must not become a replacement schematic editor. Karl's Circuit Designer remains the circuit-design front end.
 
+## Verified hole-graph solver wired to the desktop GUI (development branch)
+
+The current `fix/routing-aware-placement` GUI uses the same Python
+`solve_with_feedback` engine as the AUDIO and MOTO command-line benchmarks.
+It does **not** run the legacy `route_copper(vertical_only=True)` on fresh
+projects. The original router is retained as a fallback for inputs with manual
+cuts/wires.
+
+Workflow:
+
+1. **Load JSON** → normalise, collect board dimensions, run sanity and
+   the existing source-mode tests; show the initial layout and ask any saved
+   component lock questions.
+2. After those decisions, **Solve Board** runs placement feedback and
+   negotiated-congestion hole routing inside a `QThread`, keeping the board
+   preview and GUI event loop responsive. It respects fixed component positions.
+3. Only a candidate passing `verify_project`, `quick_audit` and
+   `audit_project` is displayed. The independent electrical result and
+   **grid-level** physical/geometry statuses are logged separately.
+4. **Component side** / **Copper side (mirrored)** switch between two SVG views
+   generated from the *same* solved project by the existing production
+   renderer. No new renderer geometry is implemented in the GUI.
+5. **Save Solved JSON** exports the verified routed project without overwriting
+   the imported source. **Render JSON** can display a previously exported
+   AUDIO/MOTO board without solving it again.
+
+The GUI records actual successful placement, routing and verification in its
+existing pipeline sidecar. A failed search leaves the previous board preview
+intact. UI status never promises measured component-body envelopes,
+cut-tool accessibility, or buildability: these remain outside current grid
+verification. The historical status and packaging sections below describe
+earlier releases, not a macOS runtime check of this new GUI wiring.
+
 ## Board display
 
 The existing public renderer API is:
@@ -132,8 +165,9 @@ The next useful display benchmark is GUI-side: initial SVG scene load, zoom/pan 
 - [x] WR and Audio SVG-generation timings recorded.
 - [ ] Dedicated Route-Mate GUI environment.
 - [x] Early main window and QGraphicsView component-side board integration.
-- [x] GUI invokes shared Quick Fit, legacy v1.21 endpoint routing and electrical connectivity verification only.
-- [ ] Replace legacy endpoint-link preview with physical jumper-path display and copper-side between-hole cut artwork, only after the frozen router/verifier gates pass.
+- [x] Development GUI invokes shared routing-feedback placement and verified hole-graph routing from a worker; keeps legacy routing for manually routed boards.
+- [x] Existing production renderer shows both board sides from the automatically routed project, including vertical jumper segments and between-hole cuts at grid level.
+- [ ] Certify measured component envelopes, jumper clearances and cut-tool accessibility; grid-only audits are not full physical sign-off.
 - [ ] Display separate electrical and physical verification reports; never label electrical-only success as physically routed/buildable.
 - [ ] Selection and lock/edge-anchor overlays.
 - [x] macOS PyInstaller standalone bundle built and exercised on the development iMac (v1.26); clean-machine test still outstanding.
