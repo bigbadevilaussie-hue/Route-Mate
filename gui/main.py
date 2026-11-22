@@ -1805,12 +1805,21 @@ class RouteMateWindow(QMainWindow):
             geometry_assessment, stage="SOLVED"
         )
         selected_quality = outcome.get("quality_selection") or {}
+        overhangs = selected_quality.get("nominal_board_overhangs") or []
+        if overhangs:
+            self.log_line(
+                "[BOARD EDGE][ASSUMED OVERHANG] The following package outline(s) "
+                "extend beyond the nominal stripboard perimeter: "
+                + ", ".join(str(label) for label in overhangs)
+                + ". Do not treat electrical PASS as physical buildability."
+            )
         provisional = selected_quality.get("provisional_score")
         if provisional is not None:
             found = int((outcome.get("portfolio") or {}).get("solutions_found", 1))
             self.solve_activity.setText(
                 f"Best of {found} verified layout(s): {float(provisional):.1f}/100 "
-                f"provisional quality · {contact_count} nominal contact warnings"
+                f"provisional quality · {contact_count} nominal contact warnings · "
+                f"{len(overhangs)} nominal board-edge overhang(s)"
             )
             self.log_line(
                 f"[QUALITY][SELECTED] {float(provisional):.1f}/100 provisional · "
