@@ -237,7 +237,8 @@ class GuiSolveSmokeTests(unittest.TestCase):
                                 with patch("gui.main.QMessageBox.warning"):
                                     window.render_json()
                         log = window.log.toPlainText()
-                        self.assertIn("[2.5D][", log)
+                        self.assertIn("[2.5D][ASSUMED_CLEARANCE_PASS]", log)
+                        self.assertIn("[RENDER JSON][ASSUMED_PASS]", log)
                         self.assertIn("source=" + str(sidecar_path(path)), log)
                         self.assertTrue(sidecar_path(path).exists())
                         sidecar = json.loads(sidecar_path(path).read_text())
@@ -309,8 +310,9 @@ class GuiSolveSmokeTests(unittest.TestCase):
                                return_value=(SVG, SVG, "test")):
                         with patch("gui.main.QMessageBox.warning") as warning:
                             window.render_json()
-                self.assertTrue(warning.called)
-                self.assertIn("[RENDER JSON][UNVERIFIED]", window.log.toPlainText())
+                self.assertFalse(warning.called)
+                self.assertIn("[RENDER JSON][ARTWORK_ONLY]", window.log.toPlainText())
+                self.assertIn("[RENDER JSON][ASSUMED_PASS]", window.log.toPlainText())
                 self.assertNotIn("[RENDER JSON][UNSAFE]", window.log.toPlainText())
                 self.assertFalse(window.save_solved_action.isEnabled())
             finally:
