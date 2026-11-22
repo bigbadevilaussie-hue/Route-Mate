@@ -119,9 +119,30 @@ def _installed_shape(part: dict, definition: dict, entry: dict) -> dict | None:
     bodies = entry.get("body_solids") or []
     if not bodies:
         return None
-    pins, _ = component_geometry(part, definition)
+    pins, body_cells = component_geometry(part, definition)
     if not pins:
         return None
+    raw = bodies[0]
+    # Universal fallback is based on the footprint's REAL installed cells.
+    # Rebuild its XY envelope from the rotated/translated pin and occupancy
+    # locations; do not pretend the pin centroid is a custom module centre.
+    if entry.get("profile") == "footprint_envelope":
+        places = [(float(pin["row"]), float(pin["col"])) for pin in pins]
+        places.extend((float(row), float(col)) for row, col in body_cells)
+        shape = {
+            "shape": "rectangle",
+            "x_min_mm": (min(x for _, x in places) - 0.5) * PITCH,
+            "x_max_mm": (max(x for _, x in places) + 0.5) * PITCH,
+            "y_min_mm": (min(y for y, _ in places) - 0.5) * PITCH,
+            "y_max_mm": (max(y for y, _ in places) + 0.5) * PITCH,
+        }
+        shape.update({
+            "id": str(part["id"]),
+            "z_min_mm": raw["assumed_z_min_mm"],
+            "z_max_mm": raw["assumed_z_max_mm"],
+            "z_min_source": "assumed_standard",
+        })
+        return shape
     xs = [float(pin["col"]) * PITCH for pin in pins]
     ys = [float(pin["row"]) * PITCH for pin in pins]
     cx = (min(xs) + max(xs)) / 2
@@ -162,6 +183,10 @@ def assess_saved_board(project: dict, document: dict) -> dict:
     model = document["geometry"]
     if document.get("geometry_sha256") != _hash(model):
         raise ValueError("geometry sidecar integrity mismatch")
+    # A matching hash alone is insufficient: recompute the collector preset
+    # and reject a substituted or stale model, even with a recomputed digest.
+    if model != build_assumed_geometry(project):
+        raise ValueError("geometry sidecar differs from authoritative collector preset")
     settings = model["clearance_assumptions"]
     defs = dict(BUILTIN_DEFS)
     defs.update({str(d["id"]): d for d in project.get("componentDefs", [])
@@ -170,12 +195,23 @@ def assess_saved_board(project: dict, document: dict) -> dict:
              if isinstance(p, dict) and p.get("id") and not is_off_board_component(p)}
     solids = []
     unknown = []
+    pin_records = []
     for entry in model["components"]:
         cid = entry["id"]
         if cid not in parts:
             continue
         definition = _definition(parts[cid], defs)
-        if definition is None or not entry.get("body_solids"):
+        if definition is None:
+            unknown.append(entry.get("label") or cid)
+            continue
+        if isinstance(parts[cid].get("boardPos"), dict):
+            pins, _ = component_geometry(parts[cid], definition)
+            for pin in pins:
+                pin_records.append({
+                    "id": f"{cid}:{pin['id']}",
+                    "center_mm": [pin["col"] * PITCH, pin["row"] * PITCH],
+                })
+        if not entry.get("body_solids"):
             unknown.append(entry.get("label") or cid)
             continue
         solid = _installed_shape(parts[cid], definition, entry)
@@ -189,14 +225,37 @@ def assess_saved_board(project: dict, document: dict) -> dict:
               "FAIL_PROVEN": 0}
     for index, wire in enumerate(project.get("board", {}).get("wires", [])):
         a, b = wire["from"], wire["to"]
+        endpoints = {
+            (a["row"], a["col"]), (b["row"], b["col"]),
+        }
+        # Pin-hole centres are known from exact footprint geometry. A wire
+        # touching an intermediate occupied hole is a HARD failure. Endpoint
+        # landings are allowed here; the electrical verifier checks their net.
+        occupied = [
+            {**pin,
+             "allowed_endpoint": (
+                 (round(pin["center_mm"][1] / PITCH),
+                  round(pin["center_mm"][0] / PITCH)) in
+                 {(col, row) for row, col in endpoints}
+             )}
+            for pin in pin_records
+        ]
+        # Lead radii are still hypothetical; the independent evaluators must
+        # report a nominal lead clash as UNVERIFIED, never FAIL_PROVEN.
+        leads = [
+            {"id": pin["id"], "center_mm": pin["center_mm"],
+             "radius_mm": settings["lead_radius_mm"],
+             "source": "assumed_standard",
+             "allowed_endpoint": pin["allowed_endpoint"]}
+            for pin in occupied
+        ]
         case = {
             "jumper": {"from_mm": [a["col"] * PITCH, a["row"] * PITCH],
                        "to_mm": [b["col"] * PITCH, b["row"] * PITCH]},
             "settings": settings,
             "body_solids": solids,
-            # Saved profile pin radii are assumed too; unknown hardware access
-            # remains uncertified. Existing hard pad/endpoint rules still apply.
-            "leads": [],
+            "occupied_holes": occupied,
+            "leads": leads,
         }
         router = classify_jumper(case)
         independent = verify_jumper_25d(case)
@@ -211,7 +270,7 @@ def assess_saved_board(project: dict, document: dict) -> dict:
     # A design-estimate PASS cannot be a physical PASS. Even a geometrically
     # unobstructed wire is conditional upon the actual package size/wiring.
     if counts["FAIL_PROVEN"]:
-        status = "ASSUMED_CONFLICT"
+        status = "HARD_CONFLICT"
     elif counts["FAIL_UNVERIFIED"] or unknown:
         status = "UNVERIFIED"
     else:
@@ -224,7 +283,7 @@ def assess_saved_board(project: dict, document: dict) -> dict:
         "unknown_bodies": sorted(unknown),
         "profile": model["preset"],
         "physical_signoff": False,
-        "scope": "assumed-body-geometry-only; pad legality and cut access separately checked",
+        "scope": "assumed-body-and-lead-clearance with hard occupied-pin-hole check; electrical nets and cut access separately verified",
     }
 
 
