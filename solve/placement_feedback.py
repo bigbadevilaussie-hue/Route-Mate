@@ -267,13 +267,15 @@ def solve_with_feedback(
             "wires": routed.get("wires_added", 0),
             "error": (routed.get("errors") or [None])[0],
         })
-        report_progress(attempt_started)
+        if not passed:
+            report_progress(attempt_started)
         if passed:
             metrics = candidate_metrics(routed["project"])
             selection = success_result(
                 routed, fit, search_variant, attempt_spacing, metrics,
             )
             if metrics is None:
+                report_progress(attempt_started)
                 return selection
             rank = (
                 metrics["contacts"], -metrics["score"],
@@ -291,6 +293,7 @@ def solve_with_feedback(
             history[-1]["quality_score"] = metrics["score"]
             history[-1]["nominal_contacts"] = metrics["contacts"]
             history[-1]["verified_fallback_retained"] = needs_improvement
+            report_progress(attempt_started)
             # Already meets the quality and contact limits; no extra work.
             # An improved verified candidate can also end the retry early.
             if not needs_improvement or improvement_attempts == 0:
