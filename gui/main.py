@@ -439,6 +439,7 @@ class RouteMateWindow(QMainWindow):
         self._solve_input = None
         self._solved_verified = False
         self._quick_source = None  # Locked pre-route project; never a previously solved layout.
+        self._assumed_geometry = None  # Collector's advisory package profile; not 2.5D PASS.
 
         logo_path = REPO_ROOT / "icon" / "RouteMate-original.png"
         if logo_path.is_file():
@@ -731,6 +732,30 @@ class RouteMateWindow(QMainWindow):
         self._copper_svg = copper_svg
         return top_svg, "production standalone renderer (both board sides)"
 
+    def _record_assumed_geometry(self, project: dict[str, Any], *, stage=None):
+        """Use the SAME versioned geometry generator as collect.py.
+
+        Store the advisory data in the existing pipeline state when a stage is
+        supplied. Do not add physicalClearance to the solver input: its
+        absolute-coordinate contract requires measured/locked shapes.
+        """
+        from collector_geometry import build_assumed_geometry
+        model = build_assumed_geometry(project)
+        self._assumed_geometry = model
+        if stage is not None:
+            stage.report["assumed_geometry"] = copy.deepcopy(model)
+            stage.options["geometry_preset"] = model["preset"]
+            stage.options["geometry_status"] = "ASSUMED_UNVERIFIED"
+        assumed = sum(x["status"] == "ASSUMED_UNVERIFIED" for x in model["components"])
+        unknown = sum(x["status"] == "UNVERIFIED" for x in model["components"])
+        self.log_line(
+            f"[GEOMETRY][ASSUMED] {model['preset']} | "
+            f"{assumed} assumed package(s), {unknown} unknown body/bodies | "
+            "collector profile active for reporting; solver still enforces "
+            "legacy artwork and occupied-pad keepouts."
+        )
+        return model
+
     def render_json(self):
         """Open a board JSON and display its saved layout without running the pipeline."""
         start_dir = self.project_path.parent if self.project_path else default_project_directory()
@@ -777,7 +802,12 @@ class RouteMateWindow(QMainWindow):
                 level="neutral",
             )
             self.log_line(f"[RENDER JSON] {path}")
-            self.log_line("[RENDER JSON] Displayed saved layout; no collector, tests or solver run.")
+            self.log_line("[RENDER JSON] Displayed saved layout; no solver run.")
+            # A saved board bypasses Import, but must not bypass the shared
+            # collector geometry assumptions. Advisory only, no false PASS.
+            self._record_assumed_geometry(project)
+            self.log_line("[RENDER JSON] Saved-board 2.5D clearance remains UNVERIFIED "
+                          "until placement-relative validation is integrated.")
             # Historic routed JSON may be electrically sound yet contain
             # jumpers drawn directly through a capacitor or other body.
             # Never present those saved results without a safety warning.
@@ -1062,6 +1092,7 @@ class RouteMateWindow(QMainWindow):
         from prepare.sanity.electrical import run_electrical_sanity
         self.pipeline_run = PipelineRun.create(self.project_path, source)
         result, findings = project_import_stage_result(source, source)
+        self._record_assumed_geometry(source, stage=result)
         self._record_pipeline_result(result, findings)
         sanity = run_electrical_sanity(source)
         result, findings = electrical_sanity_stage_result(source, sanity)
@@ -1448,6 +1479,7 @@ class RouteMateWindow(QMainWindow):
                 warnings=collect_warnings,
                 options=dimensions,
             )
+            self._record_assumed_geometry(project, stage=import_result)
             self._record_pipeline_result(import_result, import_findings)
             self.log_line(
                 f"[COLLECT] Actual board {dimensions['actualRows']} x {dimensions['actualCols']}; "
