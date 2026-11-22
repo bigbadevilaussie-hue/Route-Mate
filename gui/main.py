@@ -796,7 +796,14 @@ class RouteMateWindow(QMainWindow):
             project, highlight_component_id=highlight_component_id
         )
         self._copper_svg = copper_svg
-        return top_svg, "production standalone renderer (both board sides)"
+        # Surface render-only moved-label diagnostics (the source JSON and
+        # solder pads are untouched); avoid dumping raw Node CLI messages.
+        label_notes = [
+            line for line in _renderer_log.splitlines()
+            if line.startswith("[CAPACITOR][LABEL]")
+        ]
+        label_report = ("\n" + "\n".join(label_notes)) if label_notes else ""
+        return top_svg, "production standalone renderer (both board sides)" + label_report
 
     def _record_assumed_geometry(self, project: dict[str, Any], *, stage=None):
         """Use the SAME versioned geometry generator as collect.py.
@@ -906,7 +913,7 @@ class RouteMateWindow(QMainWindow):
                 raise ValueError("Project JSON needs a components array.")
             # Render into temporary values first; leave the existing view intact on failure.
             from render.standalone_bridge import render_project_data
-            top_svg, copper_svg, _ = render_project_data(project)
+            top_svg, copper_svg, renderer_diagnostics = render_project_data(project)
             self.project = project
             self.project_path = path
             self.pipeline_run = None
@@ -929,6 +936,9 @@ class RouteMateWindow(QMainWindow):
             )
             self.log_line(f"[RENDER JSON] {path}")
             self.log_line("[RENDER JSON] Displayed saved layout; no solver run.")
+            for line in renderer_diagnostics.splitlines():
+                if line.startswith("[CAPACITOR][LABEL]"):
+                    self.log_line(line)
             # A saved board bypasses Import, but must not bypass the shared
             # collector geometry assumptions. Advisory only, no false PASS.
             self._record_assumed_geometry(project)
