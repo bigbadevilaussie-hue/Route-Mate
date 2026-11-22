@@ -47,25 +47,8 @@ def solve_for_display(
     # Treat locks as hard engine constraints, even if a future placement
     # strategy mistakenly alters them. Sliding edge anchors are permitted
     # to move *only along their original edge*, without rotation.
-    from board_geometry import BUILTIN_DEFS, resolve_definition, component_geometry
-    def edge_side(c, definitions, rows, cols):
-        definition = resolve_definition(c, definitions)
-        if definition is None or not isinstance(c.get("boardPos"), dict):
-            return None
-        pins, body = component_geometry(c, definition)
-        occupied = [(int(p["row"]), int(p["col"])) for p in pins] + list(body)
-        if not occupied:
-            return None
-        rr, cc = [p[0] for p in occupied], [p[1] for p in occupied]
-        if min(rr) == 0:
-            return "top"
-        if max(rr) == rows - 1:
-            return "bottom"
-        if min(cc) == 0:
-            return "left"
-        if max(cc) == cols - 1:
-            return "right"
-        return None
+    from board_geometry import BUILTIN_DEFS, resolve_definition
+    from .quick_fit import edge_side
 
     previous = {str(c.get("id")): c for c in source.get("components", [])
                 if isinstance(c, dict)}
@@ -91,8 +74,17 @@ def solve_for_display(
             if before.get(field) != after.get(field):
                 locked_errors.append(f"Locked component {cid} changed {field}.")
         if before.get("edge") and before.get("slide"):
-            if edge_side(before, definitions, rows, cols) != edge_side(after, definitions, rows, cols):
-                locked_errors.append(f"Sliding component {cid} left its anchored board edge.")
+            definition = resolve_definition(before, definitions)
+            if definition is None:
+                locked_errors.append(f"Sliding component {cid} has no footprint definition.")
+            else:
+                try:
+                    original_side = edge_side(before, definition, rows, cols)
+                    final_side = edge_side(after, definition, rows, cols)
+                    if original_side != final_side:
+                        locked_errors.append(f"Sliding component {cid} left its anchored board edge.")
+                except (KeyError, TypeError, ValueError) as exc:
+                    locked_errors.append(f"Sliding component {cid} has invalid geometry: {exc}")
         else:
             if before.get("boardPos") != after.get("boardPos"):
                 locked_errors.append(f"Locked component {cid} changed board position.")
