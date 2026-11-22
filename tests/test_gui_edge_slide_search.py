@@ -29,7 +29,7 @@ def fixture(cols=5):
 def failed(trial, **kwargs):
     return {
         "status": "ROUTING_FAILED", "project": None,
-        "attempts_used": kwargs["attempts"],
+        "attempts_used": kwargs.get("attempts", 24),
         "errors": ["no route"], "history": [
             {"placement": "PLACED", "routing": "ROUTING_FAILED",
              "error": "no route"},
