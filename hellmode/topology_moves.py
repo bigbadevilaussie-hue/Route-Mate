@@ -91,8 +91,9 @@ class StripSegments:
 
     def candidate_bridges(
         self, board: dict, wire_id: str, *, allow_detour: bool,
+        rng: random.Random | None = None, max_candidates: int = 80,
     ) -> tuple[list[tuple[dict, ...]], bool]:
-        """Enumerate 1- or 2-wire alternatives preserving strip connectivity.
+        """Reservoir-sample 1- or 2-wire bridges preserving connectivity.
 
         A 2-wire detour passes through an *unused, unconnected* strip island,
         so it cannot short another net. Final proof comes from verification.
@@ -111,7 +112,27 @@ class StripSegments:
         by_root: dict[int, list[Segment]] = defaultdict(list)
         for segment in self.segments:
             by_root[uf.find(segment.index)].append(segment)
-        alternatives: list[tuple[dict, ...]] = []
+        randomizer = rng if rng is not None else random.Random(0)
+        singles: list[tuple[dict, ...]] = []
+        detours: list[tuple[dict, ...]] = []
+        seen_single = seen_detour = 0
+
+        def offer(proposal: tuple[dict, ...], *, detour: bool = False) -> None:
+            nonlocal seen_single, seen_detour
+            bucket = detours if detour else singles
+            if detour:
+                seen_detour += 1
+                count = seen_detour
+            else:
+                seen_single += 1
+                count = seen_single
+            if len(bucket) < max_candidates:
+                bucket.append(proposal)
+            else:
+                pos = randomizer.randrange(count)
+                if pos < max_candidates:
+                    bucket[pos] = proposal
+
         original = (
             selected["from"]["row"], selected["from"]["col"],
             selected["to"]["row"], selected["to"]["col"],
@@ -137,10 +158,10 @@ class StripSegments:
                     reverse = (b.row, col, a.row, col)
                     if probe == original or reverse == original:
                         continue
-                    alternatives.append((jumper(wire_id, a, b, col),))
+                    offer((jumper(wire_id, a, b, col),))
 
         if not allow_detour:
-            return alternatives, True
+            return singles, True
 
         # A detour replaces one jumper with two. It can cross distinct columns
         # on a common unused copper strip and therefore overcome the fixed-
@@ -156,14 +177,20 @@ class StripSegments:
                 and degree[s.index] == 0]
         # Don't enumerate every pair of landing columns on every unused strip;
         # choose endpoints near existing jumper columns and segment boundaries.
+        old_midpoint = (selected["from"]["row"] + selected["to"]["row"]) / 2
+        free = sorted(free, key=lambda s: (
+            abs(s.row - old_midpoint), s.index
+        ))[:12]
+        source_segments = by_root[left][:16]
+        target_segments = by_root[right][:16]
         for mid in free:
-            for a in by_root[left]:
+            for a in source_segments:
                 if a.row == mid.row:
                     continue
                 ac_left, ac_right = max(a.left, mid.left), min(a.right, mid.right)
                 if ac_left > ac_right:
                     continue
-                for b in by_root[right]:
+                for b in target_segments:
                     if b.row == mid.row:
                         continue
                     bc_left, bc_right = max(b.left, mid.left), min(b.right, mid.right)
@@ -179,8 +206,8 @@ class StripSegments:
                                 continue
                             first = jumper(wire_id, a, mid, col_a)
                             second = jumper(wire_id + "-D", mid, b, col_b)
-                            alternatives.append((first, second))
-        return alternatives, True
+                            offer((first, second), detour=True)
+        return singles + detours, True
 
 
 def topology_proposal(
@@ -203,7 +230,7 @@ def topology_proposal(
     existing = set(order)
     for wire_id in order[:min(len(order), 6)]:
         proposed, is_bridge = segments.candidate_bridges(
-            board, wire_id, allow_detour=detour
+            board, wire_id, allow_detour=detour, rng=rng
         )
         if not is_bridge or not proposed:
             continue
