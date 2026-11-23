@@ -293,7 +293,7 @@ def optimize(
         electrical_check=_electrically_valid,
         metric_reader=report_metrics,
         quality_key=_priority,
-        attempts=min(24, max(4, moves // 7)),
+        attempts=min(60, max(12, moves // 3)),
         seed=seed + 2097593,
     )
     positioned_m = report_metrics(repositioned)
