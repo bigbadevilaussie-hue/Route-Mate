@@ -46,11 +46,15 @@ def _is_clear(
     landing: set[tuple[int, int]],
     interior: set[tuple[int, int]],
     pads: Mapping[tuple[int, int], list[str | None]],
+    *,
+    allow_stack_penalty: bool = False,
 ) -> bool:
     if a_row == b_row:
         return False
     low, high = sorted((a_row, b_row))
-    if any((col, row) in gap for row in range(low, high)):
+    if not allow_stack_penalty and any(
+        (col, row) in gap for row in range(low, high)
+    ):
         return False
     if any((col, row) in landing or (col, row) in interior
            for row in (a_row, b_row)):
@@ -75,12 +79,16 @@ def rebuild_one_net(
     seed: int = 1,
     max_additional_wires: int = 4,
     allow_new_net_wires: bool = False,
+    allow_stack_penalty: bool = False,
 ) -> dict[str, Any] | None:
     """Find a nonstacking replacement for ALL jumpers on a named net.
 
     Returns a pure project candidate (or None if the greedy tree fails).
-    Other-net wires/cuts/placements remain untouched. The rebuilt set is
-    STRICT 2D clean even if preexisting other-net wiring is not.
+    Other-net wires/cuts/placements remain untouched. Default output has
+    STRICT 2D clean new spans. In exploratory allow_stack_penalty mode,
+    gap crossings are charged a heavy weight rather than excluded, but
+    prohibited pin pass-through and jumper landing conflicts stay blocked.
+    These candidates are NEVER certified by the router.
     """
     original_board = project["board"]
     model = StripSegments(original_board)
@@ -152,12 +160,19 @@ def rebuild_one_net(
                     continue
                 if not _is_clear(
                     low, high, col, target_net,
-                    gap, landing, interior, pads_by_hole
+                    gap, landing, interior, pads_by_hole,
+                    allow_stack_penalty=allow_stack_penalty,
                 ):
                     continue
+                overlap = sum(
+                    (col, row) in gap for row in range(low, high)
+                ) if allow_stack_penalty else 0
                 # Number of wires first, then length, with seeded jitter
                 # to explore multiple electrically equivalent trees.
-                weight = 200.0 + 2.0 * (high - low) + rng.random() * 70
+                weight = (
+                    200.0 + 2.0 * (high - low)
+                    + rng.random() * 70 + 450.0 * overlap
+                )
                 edges[sid].append((weight, tid, col, high))
                 edges[tid].append((weight, sid, col, low))
 
@@ -203,7 +218,8 @@ def rebuild_one_net(
                     continue
                 if not _is_clear(
                     r1, r2, col, target_net,
-                    gap, landing, interior, pads_by_hole
+                    gap, landing, interior, pads_by_hole,
+                    allow_stack_penalty=allow_stack_penalty,
                 ):
                     continue
                 trial = distance + cost
@@ -227,7 +243,8 @@ def rebuild_one_net(
         for r1, r2, col, node in route:
             if not _is_clear(
                 r1, r2, col, target_net,
-                gap, landing, interior, pads_by_hole
+                gap, landing, interior, pads_by_hole,
+                allow_stack_penalty=allow_stack_penalty,
             ):
                 return None
             index = len(rebuilt)
