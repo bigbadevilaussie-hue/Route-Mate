@@ -10,7 +10,7 @@ import json
 import unittest
 from pathlib import Path
 
-from hellmode.net_ripup import rebuild_one_net, ripup_repair
+from hellmode.net_ripup import rebuild_one_net, ripup_repair, _is_clear
 from hellmode.demo import _electrically_valid, optimize
 from hellmode.copper_model import reconstruct_electrical
 from hellmode.strict_occupancy import audit_strict_occupancy
@@ -113,6 +113,26 @@ class WholeNetRipupTests(unittest.TestCase):
         proof = reconstruct_electrical(result)
         self.assertEqual(proof["status"], "PASS", proof["errors"])
         self.assertEqual(proof["counts"]["short_groups"], 0)
+
+    def test_temporary_gap_overlap_is_search_only_not_new_landing_permission(self):
+        gap = {(1, 0), (1, 1)}
+        self.assertFalse(_is_clear(
+            0, 3, 1, "N", gap, set(), set(), {}
+        ))
+        self.assertTrue(_is_clear(
+            0, 3, 1, "N", gap, set(), set(), {},
+            allow_stack_penalty=True,
+        ))
+        # Even in exploration, a shared endpoint and an occupied
+        # intermediate pad stay forbidden.
+        self.assertFalse(_is_clear(
+            0, 3, 1, "N", gap, {(1, 3)}, set(), {},
+            allow_stack_penalty=True,
+        ))
+        self.assertFalse(_is_clear(
+            0, 3, 1, "N", gap, set(), set(),
+            {(1, 2): ["N"]}, allow_stack_penalty=True,
+        ))
 
     def test_missing_wire_net_and_unknown_net_never_silently_rewrite(self):
         source = compact_fixture()
