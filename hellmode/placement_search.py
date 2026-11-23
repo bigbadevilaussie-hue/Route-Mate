@@ -135,6 +135,7 @@ def move_and_rebuild(
             seed=seed + order * 104729,
             max_additional_wires=max_extra_wires,
             allow_new_net_wires=True,
+            allow_stack_penalty=True,
         )
         if candidate is None:
             # Do not accept a half-rebuilt intermediate layout.
@@ -227,7 +228,7 @@ def search_component_moves(
         -sum(by_net[n] for n in part_nets[str(component["id"])]),
         str(component["id"]),
     ))
-    eligible = eligible[:20]
+    eligible = eligible[:12]
     if not eligible:
         return winner, proof
 
@@ -245,7 +246,9 @@ def search_component_moves(
         for dr, dc in offsets:
             proposals.append((str(c["id"]), r + dr, col + dc))
     rng.shuffle(proposals)
-    # Combine randomized diversity with a predictable bound.
+    # Combine randomized diversity with a predictable bound. A candidate
+    # can be temporarily stacked, but only independently verified final
+    # electrical layouts and strictly improved 2D scores may be retained.
     for cid, row, col in proposals[:attempts]:
         proof["attempts"] += 1
         proof["attempted_component_ids"].append(cid)
