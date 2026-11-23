@@ -48,6 +48,36 @@ jobs:
                 before["cuts"], "->", after["cuts"], "congestion",
                 before["excess_gap_occupancy"], "->", after["excess_gap_occupancy"])
           PY
+      - name: Diagnose actual Hell Mode winner (exact fixed-row-span feasibility)
+        run: |
+          python -m hellmode.diagnostic \
+            --input /tmp/route-mate-hellmode-alpha-ci/best_electrical.json \
+            --out /tmp/route-mate-hellmode-alpha-ci/diagnostic.json \
+            --node-limit 150000
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("/tmp/route-mate-hellmode-alpha-ci")
+          result = json.loads((p / "diagnostic.json").read_text())
+          manifest = json.loads((p / "run.json").read_text())
+          assert result["input_electrical_pass"]
+          assert result["counts"]["jumpers"] == manifest["best_exploratory"]["wires"]
+          assert result["counts"]["observed_excess_gap_occupancy"] == manifest["best_exploratory"]["excess_gap_occupancy"]
+          assert result["exact_global_fixed_span_assignment"]["status"] in (
+              "SAT_EXACT", "UNSAT_EXACT",
+              "UNSAT_PROVED_BY_HALL_GAP", "UNKNOWN_NODE_LIMIT",
+              "SAT_REJECTED_BY_INDEPENDENT_VERIFIER",
+          )
+          print("HELL_MODE_DIAGNOSTIC_CHECK=PASS",
+                "status", result["exact_global_fixed_span_assignment"]["status"],
+                "clusters", result["clusters"]["spatial_cluster_count"])
+          PY
+      - name: Upload Hell Mode exact feasibility diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: hellmode-fixed-span-diagnostic
+          path: /tmp/route-mate-hellmode-alpha-ci/diagnostic.json
+          if-no-files-found: error
       - name: Prove three separate Quick Solve processes
         run: python tools/smoke_process_pool.py
       - name: Placement-feedback regression
