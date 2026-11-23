@@ -26,6 +26,8 @@ from .topology_moves import topology_proposal, apply_topology_proposal
 from .cut_moves import propose_cut_change, remove_redundant_cuts
 from .conflict_repair import repair_conflicts
 from .net_ripup import ripup_repair
+from .placement_search import search_component_moves
+from .pad_geometry import collect_pad_holes
 
 
 PITCH_MM = 2.54
@@ -281,6 +283,28 @@ def optimize(
             "move": moves, "kind": "whole_net_ripup", **best_m,
         })
 
+    # Escape routing-only local minima: make a real transactional move of
+    # an unlocked component, then independently reconstruct its pads and
+    # reroute *all* affected electrical nets before comparing layouts.
+    placed_graph = reconstruct_electrical(best)
+    repositioned, component_search = search_component_moves(
+        best, wire_nets=placed_graph["wire_nets"],
+        pad_reader=collect_pad_holes,
+        electrical_check=_electrically_valid,
+        metric_reader=report_metrics,
+        quality_key=_priority,
+        attempts=min(24, max(4, moves // 7)),
+        seed=seed + 2097593,
+    )
+    positioned_m = report_metrics(repositioned)
+    component_search["adopted"] = _priority(positioned_m) < _priority(best_m)
+    if component_search["adopted"]:
+        best, best_m = repositioned, positioned_m
+        improvements += 1
+        history.append({
+            "move": moves, "kind": "component_and_net_reroute", **best_m,
+        })
+
     manifest = {
         "mode": "HELL_MODE_ALPHA_ELECTRICAL_ONLY",
         "seed": seed, "moves_requested": moves,
@@ -292,6 +316,7 @@ def optimize(
         "moves_cut_accepted": cut_accepted,
         "conflict_repair": repair,
         "whole_net_ripup": reroute,
+        "component_search": component_search,
         "moves_with_column_alternative": attempts - topology_attempts - cut_attempts,
         "moves_accepted": accepted,
         "moves_electrically_rejected": rejected_electrical,
@@ -309,7 +334,8 @@ def optimize(
             "rebridges (including changed endpoint rows), two-wire "
             "detours via unused strip islands, whole-net strip-island "
             "tree rebuilds, and electrically verified between-hole cut "
-            "relocation/removal. Component placement stays fixed. "
+            "relocation/removal, plus transactional unlocked-component "
+            "relocation with full affected-net rebuilds. "
             "No physical RECORD or BUILD_READY is claimed."
         ),
         "history": history,
@@ -422,6 +448,9 @@ def main() -> int:
     net = report["whole_net_ripup"]
     print(f"  Whole-net reroutes accepted: {net['whole_net_reroutes_accepted']} "
           f"(adopted={net['adopted']})")
+    placement = report["component_search"]
+    print(f"  Component relocations accepted: {placement['accepted_component_moves']} "
+          f"(attempted={placement['attempts']}, adopted={placement['adopted']})")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
