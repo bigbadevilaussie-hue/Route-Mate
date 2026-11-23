@@ -84,8 +84,6 @@ def move_and_rebuild(
     to be temporarily open while rebuilding every affected net. Foreign
     nets are never re-labelled; final correctness is independently proven.
     """
-    if not electrical_check(source):
-        raise ValueError("relocation requires a verified electrical baseline")
     components = {
         str(c["id"]): c for c in source.get("components", [])
         if isinstance(c, dict) and c.get("id") is not None
@@ -94,7 +92,11 @@ def move_and_rebuild(
     if original is None:
         raise KeyError(component_id)
     if not _eligible(original):
+        # Hard locks/off-board policy are enforced even if a rejected input
+        # fixture cannot itself pass independent electrical verification.
         return None
+    if not electrical_check(source):
+        raise ValueError("relocation requires a verified electrical baseline")
     assigned = {
         str(a["netId"]) for a in source.get("netAssignments", [])
         if str(a.get("componentId")) == component_id
