@@ -29,6 +29,7 @@ from .net_ripup import ripup_repair
 from .placement_search import search_component_moves
 from .pad_geometry import collect_pad_holes
 from .hall_guided_repair import repair_hall_clusters
+from .cluster_net_rebuild import rebuild_conflicting_nets
 
 
 PITCH_MM = 2.54
@@ -331,6 +332,30 @@ def optimize(
             "move": moves, "kind": "hall_guided_pair_repair", **best_m,
         })
 
+    # The wider Hall-deficient escape hatch removes all jumper trees on
+    # conflicting nets together, derives cuts, and rebuilds every affected
+    # net. These are whole-group candidates: no interim opens can be exported.
+    cluster_graph = reconstruct_electrical(best)
+    compounded, compound_report = rebuild_conflicting_nets(
+        best,
+        wire_nets=cluster_graph["wire_nets"],
+        pads=cluster_graph["pin_holes"],
+        electrical_check=_electrically_valid,
+        metric_reader=report_metrics,
+        quality_key=_priority,
+        seed=seed + 17863,
+        variants_per_cluster=6,
+        max_extra_wires=5,
+    )
+    compound_metrics = report_metrics(compounded)
+    compound_report["adopted"] = _priority(compound_metrics) < _priority(best_m)
+    if compound_report["adopted"]:
+        best, best_m = compounded, compound_metrics
+        improvements += 1
+        history.append({
+            "move": moves, "kind": "cluster_net_compound", **best_m,
+        })
+
     manifest = {
         "mode": "HELL_MODE_ALPHA_ELECTRICAL_ONLY",
         "seed": seed, "moves_requested": moves,
@@ -344,6 +369,7 @@ def optimize(
         "whole_net_ripup": reroute,
         "component_search": component_search,
         "hall_guided_repair": hall_report,
+        "cluster_net_rebuild": compound_report,
         "moves_with_column_alternative": attempts - topology_attempts - cut_attempts,
         "moves_accepted": accepted,
         "moves_electrically_rejected": rejected_electrical,
@@ -481,6 +507,9 @@ def main() -> int:
     hall = report["hall_guided_repair"]
     print(f"  Hall-guided paired repairs: {hall['verified_improvements']} "
           f"(scored={hall['trials_scored']}, adopted={hall['adopted']})")
+    compound = report["cluster_net_rebuild"]
+    print(f"  Compound net-tree rebuilds: {compound['accepted_improvements']} "
+          f"(trials={compound['whole_group_trials']}, adopted={compound['adopted']})")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
