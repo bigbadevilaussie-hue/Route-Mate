@@ -1,0 +1,178 @@
+{
+  "contract": "Hell Mode acceptance predicates v0.1 — illustrative cases, not executable independent physical verifier certification",
+  "normative_sources": [
+    "docs/PHYSICAL_MODEL_SPEC.md v1.0",
+    "docs/PHYSICAL_MODEL_25D_AMENDMENT.md v1.1"
+  ],
+  "tolerance_mm": 1e-9,
+  "cases": [
+    {
+      "id": "GATE-C01",
+      "predicate": "jumper_body_clearance",
+      "expected": "PASS",
+      "description": "Exact inclusive XY threshold",
+      "inputs": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.7,
+        "distance_to_body_mm": 0.9,
+        "body_z_source": "measured",
+        "intermediate_pad_holes": [],
+        "geometry_complete": true
+      }
+    },
+    {
+      "id": "GATE-C02",
+      "predicate": "jumper_body_clearance",
+      "expected": "FAIL_PROVEN",
+      "description": "Intermediate occupied pad hole under a vertical jumper",
+      "inputs": {
+        "wire_start": {
+          "row": 0,
+          "col": 0
+        },
+        "wire_end": {
+          "row": 2,
+          "col": 0
+        },
+        "occupied_pad": {
+          "row": 1,
+          "col": 0
+        },
+        "geometry_complete": true
+      }
+    },
+    {
+      "id": "GATE-C03",
+      "predicate": "jumper_body_clearance",
+      "expected": "FAIL_UNVERIFIED",
+      "description": "Unknown body standoff where XY centreline overlaps",
+      "inputs": {
+        "wire_od_mm": 0.5,
+        "min_clearance_mm": 0.5,
+        "distance_to_body_mm": 0,
+        "body_z_source": "default_flush",
+        "geometry_complete": false
+      }
+    },
+    {
+      "id": "GATE-C04",
+      "predicate": "jumper_body_clearance",
+      "expected": "CONDITIONAL",
+      "description": "Wire clearance relies on user-declared standoff",
+      "inputs": {
+        "wire_od_mm": 0.5,
+        "min_clearance_mm": 0.5,
+        "distance_to_body_mm": 0,
+        "lift_mm": 0,
+        "z_margin_mm": 0.2,
+        "body_z_min_mm": 1,
+        "body_z_source": "user_declared",
+        "geometry_complete": true
+      }
+    },
+    {
+      "id": "GATE-C05",
+      "predicate": "jumper_body_clearance",
+      "expected": "FAIL_UNVERIFIED",
+      "description": "Exposed lead clearance cannot be determined",
+      "inputs": {
+        "wire_od_mm": 0.4,
+        "min_clearance_mm": 0.6,
+        "exposed_lead_radius_mm": null,
+        "geometry_complete": false
+      }
+    },
+    {
+      "id": "GATE-A01",
+      "predicate": "cut_access",
+      "expected": "PASS",
+      "description": "Assembled vertical cut, known clear tool envelope, complete measured nearby solids",
+      "inputs": {
+        "kind": "between",
+        "cut": {
+          "row": 2,
+          "col": 1
+        },
+        "assembly_policy": "assembled_vertical",
+        "tool_radius_mm": 0.5,
+        "tool_approach": "vertical_above",
+        "margin_mm": 0.2,
+        "body_solids": [],
+        "lead_solids": [],
+        "geometry_complete": true
+      }
+    },
+    {
+      "id": "GATE-A02",
+      "predicate": "cut_access",
+      "expected": "FAIL_PROVEN",
+      "description": "A measured component body intersects the required vertical cut-tool approach",
+      "inputs": {
+        "kind": "between",
+        "cut": {
+          "row": 2,
+          "col": 1
+        },
+        "assembly_policy": "assembled_vertical",
+        "tool_radius_mm": 0.5,
+        "tool_approach": "vertical_above",
+        "margin_mm": 0.2,
+        "body_solids": [
+          {
+            "kind": "box",
+            "x_min_mm": 3.3,
+            "x_max_mm": 4.3,
+            "y_min_mm": 4.7,
+            "y_max_mm": 5.5,
+            "z_min_mm": 0,
+            "z_max_mm": 3,
+            "source": "measured"
+          }
+        ],
+        "lead_solids": [],
+        "geometry_complete": true
+      }
+    },
+    {
+      "id": "GATE-A03",
+      "predicate": "cut_access",
+      "expected": "FAIL_UNVERIFIED",
+      "description": "Unknown cutting tool swept envelope",
+      "inputs": {
+        "kind": "between",
+        "cut": {
+          "row": 2,
+          "col": 1
+        },
+        "assembly_policy": "assembled_vertical",
+        "tool_radius_mm": null,
+        "body_solids": [],
+        "lead_solids": [],
+        "geometry_complete": false
+      }
+    },
+    {
+      "id": "GATE-A04",
+      "predicate": "cut_access",
+      "expected": "FAIL_UNVERIFIED",
+      "description": "Unapproved preassembly shortcut cannot override locked assembled-tool accessibility rule",
+      "inputs": {
+        "kind": "between",
+        "cut": {
+          "row": 2,
+          "col": 1
+        },
+        "assembly_policy": "pre_assembly",
+        "assembly_policy_approved": false,
+        "tool_radius_mm": 0.5,
+        "body_solids": [],
+        "lead_solids": [],
+        "geometry_complete": false
+      }
+    }
+  ],
+  "limitations": [
+    "Fixture expectations define future implementation contracts only; not current verifier results",
+    "No saved MOTO or AUDIO geometry is certified by these examples"
+  ]
+}
