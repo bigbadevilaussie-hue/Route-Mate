@@ -1,8 +1,9 @@
-"""Runnable Hell Mode alpha: electrical-only route improvement on a solved board.
+"""Runnable Hell Mode alpha: electrically verified, topology-changing search.
 
-This intentionally tests a REAL search loop rather than claiming M1/M2 are
-finished. No GUI, component placement, cut/topology edits, or physical
-record certification yet. Quick Solve is never modified or invoked.
+This is an EXPERIMENTAL CLI, not a finished Hell Mode GUI or certifier.
+It can change jumper endpoint rows, rebridge nets through other copper islands,
+and sometimes replace one jumper with two using an unowned strip. It cannot
+yet change cuts or component placement. Quick Solve is never modified.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from typing import Any
 from .incremental_state import TransactionalState
 from .copper_model import reconstruct_electrical
 from .verify_layout import verify_layout
+from .topology_moves import topology_proposal, apply_topology_proposal
 
 
 PITCH_MM = 2.54
@@ -164,45 +166,70 @@ def optimize(
     current_m = best_m
     history = [{"move": 0, "kind": "prune", **best_m}]
     attempts = accepted = rejected_electrical = no_alternative = 0
+    topology_attempts = topology_accepted = detour_accepted = 0
     improvements = 0
     for index in range(1, moves + 1):
-        choice = _relocate_candidate(current, rng)
-        if choice is None:
-            no_alternative += 1
-            continue
-        wid, start, stop = choice
-        attempts += 1
-        # The transactional engine applies counter deltas and rolls back;
-        # verification is always re-derived from a fresh project snapshot.
-        txstate = TransactionalState(current)
-        with txstate.transaction() as tx:
-            tx.move_wire(wid, start, stop)
-            candidate = txstate.snapshot()
-            if not _electrically_valid(candidate):
-                rejected_electrical += 1
-                continue
-            metrics = report_metrics(candidate)
-            progress = (index - 1) / max(1, moves)
-            temperature = max(1.0, 700.0 * (1.0 - progress))
-            difference = _energy(metrics) - _energy(current_m)
-            take = difference <= 0 or rng.random() < math.exp(
-                -min(700.0, difference / temperature)
+        candidate = None
+        kind = "column"
+        if rng.randrange(3) != 0:
+            # Real routing-topology change: replaces an essential electrical
+            # bridge, optionally through a previously unused copper island.
+            # Every proposal is independently electrically rechecked.
+            proposal = topology_proposal(
+                current, rng, detour=(rng.randrange(4) == 0)
             )
-            if take:
-                tx.commit()
-                current = candidate
-                current_m = metrics
-                accepted += 1
-                if _priority(metrics) < _priority(best_m):
-                    best = copy.deepcopy(candidate)
-                    best_m = metrics
-                    improvements += 1
-                    history.append({"move": index, "kind": "route", **best_m})
+            if proposal is not None:
+                replace_id, replacements = proposal
+                candidate = apply_topology_proposal(
+                    current, replace_id, replacements
+                )
+                kind = "detour" if len(replacements) == 2 else "rebridge"
+                topology_attempts += 1
+        if candidate is None:
+            choice = _relocate_candidate(current, rng)
+            if choice is None:
+                no_alternative += 1
+                continue
+            wid, start, stop = choice
+            # The M1 transactional primitive is still exercised for
+            # same-span column proposals and must revert on context exit.
+            txstate = TransactionalState(current)
+            with txstate.transaction() as tx:
+                tx.move_wire(wid, start, stop)
+                candidate = txstate.snapshot()
+        attempts += 1
+        if not _electrically_valid(candidate):
+            rejected_electrical += 1
+            continue
+        metrics = report_metrics(candidate)
+        progress = (index - 1) / max(1, moves)
+        temperature = max(1.0, 700.0 * (1.0 - progress))
+        difference = _energy(metrics) - _energy(current_m)
+        take = difference <= 0 or rng.random() < math.exp(
+            -min(700.0, difference / temperature)
+        )
+        if take:
+            current = candidate
+            current_m = metrics
+            accepted += 1
+            if kind != "column":
+                topology_accepted += 1
+                if kind == "detour":
+                    detour_accepted += 1
+            if _priority(metrics) < _priority(best_m):
+                best = copy.deepcopy(candidate)
+                best_m = metrics
+                improvements += 1
+                history.append({"move": index, "kind": kind, **best_m})
 
     manifest = {
         "mode": "HELL_MODE_ALPHA_ELECTRICAL_ONLY",
         "seed": seed, "moves_requested": moves,
-        "moves_with_column_alternative": attempts,
+        "moves_proposed": attempts,
+        "moves_topology_proposed": topology_attempts,
+        "moves_topology_accepted": topology_accepted,
+        "moves_two_wire_detours_accepted": detour_accepted,
+        "moves_with_column_alternative": attempts - topology_attempts,
         "moves_accepted": accepted,
         "moves_electrically_rejected": rejected_electrical,
         "moves_without_alternative": no_alternative,
@@ -214,10 +241,10 @@ def optimize(
         "physical_pass": False,
         "cut_access": "unverified",
         "note": (
-            "Search is real but limited to verified redundant-wire pruning "
-            "and cut-frozen same-row-span column relocation; fixed cuts and "
-            "end rows cannot solve all MOTOMIX stacking. No physical RECORD "
-            "or BUILD_READY is claimed."
+            "Experimental deterministic annealing, one-wire topology "
+            "rebridges (including changed endpoint rows) and two-wire "
+            "detours via unused strip islands. Cuts and components remain "
+            "fixed, and no physical RECORD or BUILD_READY is claimed."
         ),
         "history": history,
     }
@@ -262,7 +289,9 @@ def main() -> int:
     before, after = report["baseline"], report["best_exploratory"]
     print(f"HELL MODE ALPHA — experimental electrical-only search, seed={opts.seed}")
     print(f"  Verified redundant wires removed: {len(report['redundant_wires_removed'])}")
-    print(f"  Search proposals/accepted: {report['moves_with_column_alternative']}/{report['moves_accepted']}")
+    print(f"  Search proposals/accepted: {report['moves_proposed']}/{report['moves_accepted']}")
+    print(f"  Topology rebridges proposed/accepted: {report['moves_topology_proposed']}/{report['moves_topology_accepted']}")
+    print(f"  Two-wire detours accepted: {report['moves_two_wire_detours_accepted']}")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
     print(f"  Physical certification: NOT AVAILABLE (cut access and 2.5D unverified)")
