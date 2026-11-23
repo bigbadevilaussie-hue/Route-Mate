@@ -196,8 +196,11 @@ def grade_search_state(
     """
     candidate = TransactionalState(project)
     board = candidate._project["board"]
-    owner_anchors = _required_owners(candidate, wire_nets)
-    del owner_anchors
+    # Scoring must tolerate temporarily shorted physical holes so the
+    # short penalty remains observable. Cut derivation, by contrast, fails
+    # closed on such a hole because no strip cut can ever repair it.
+    if set(wire_nets) != {w["id"] for w in board.get("wires", [])}:
+        raise ValueError("net ownership must cover every current jumper exactly")
     strips = StripSegments(board)
     parent = list(range(len(strips.segments)))
 
