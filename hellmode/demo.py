@@ -67,6 +67,13 @@ def report_metrics(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _illegal_holes(m: dict[str, Any]) -> int:
+    return (
+        m["shared_holes"] + m["endpoint_on_span_holes"]
+        + m["pad_pass_through"] + m["pin_landing_conflicts"]
+    )
+
+
 def _priority(m: dict[str, Any]) -> tuple:
     """Exploratory score only. NOT the tuple used for a certified RECORD."""
     return (
@@ -324,7 +331,10 @@ def optimize(
         max_electrical_checks=20,
     )
     hall_metrics = report_metrics(hall_best)
-    hall_report["adopted"] = _priority(hall_metrics) < _priority(best_m)
+    hall_report["adopted"] = (
+        _priority(hall_metrics) < _priority(best_m)
+        and _illegal_holes(hall_metrics) <= _illegal_holes(best_m)
+    )
     if hall_report["adopted"]:
         best, best_m = hall_best, hall_metrics
         improvements += 1
@@ -344,11 +354,14 @@ def optimize(
         metric_reader=report_metrics,
         quality_key=_priority,
         seed=seed + 17863,
-        variants_per_cluster=6,
+        variants_per_cluster=10,
         max_extra_wires=5,
     )
     compound_metrics = report_metrics(compounded)
-    compound_report["adopted"] = _priority(compound_metrics) < _priority(best_m)
+    compound_report["adopted"] = (
+        _priority(compound_metrics) < _priority(best_m)
+        and _illegal_holes(compound_metrics) <= _illegal_holes(best_m)
+    )
     if compound_report["adopted"]:
         best, best_m = compounded, compound_metrics
         improvements += 1
@@ -513,6 +526,7 @@ def main() -> int:
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
+    print(f"  Illegal hole findings: {_illegal_holes(before)} -> {_illegal_holes(after)}")
     print(f"  Physical certification: NOT AVAILABLE (cut access and 2.5D unverified)")
     print(f"  Output: {opts.out}/run.json, best_electrical.json")
     return 0
