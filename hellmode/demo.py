@@ -248,7 +248,7 @@ def optimize(
         best, pads=verified["pin_holes"],
         wire_nets=verified["wire_nets"],
         electrical_check=_electrically_valid,
-        seed=seed, rounds=6, candidates_per_wire=64,
+        seed=seed, rounds=10, candidates_per_wire=64,
     )
     repaired_m = report_metrics(repaired)
     repair["adopted"] = _priority(repaired_m) < _priority(best_m)
@@ -393,7 +393,8 @@ def main() -> int:
     print(f"  Two-wire detours accepted: {report['moves_two_wire_detours_accepted']}")
     print(f"  Cut changes proposed/accepted: {report['moves_cut_proposed']}/{report['moves_cut_accepted']}")
     fix = report["conflict_repair"]
-    print(f"  Conflict-directed repairs accepted: {fix['accepted_rebridges']} (adopted={fix['adopted']})")
+    print(f"  Conflict-directed repairs accepted: {fix['accepted_rebridges']} "
+          f"(coordinated={fix['paired_rebridges_accepted']}, adopted={fix['adopted']})")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
