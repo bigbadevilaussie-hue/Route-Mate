@@ -71,6 +71,10 @@ jobs:
           # Reproducible fixed-seed guard: improvement is allowed,
           # but a regression above the independently measured 18 is not.
           assert manifest["best_exploratory"]["excess_gap_occupancy"] <= 18
+          from hellmode.demo import _illegal_holes
+          assert _illegal_holes(manifest["best_exploratory"]) <= 12, (
+              "hole-conflict regression: not a valid STRICT improvement"
+          )
           from hellmode.copper_model import reconstruct_electrical
           from hellmode.search_state import SearchState, CertifiedRecord
           best_project = json.loads((p / "best_electrical.json").read_text())
