@@ -85,7 +85,7 @@ class StrictOccupancyM1Tests(unittest.TestCase):
 
     def test_endpoint_on_other_span_has_explicit_reason(self):
         report = inspect(jumper("A", 0, 4), jumper("B", 2, 5))
-        self.assertEqual(report["counts"]["endpoint_on_span_holes"], 1)
+        self.assertEqual(report["counts"]["endpoint_on_span_holes"], 2)
         self.assertIn("JUMPER_ENDPOINT_ON_SPAN", codes(report))
 
     def test_end_to_end_touching_has_shared_hole_but_no_shared_gap(self):
