@@ -2,8 +2,9 @@
 
 This is an EXPERIMENTAL CLI, not a finished Hell Mode GUI or certifier.
 It can change jumper endpoint rows, rebridge nets through other copper islands,
-and sometimes replace one jumper with two using an unowned strip. It cannot
-yet change cuts or component placement. Quick Solve is never modified.
+replace a jumper with two via an unowned strip, and explore changes to copper
+cuts. Component placement and independently certified 2.5D geometry are not
+implemented. Quick Solve is never modified.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from .incremental_state import TransactionalState
 from .copper_model import reconstruct_electrical
 from .verify_layout import verify_layout
 from .topology_moves import topology_proposal, apply_topology_proposal
+from .cut_moves import propose_cut_change, remove_redundant_cuts
 
 
 PITCH_MM = 2.54
@@ -161,20 +163,32 @@ def optimize(
         raise ValueError("independent electrical model rejected baseline")
 
     current, removed = _prune_redundant(original)
+    # A cut can be unnecessary *after* electrically redundant wires are
+    # removed. Every deletion is independently checked, never assumed safe.
+    current, removed_cuts = remove_redundant_cuts(
+        current, _electrically_valid
+    )
     best = copy.deepcopy(current)
     best_m = report_metrics(best)
     current_m = best_m
     history = [{"move": 0, "kind": "prune", **best_m}]
     attempts = accepted = rejected_electrical = no_alternative = 0
     topology_attempts = topology_accepted = detour_accepted = 0
+    cut_attempts = cut_accepted = 0
     improvements = 0
     for index in range(1, moves + 1):
         candidate = None
         kind = "column"
-        if rng.randrange(3) != 0:
-            # Real routing-topology change: replaces an essential electrical
-            # bridge, optionally through a previously unused copper island.
-            # Every proposal is independently electrically rechecked.
+        action = rng.randrange(5)
+        if action == 0:
+            cut_proposal = propose_cut_change(current, rng)
+            if cut_proposal is not None:
+                candidate, kind = cut_proposal
+                cut_attempts += 1
+        if candidate is None and action in (1, 2, 3):
+            # Bridge net islands through changed row endpoints or a new
+            # intermediate strip. All proposed changes remain subject to
+            # both independent electrical validation implementations.
             proposal = topology_proposal(
                 current, rng, detour=(rng.randrange(4) == 0)
             )
@@ -212,7 +226,9 @@ def optimize(
             current = candidate
             current_m = metrics
             accepted += 1
-            if kind != "column":
+            if kind.startswith("cut_"):
+                cut_accepted += 1
+            elif kind != "column":
                 topology_accepted += 1
                 if kind == "detour":
                     detour_accepted += 1
@@ -229,12 +245,15 @@ def optimize(
         "moves_topology_proposed": topology_attempts,
         "moves_topology_accepted": topology_accepted,
         "moves_two_wire_detours_accepted": detour_accepted,
-        "moves_with_column_alternative": attempts - topology_attempts,
+        "moves_cut_proposed": cut_attempts,
+        "moves_cut_accepted": cut_accepted,
+        "moves_with_column_alternative": attempts - topology_attempts - cut_attempts,
         "moves_accepted": accepted,
         "moves_electrically_rejected": rejected_electrical,
         "moves_without_alternative": no_alternative,
         "improvements": improvements,
         "redundant_wires_removed": removed,
+        "redundant_cuts_removed": removed_cuts,
         "baseline": first, "best_exploratory": best_m,
         "baseline_preserved": True,
         "record_eligible": False,
@@ -242,9 +261,10 @@ def optimize(
         "cut_access": "unverified",
         "note": (
             "Experimental deterministic annealing, one-wire topology "
-            "rebridges (including changed endpoint rows) and two-wire "
-            "detours via unused strip islands. Cuts and components remain "
-            "fixed, and no physical RECORD or BUILD_READY is claimed."
+            "rebridges (including changed endpoint rows), two-wire "
+            "detours via unused strip islands, and electrical-verified "
+            "between-hole cut relocation/removal. Component placement stays "
+            "fixed. No physical RECORD or BUILD_READY is claimed."
         ),
         "history": history,
     }
@@ -292,7 +312,9 @@ def main() -> int:
     print(f"  Search proposals/accepted: {report['moves_proposed']}/{report['moves_accepted']}")
     print(f"  Topology rebridges proposed/accepted: {report['moves_topology_proposed']}/{report['moves_topology_accepted']}")
     print(f"  Two-wire detours accepted: {report['moves_two_wire_detours_accepted']}")
+    print(f"  Cut changes proposed/accepted: {report['moves_cut_proposed']}/{report['moves_cut_accepted']}")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
+    print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
     print(f"  Physical certification: NOT AVAILABLE (cut access and 2.5D unverified)")
     print(f"  Output: {opts.out}/run.json, best_electrical.json")
