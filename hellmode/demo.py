@@ -25,6 +25,7 @@ from .verify_layout import verify_layout
 from .topology_moves import topology_proposal, apply_topology_proposal
 from .cut_moves import propose_cut_change, remove_redundant_cuts
 from .conflict_repair import repair_conflicts
+from .net_ripup import ripup_repair
 
 
 PITCH_MM = 2.54
@@ -259,6 +260,27 @@ def optimize(
             "move": moves, "kind": "conflict_repair", **best_m,
         })
 
+    # Wider neighborhood: discard and rebuild all jumper bridges of an
+    # electrically owned net, using clean nonstacking vertical paths through
+    # original cut-defined copper islands. The operator is untrusted; its
+    # candidates must pass both independent electrical checkers.
+    for_ripup = reconstruct_electrical(best)
+    rebuilt, reroute = ripup_repair(
+        best, pads=for_ripup["pin_holes"],
+        wire_nets=for_ripup["wire_nets"],
+        electrical_check=_electrically_valid,
+        attempts=min(10, max(2, moves // 25)),
+        seed=seed + 104729,
+    )
+    reroute_m = report_metrics(rebuilt)
+    reroute["adopted"] = _priority(reroute_m) < _priority(best_m)
+    if reroute["adopted"]:
+        best, best_m = rebuilt, reroute_m
+        improvements += 1
+        history.append({
+            "move": moves, "kind": "whole_net_ripup", **best_m,
+        })
+
     manifest = {
         "mode": "HELL_MODE_ALPHA_ELECTRICAL_ONLY",
         "seed": seed, "moves_requested": moves,
@@ -269,6 +291,7 @@ def optimize(
         "moves_cut_proposed": cut_attempts,
         "moves_cut_accepted": cut_accepted,
         "conflict_repair": repair,
+        "whole_net_ripup": reroute,
         "moves_with_column_alternative": attempts - topology_attempts - cut_attempts,
         "moves_accepted": accepted,
         "moves_electrically_rejected": rejected_electrical,
@@ -284,9 +307,10 @@ def optimize(
         "note": (
             "Experimental deterministic annealing, one-wire topology "
             "rebridges (including changed endpoint rows), two-wire "
-            "detours via unused strip islands, and electrical-verified "
-            "between-hole cut relocation/removal. Component placement stays "
-            "fixed. No physical RECORD or BUILD_READY is claimed."
+            "detours via unused strip islands, whole-net strip-island "
+            "tree rebuilds, and electrically verified between-hole cut "
+            "relocation/removal. Component placement stays fixed. "
+            "No physical RECORD or BUILD_READY is claimed."
         ),
         "history": history,
     }
@@ -395,6 +419,9 @@ def main() -> int:
     fix = report["conflict_repair"]
     print(f"  Conflict-directed repairs accepted: {fix['accepted_rebridges']} "
           f"(coordinated={fix['paired_rebridges_accepted']}, adopted={fix['adopted']})")
+    net = report["whole_net_ripup"]
+    print(f"  Whole-net reroutes accepted: {net['whole_net_reroutes_accepted']} "
+          f"(adopted={net['adopted']})")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
