@@ -271,9 +271,58 @@ def optimize(
     return best, manifest
 
 
-def run_files(input_path: Path, output_dir: Path, *, moves: int, seed: int) -> dict:
+def optimize_portfolio(
+    source: dict[str, Any], *, moves: int, seed: int, seeds: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Deterministic, fixed-effort independent restarts of the real search.
+
+    Best-effort pilot of Hell Mode's broad search; not M4 multiprocessing
+    or M1 deterministic full-solver acceptance. Score only within the same
+    uncertified, electrically verified exploratory tier.
+    """
+    if type(seeds) is not int or seeds < 1:
+        raise ValueError("seeds must be a positive integer")
+    summaries = []
+    winner = None
+    winner_report = None
+    winning_key = None
+    for offset in range(seeds):
+        actual_seed = seed + offset
+        candidate, report = optimize(source, moves=moves, seed=actual_seed)
+        m = report["best_exploratory"]
+        key = (_priority(m), actual_seed)
+        summaries.append({
+            "seed": actual_seed,
+            "wires": m["wires"],
+            "cuts": m["cuts"],
+            "excess_gap_occupancy": m["excess_gap_occupancy"],
+            "max_stack_depth": m["max_stack_depth"],
+            "moves_requested": moves,
+            "moves_proposed": report["moves_proposed"],
+            "moves_cut_accepted": report["moves_cut_accepted"],
+            "moves_topology_accepted": report["moves_topology_accepted"],
+        })
+        if winning_key is None or key < winning_key:
+            winner, winner_report, winning_key = (
+                candidate, report, key
+            )
+    assert winner_report is not None and winner is not None
+    winner_report["portfolio"] = {
+        "start_seed": seed,
+        "seeds_tested": seeds,
+        "moves_per_seed": moves,
+        "total_moves_requested": moves * seeds,
+        "winning_seed": winner_report["seed"],
+        "seeds": summaries,
+    }
+    return winner, winner_report
+
+
+def run_files(
+    input_path: Path, output_dir: Path, *, moves: int, seed: int, seeds: int = 1,
+) -> dict:
     src = json.loads(input_path.read_text(encoding="utf-8"))
-    best, manifest = optimize(src, moves=moves, seed=seed)
+    best, manifest = optimize_portfolio(src, moves=moves, seed=seed, seeds=seeds)
     manifest["source"] = str(input_path)
     manifest["source_sha256"] = hashlib.sha256(
         input_path.read_bytes()
@@ -304,10 +353,18 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=Path("/tmp/route-mate-hellmode-alpha"))
     parser.add_argument("--moves", type=int, default=300)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--seeds", type=int, default=1,
+        help="independent deterministic search restarts; each gets --moves",
+    )
     opts = parser.parse_args()
-    report = run_files(opts.input, opts.out, moves=opts.moves, seed=opts.seed)
+    report = run_files(
+        opts.input, opts.out, moves=opts.moves, seed=opts.seed,
+        seeds=opts.seeds,
+    )
     before, after = report["baseline"], report["best_exploratory"]
-    print(f"HELL MODE ALPHA — experimental electrical-only search, seed={opts.seed}")
+    print(f"HELL MODE ALPHA — electrical-only search; {opts.seeds} seeds x {opts.moves} moves")
+    print(f"  Winning seed: {report['portfolio']['winning_seed']}")
     print(f"  Verified redundant wires removed: {len(report['redundant_wires_removed'])}")
     print(f"  Search proposals/accepted: {report['moves_proposed']}/{report['moves_accepted']}")
     print(f"  Topology rebridges proposed/accepted: {report['moves_topology_proposed']}/{report['moves_topology_accepted']}")
