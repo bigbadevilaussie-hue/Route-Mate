@@ -141,6 +141,17 @@ class ConflictDirectedRepairTests(unittest.TestCase):
         )
         self.assertFalse(run["physically_certified"])
 
+    def test_extra_repair_rounds_preserve_best_ever_motomix_checkpoint(self):
+        source = json.loads(
+            (ROOT / "benchmarks/moto/motomix-autorouted.json").read_text()
+        )
+        _, six = repair(source, rounds=6)
+        winner, ten = repair(source, rounds=10)
+        self.assertLessEqual(ten["final_excess"], six["final_excess"])
+        verified = reconstruct_electrical(winner)
+        self.assertEqual(verified["status"], "PASS", verified["errors"])
+        self.assertFalse(ten["physically_certified"])
+
     def test_alpha_includes_actual_conflict_repair_results(self):
         result, summary = optimize(crossing(), moves=12, seed=6)
         self.assertIn("conflict_repair", summary)
