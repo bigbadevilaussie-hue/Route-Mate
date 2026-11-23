@@ -44,7 +44,9 @@ class RunnableHellModeAlphaTests(unittest.TestCase):
         best, run = optimize(source, moves=25, seed=7)
         self.assertEqual(source, untouched)
         self.assertEqual(run["baseline"]["wires"], 2)
-        self.assertEqual(run["best_exploratory"]["wires"], 1)
+        # Later search stages may relocate a component and eliminate
+        # the last jumper as well; never require a worse fixed count.
+        self.assertLessEqual(run["best_exploratory"]["wires"], 1)
         self.assertEqual(len(run["redundant_wires_removed"]), 1)
         self.assertEqual(reconstruct_electrical(best)["status"], "PASS")
         self.assertFalse(run["record_eligible"])
@@ -85,7 +87,7 @@ class RunnableHellModeAlphaTests(unittest.TestCase):
             self.assertFalse((outdir / "best_solved.json").exists())
             self.assertEqual(report["seed"], 5)
             self.assertEqual(report["baseline"]["wires"], 2)
-            self.assertEqual(report["best_exploratory"]["wires"], 1)
+            self.assertLessEqual(report["best_exploratory"]["wires"], 1)
             self.assertEqual(json.loads((outdir / "baseline_solved.json").read_text()), tiny())
 
     def test_actual_motomix_alpha_smoke_never_false_certifies(self):
