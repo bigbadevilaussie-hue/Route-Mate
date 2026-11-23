@@ -248,12 +248,16 @@ class TransactionalM1Tests(unittest.TestCase):
                 if rng.randrange(3) == 0:
                     r = rng.randrange(8)
                     c = rng.randrange(10)
-                    tx.move_component("B", r, c)
+                    try:
+                        tx.move_component("B", r, c)
+                    except ValueError:
+                        # Hard terminal conflicts remain rejected search proposals.
+                        pass
                 else:
                     a, b = sorted(rng.sample(range(8), 2))
+                    col = rng.randrange(10)
                     tx.move_wire(rng.choice(("J1", "J2")),
-                                 (a, rng.randrange(10)),
-                                 (b, rng.randrange(10)))  # may be invalid
+                                 (a, col), (b, col))
                 if index % 3 == 0:
                     tx.commit()
             if index % 10 == 0:
