@@ -35,8 +35,8 @@ def project(*, different_nets: bool = False):
         "netAssignments": [
             {"componentId": "A", "pinId": "1", "netId": "N"},
             {"componentId": "B", "pinId": "1", "netId": "N"},
-            {"componentId": "C", "pinId": "1",
-             "netId": "M" if different_nets else "N"},
+            *([{"componentId": "C", "pinId": "1", "netId": "M"}]
+              if different_nets else []),
         ],
     }
 
