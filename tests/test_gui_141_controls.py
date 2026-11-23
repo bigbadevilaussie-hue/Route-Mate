@@ -92,7 +92,7 @@ class Gui141ControlsTests(unittest.TestCase):
                 "last": {"placement": "PLACED", "routing": "ROUTED"},
             })
             self.assertEqual(window.solve_progress.value(), 6)
-            self.assertIn("1 / 2", window.solve_activity.text())
+            self.assertIn("1 verified candidates", window.solve_activity.text())
             self.assertIn("Estimated remaining:", window.solve_eta.text())
             self.assertIn("4 CPU processes", window.statusBar().currentMessage())
         finally:
