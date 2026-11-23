@@ -124,6 +124,58 @@ def _score(
     ), badness
 
 
+def _paired_rebridge_candidates(
+    board: dict[str, Any],
+    model: StripSegments,
+    target_ids: list[str],
+    current: RepairScore,
+    pads: list[dict[str, Any]],
+    wire_nets: dict[str, str],
+    rng: random.Random,
+    samples: int,
+) -> tuple[list[tuple[tuple, str, str, tuple[dict, dict], RepairScore]], int]:
+    """Explore bounded simultaneous two-jumper topology changes.
+
+    A two-jumper change may improve 2D packing when neither jumper has an
+    individually improving rebridge. Nothing in the generator is trusted as
+    electrical proof: the caller must validate the complete resulting board.
+    """
+    import itertools
+
+    proposals = {}
+    for wid in target_ids[:7]:
+        candidates, essential = model.candidate_bridges(
+            board, wid, allow_detour=False,
+            max_candidates=min(samples, 32), rng=rng,
+        )
+        if essential:
+            proposals[wid] = [p[0] for p in candidates if len(p) == 1]
+    ranked = []
+    evaluated = 0
+    for a, b in itertools.combinations(sorted(proposals), 2):
+        base = [w for w in board["wires"] if w["id"] not in (a, b)]
+        for new_a in proposals[a]:
+            for new_b in proposals[b]:
+                if new_a["id"] == new_b["id"]:
+                    continue
+                trial_wires = base + [new_a, new_b]
+                try:
+                    score, _ = _score(trial_wires, pads, wire_nets)
+                except ValueError:
+                    continue
+                evaluated += 1
+                if score.objective[:3] < current.objective[:3]:
+                    ranked.append((
+                        score.objective, a, b, (new_a, new_b), score
+                    ))
+    ranked.sort(key=lambda item: (
+        item[0], item[1], item[2],
+        tuple((p["from"]["row"], p["from"]["col"],
+               p["to"]["row"]) for p in item[3]),
+    ))
+    return ranked[:35], evaluated
+
+
 def repair_conflicts(
     project: dict[str, Any],
     *,
@@ -153,6 +205,7 @@ def repair_conflicts(
     initial, _ = _score(working["board"]["wires"], pads, wire_nets)
     current = initial
     attempted = considered = committed = rejected_electrical = 0
+    paired_accepted = 0
     history = []
     for round_no in range(rounds):
         board = working["board"]
@@ -193,7 +246,7 @@ def repair_conflicts(
                 except ValueError:
                     continue
                 considered += 1
-                if proposed_score.objective >= current.objective:
+                if proposed_score.objective[:3] >= current.objective[:3]:
                     continue
                 # Stable ranking first (no false proxy for verified status).
                 ranked.append((
@@ -202,8 +255,6 @@ def repair_conflicts(
                     replacement,
                     proposed_score,
                 ))
-        if not ranked:
-            break
         ranked.sort(key=lambda x: (x[0], x[1],
                                   tuple((w["from"]["row"],
                                          w["from"]["col"],
@@ -235,11 +286,43 @@ def repair_conflicts(
             change_made = True
             break
         if not change_made:
+            # Coordinated repair can escape a single-wire local packing
+            # minimum. It changes two independent bridge endpoints at once.
+            paired, evaluated = _paired_rebridge_candidates(
+                board, model, target_ids, current, pads, wire_nets, rng,
+                candidates_per_wire,
+            )
+            considered += evaluated
+            for _, first, second, replacements, predicted in paired:
+                attempted += 1
+                import copy
+                trial = copy.deepcopy(working)
+                trial["board"]["wires"] = [
+                    w for w in board["wires"] if w["id"] not in (first, second)
+                ] + [copy.deepcopy(w) for w in replacements]
+                if not electrical_check(trial):
+                    rejected_electrical += 1
+                    continue
+                working = trial
+                current = predicted
+                committed += 1
+                paired_accepted += 1
+                history.append({
+                    "round": round_no + 1,
+                    "changed_wire": f"{first}+{second}",
+                    "replacement_wires": 2,
+                    "excess_gap_occupancy": current.excess,
+                    "illegal_holes": current.illegal_holes,
+                })
+                change_made = True
+                break
+        if not change_made:
             break
     return working, {
         "attempted_electrical_proofs": attempted,
         "scored_proposals": considered,
         "accepted_rebridges": committed,
+        "paired_rebridges_accepted": paired_accepted,
         "electrically_rejected": rejected_electrical,
         "initial_excess": initial.excess,
         "final_excess": current.excess,
