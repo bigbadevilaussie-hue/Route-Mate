@@ -7,10 +7,14 @@ from __future__ import annotations
 import ast
 import copy
 import json
+import random
 import unittest
 from pathlib import Path
 
-from hellmode.conflict_repair import repair_conflicts
+from hellmode.conflict_repair import (
+    repair_conflicts, _score, _paired_rebridge_candidates,
+)
+from hellmode.topology_moves import StripSegments
 from hellmode.copper_model import reconstruct_electrical
 from hellmode.strict_occupancy import audit_strict_occupancy
 from hellmode.demo import optimize, _electrically_valid
@@ -75,6 +79,33 @@ class ConflictDirectedRepairTests(unittest.TestCase):
         self.assertEqual(check["counts"]["shared_landing_holes"], 0)
         self.assertEqual(check["counts"]["intermediate_pad_holes"], 0)
         self.assertFalse(summary["physically_certified"])
+
+    def test_coordinated_pair_candidates_preserve_both_nets(self):
+        source = crossing()
+        proof = reconstruct_electrical(source)
+        pads, owners = proof["pin_holes"], proof["wire_nets"]
+        old, _ = _score(source["board"]["wires"], pads, owners)
+        model = StripSegments(source["board"])
+        ranked, scanned = _paired_rebridge_candidates(
+            source["board"], model, ["N-wire", "M-wire"],
+            old, pads, owners, random.Random(15), 30,
+        )
+        self.assertGreater(scanned, 0)
+        self.assertTrue(ranked)
+        chosen = None
+        for _, first, second, replacements, predicted in ranked:
+            trial = copy.deepcopy(source)
+            trial["board"]["wires"] = [
+                w for w in trial["board"]["wires"]
+                if w["id"] not in (first, second)
+            ] + list(replacements)
+            if _electrically_valid(trial):
+                chosen = trial
+                self.assertLess(predicted.objective[:3], old.objective[:3])
+                break
+        self.assertIsNotNone(chosen)
+        self.assertEqual(reconstruct_electrical(chosen)["counts"]["short_groups"], 0)
+        self.assertEqual(source, crossing())
 
     def test_no_mutation_when_zero_repair_rounds(self):
         project = crossing()
