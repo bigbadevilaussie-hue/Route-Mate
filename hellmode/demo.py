@@ -28,6 +28,7 @@ from .conflict_repair import repair_conflicts
 from .net_ripup import ripup_repair
 from .placement_search import search_component_moves
 from .pad_geometry import collect_pad_holes
+from .hall_guided_repair import repair_hall_clusters
 
 
 PITCH_MM = 2.54
@@ -305,6 +306,31 @@ def optimize(
             "move": moves, "kind": "component_and_net_reroute", **best_m,
         })
 
+    # Diagnostic-driven neighbourhood: concentrate paired reroutes on
+    # actual stacked-gap clusters (MOTOMIX has two), with exploratory
+    # disconnected-group scoring and safe derived-cut alternatives.
+    hall_graph = reconstruct_electrical(best)
+    hall_best, hall_report = repair_hall_clusters(
+        best,
+        wire_nets=hall_graph["wire_nets"],
+        pads=hall_graph["pin_holes"],
+        electrical_check=_electrically_valid,
+        metric_reader=report_metrics,
+        quality_key=_priority,
+        seed=seed + 8191,
+        candidates_per_wire=48,
+        max_pair_trials=350,
+        max_electrical_checks=20,
+    )
+    hall_metrics = report_metrics(hall_best)
+    hall_report["adopted"] = _priority(hall_metrics) < _priority(best_m)
+    if hall_report["adopted"]:
+        best, best_m = hall_best, hall_metrics
+        improvements += 1
+        history.append({
+            "move": moves, "kind": "hall_guided_pair_repair", **best_m,
+        })
+
     manifest = {
         "mode": "HELL_MODE_ALPHA_ELECTRICAL_ONLY",
         "seed": seed, "moves_requested": moves,
@@ -317,6 +343,7 @@ def optimize(
         "conflict_repair": repair,
         "whole_net_ripup": reroute,
         "component_search": component_search,
+        "hall_guided_repair": hall_report,
         "moves_with_column_alternative": attempts - topology_attempts - cut_attempts,
         "moves_accepted": accepted,
         "moves_electrically_rejected": rejected_electrical,
@@ -451,6 +478,9 @@ def main() -> int:
     placement = report["component_search"]
     print(f"  Component relocations accepted: {placement['accepted_component_moves']} "
           f"(attempted={placement['attempts']}, adopted={placement['adopted']})")
+    hall = report["hall_guided_repair"]
+    print(f"  Hall-guided paired repairs: {hall['verified_improvements']} "
+          f"(scored={hall['trials_scored']}, adopted={hall['adopted']})")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
