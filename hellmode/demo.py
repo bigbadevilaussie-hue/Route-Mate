@@ -24,6 +24,7 @@ from .copper_model import reconstruct_electrical
 from .verify_layout import verify_layout
 from .topology_moves import topology_proposal, apply_topology_proposal
 from .cut_moves import propose_cut_change, remove_redundant_cuts
+from .conflict_repair import repair_conflicts
 
 
 PITCH_MM = 2.54
@@ -238,6 +239,26 @@ def optimize(
                 improvements += 1
                 history.append({"move": index, "kind": kind, **best_m})
 
+    # A bounded conflict-directed last pass searches topology alternatives
+    # for wires actually occupying stacked gaps or illegal holes. This is
+    # still an ELECTRICAL_ONLY exploratory search; the final state must
+    # independently pass both electrical verifiers to be output.
+    verified = reconstruct_electrical(best)
+    repaired, repair = repair_conflicts(
+        best, pads=verified["pin_holes"],
+        wire_nets=verified["wire_nets"],
+        electrical_check=_electrically_valid,
+        seed=seed, rounds=6, candidates_per_wire=64,
+    )
+    repaired_m = report_metrics(repaired)
+    repair["adopted"] = _priority(repaired_m) < _priority(best_m)
+    if repair["adopted"]:
+        best, best_m = repaired, repaired_m
+        improvements += 1
+        history.append({
+            "move": moves, "kind": "conflict_repair", **best_m,
+        })
+
     manifest = {
         "mode": "HELL_MODE_ALPHA_ELECTRICAL_ONLY",
         "seed": seed, "moves_requested": moves,
@@ -247,6 +268,7 @@ def optimize(
         "moves_two_wire_detours_accepted": detour_accepted,
         "moves_cut_proposed": cut_attempts,
         "moves_cut_accepted": cut_accepted,
+        "conflict_repair": repair,
         "moves_with_column_alternative": attempts - topology_attempts - cut_attempts,
         "moves_accepted": accepted,
         "moves_electrically_rejected": rejected_electrical,
@@ -370,6 +392,8 @@ def main() -> int:
     print(f"  Topology rebridges proposed/accepted: {report['moves_topology_proposed']}/{report['moves_topology_accepted']}")
     print(f"  Two-wire detours accepted: {report['moves_two_wire_detours_accepted']}")
     print(f"  Cut changes proposed/accepted: {report['moves_cut_proposed']}/{report['moves_cut_accepted']}")
+    fix = report["conflict_repair"]
+    print(f"  Conflict-directed repairs accepted: {fix['accepted_rebridges']} (adopted={fix['adopted']})")
     print(f"  Jumper count: {before['wires']} -> {after['wires']}")
     print(f"  Cut count: {before['cuts']} -> {after['cuts']}")
     print(f"  Excess stacked gaps: {before['excess_gap_occupancy']} -> {after['excess_gap_occupancy']}")
