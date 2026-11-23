@@ -204,6 +204,17 @@ def repair_conflicts(
     rng = random.Random(seed)
     initial, _ = _score(working["board"]["wires"], pads, wire_nets)
     current = initial
+    # The exploratory search may improve holes while worsening gap excess.
+    # Retain the best *output-tier* objective at every step, independent of
+    # which surrogate candidate annealing/repair currently explores.
+    def output_key(metric: RepairScore) -> tuple:
+        return (
+            metric.excess, metric.illegal_holes, metric.wire_count,
+            metric.total_length_holes,
+        )
+
+    best = copy.deepcopy(working)
+    best_metric = initial
     attempted = considered = committed = rejected_electrical = 0
     paired_accepted = 0
     history = []
@@ -246,7 +257,7 @@ def repair_conflicts(
                 except ValueError:
                     continue
                 considered += 1
-                if proposed_score.objective[:3] >= current.objective[:3]:
+                if proposed_score.objective >= current.objective:
                     continue
                 # Stable ranking first (no false proxy for verified status).
                 ranked.append((
@@ -276,6 +287,8 @@ def repair_conflicts(
                 wire_nets[replacement[1]["id"]] = wire_nets[wire_id]
             current = predicted
             committed += 1
+            if output_key(current) < output_key(best_metric):
+                best, best_metric = copy.deepcopy(working), current
             history.append({
                 "round": round_no + 1,
                 "changed_wire": wire_id,
@@ -307,6 +320,8 @@ def repair_conflicts(
                 current = predicted
                 committed += 1
                 paired_accepted += 1
+                if output_key(current) < output_key(best_metric):
+                    best, best_metric = copy.deepcopy(working), current
                 history.append({
                     "round": round_no + 1,
                     "changed_wire": f"{first}+{second}",
@@ -318,16 +333,17 @@ def repair_conflicts(
                 break
         if not change_made:
             break
-    return working, {
+    return best, {
         "attempted_electrical_proofs": attempted,
         "scored_proposals": considered,
         "accepted_rebridges": committed,
         "paired_rebridges_accepted": paired_accepted,
         "electrically_rejected": rejected_electrical,
         "initial_excess": initial.excess,
-        "final_excess": current.excess,
+        "final_excess": best_metric.excess,
+        "last_explored_excess": current.excess,
         "initial_illegal_holes": initial.illegal_holes,
-        "final_illegal_holes": current.illegal_holes,
+        "final_illegal_holes": best_metric.illegal_holes,
         "history": history,
         "physically_certified": False,
     }
