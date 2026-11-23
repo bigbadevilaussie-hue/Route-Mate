@@ -68,9 +68,31 @@ jobs:
               "UNSAT_PROVED_BY_HALL_GAP", "UNKNOWN_NODE_LIMIT",
               "SAT_REJECTED_BY_INDEPENDENT_VERIFIER",
           )
+          # Reproducible fixed-seed guard: improvement is allowed,
+          # but a regression above the independently measured 18 is not.
+          assert manifest["best_exploratory"]["excess_gap_occupancy"] <= 18
+          from hellmode.copper_model import reconstruct_electrical
+          from hellmode.search_state import SearchState, CertifiedRecord
+          best_project = json.loads((p / "best_electrical.json").read_text())
+          proof = reconstruct_electrical(best_project)
+          candidate = SearchState.from_candidate(best_project, proof["wire_nets"])
+          assert candidate.penalty.disconnected_group_excess == 0
+          assert candidate.penalty.short_group_excess == 0
+          assert candidate.penalty.excess_gap_occupancy == result["counts"]["observed_excess_gap_occupancy"]
+          try:
+              candidate.to_record()
+              raise AssertionError("SEARCH_STATE escaped RECORD barrier")
+          except RuntimeError:
+              pass
+          try:
+              CertifiedRecord.from_project(best_project)
+              raise AssertionError("unverified candidate promoted to RECORD")
+          except ValueError:
+              pass
           print("HELL_MODE_DIAGNOSTIC_CHECK=PASS",
                 "status", result["exact_global_fixed_span_assignment"]["status"],
-                "clusters", result["clusters"]["spatial_cluster_count"])
+                "clusters", result["clusters"]["spatial_cluster_count"],
+                "gradient", candidate.penalty.objective)
           PY
       - name: Upload Hell Mode exact feasibility diagnostic
         uses: actions/upload-artifact@v4
