@@ -11,6 +11,7 @@ measured 2.5D evidence, cut-tool access, RECORD or BUILD_READY.
 from __future__ import annotations
 
 import copy
+import hashlib
 import heapq
 import random
 from collections import Counter, defaultdict
@@ -73,6 +74,7 @@ def rebuild_one_net(
     wire_nets: Mapping[str, str],
     seed: int = 1,
     max_additional_wires: int = 4,
+    allow_new_net_wires: bool = False,
 ) -> dict[str, Any] | None:
     """Find a nonstacking replacement for ALL jumpers on a named net.
 
@@ -86,7 +88,7 @@ def rebuild_one_net(
         w["id"] for w in original_board["wires"]
         if wire_nets.get(w["id"]) == target_net
     ]
-    if not old_ids:
+    if not old_ids and not allow_new_net_wires:
         return None
     others = [
         w for w in original_board["wires"] if w["id"] not in old_ids
@@ -232,7 +234,13 @@ def rebuild_one_net(
             if index < len(old_ids):
                 ident = old_ids[index]
             else:
-                name_base = f"{old_ids[0]}-R{index + 1}"
+                if old_ids:
+                    name_base = f"{old_ids[0]}-R{index + 1}"
+                else:
+                    digest = hashlib.sha256(
+                        target_net.encode("utf-8")
+                    ).hexdigest()[:12]
+                    name_base = f"HM-NET-{digest}-R{index + 1}"
                 ident = name_base
                 suffix = 1
                 while ident in used_ids:
