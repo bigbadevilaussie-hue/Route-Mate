@@ -17,22 +17,36 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_parallel_quick.py' -v
       - name: Hell Mode M1 independent occupancy characterization
         run: python -m unittest discover -s tests -p 'test_hellmode_*.py' -v
-      - name: Hell Mode topology alpha on MOTOMIX, real CLI
+      - name: Hell Mode multi-seed cut + topology search on MOTOMIX
         run: |
-          python -m hellmode.demo --moves 100 --seed 1 --out /tmp/route-mate-hellmode-alpha-ci
+          python -m hellmode.demo --moves 150 --seeds 3 --seed 1 --out /tmp/route-mate-hellmode-alpha-ci
           python - <<'PY'
           import json
           from pathlib import Path
-          report = json.loads(Path("/tmp/route-mate-hellmode-alpha-ci/run.json").read_text())
+          from hellmode.demo import _electrically_valid
+          from hellmode.verify_layout import verify_layout
+          folder = Path("/tmp/route-mate-hellmode-alpha-ci")
+          report = json.loads((folder / "run.json").read_text())
           before, after = report["baseline"], report["best_exploratory"]
+          winner = json.loads((folder / "best_electrical.json").read_text())
           assert before["electrical_pass"] and after["electrical_pass"]
-          assert report["moves_topology_proposed"] > 0
+          assert report["portfolio"]["seeds_tested"] == 3
+          assert report["portfolio"]["total_moves_requested"] == 450
+          assert any(x["moves_cut_accepted"] or x["moves_topology_accepted"]
+                     for x in report["portfolio"]["seeds"])
+          assert report["moves_cut_proposed"] > 0
           assert not report["record_eligible"] and not report["physical_pass"]
           assert after["excess_gap_occupancy"] <= before["excess_gap_occupancy"]
-          assert Path("/tmp/route-mate-hellmode-alpha-ci/baseline_solved.json").exists()
-          assert Path("/tmp/route-mate-hellmode-alpha-ci/best_electrical.json").exists()
-          print("ALPHA_MOTOMIX_TOPOLOGY=PASS", report["moves_topology_proposed"],
-                "congestion", before["excess_gap_occupancy"], "->", after["excess_gap_occupancy"])
+          assert _electrically_valid(winner)
+          assert verify_layout(winner)["record_eligible"] is False
+          assert (folder / "baseline_solved.json").exists()
+          assert (folder / "history.csv").exists()
+          assert not (folder / "best_solved.json").exists()
+          print("ALPHA_MOTOMIX_CUT_PORTFOLIO=PASS", "winning_seed",
+                report["portfolio"]["winning_seed"], "jumper_count",
+                before["wires"], "->", after["wires"], "cut_count",
+                before["cuts"], "->", after["cuts"], "congestion",
+                before["excess_gap_occupancy"], "->", after["excess_gap_occupancy"])
           PY
       - name: Prove three separate Quick Solve processes
         run: python tools/smoke_process_pool.py
